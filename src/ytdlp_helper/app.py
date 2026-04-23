@@ -8,6 +8,12 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from .archive import (
+    UNSUPPORTED_VIDEO_URL_MESSAGE,
+    clear_archive_entry,
+    is_archived,
+    parse_youtube_video_id,
+)
 from .config import Settings, ensure_app_dirs, get_app_paths, load_settings, save_settings
 from .cookies import get_cookie_status, save_cookie_text
 from .downloader import DownloadRequest, DownloadService
@@ -39,6 +45,10 @@ class YtDlpHelperApp:
         self.message_queue: queue.Queue[tuple[str, str]] = queue.Queue()
 
         self.url_var = tk.StringVar()
+        self.archive_status_var = tk.StringVar(value="Not checked")
+        self.archive_checked_video_id: str | None = None
+        self.archive_is_archived = False
+        self.actions_enabled = True
         self.preset_var = tk.StringVar(value=self.settings.preset)
         self.preset_label_var = tk.StringVar()
         self.cookie_status_var = tk.StringVar(value=get_cookie_status(self.paths))
@@ -47,6 +57,7 @@ class YtDlpHelperApp:
         self.progress_var = tk.IntVar(value=0)
 
         self._build_ui()
+        self.url_var.trace_add("write", self._on_url_changed)
         self.root.after(150, self._poll_worker_messages)
 
     def _build_ui(self) -> None:
@@ -76,21 +87,40 @@ class YtDlpHelperApp:
         ttk.Label(form, text="URL").grid(row=0, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
         ttk.Entry(form, textvariable=self.url_var).grid(row=0, column=1, sticky="ew", pady=(0, 12))
 
-        ttk.Label(form, text="Preset").grid(row=1, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
+        ttk.Label(form, text="Archive").grid(row=1, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
+        archive_row = ttk.Frame(form)
+        archive_row.grid(row=1, column=1, sticky="ew", pady=(0, 12))
+        archive_row.columnconfigure(0, weight=1)
+        ttk.Label(archive_row, textvariable=self.archive_status_var).grid(row=0, column=0, sticky="w")
+        self.archive_check_button = ttk.Button(
+            archive_row,
+            text="Check",
+            command=self._check_archive_status,
+        )
+        self.archive_check_button.grid(row=0, column=1, sticky="e", padx=(10, 0))
+        self.archive_clear_button = ttk.Button(
+            archive_row,
+            text="Clear",
+            command=self._clear_archive_status,
+            state="disabled",
+        )
+        self.archive_clear_button.grid(row=0, column=2, sticky="e", padx=(10, 0))
+
+        ttk.Label(form, text="Preset").grid(row=2, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
         preset_combo = ttk.Combobox(
             form,
             textvariable=self.preset_label_var,
             state="readonly",
             values=[label for label, _ in PRESET_OPTIONS],
         )
-        preset_combo.grid(row=1, column=1, sticky="ew", pady=(0, 12))
+        preset_combo.grid(row=2, column=1, sticky="ew", pady=(0, 12))
         preset_combo.bind("<<ComboboxSelected>>", self._on_preset_changed)
         preset_combo.current(self._preset_index(self.settings.preset))
         self.preset_combo = preset_combo
 
-        ttk.Label(form, text="Cookies").grid(row=2, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
+        ttk.Label(form, text="Cookies").grid(row=3, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
         cookies_row = ttk.Frame(form)
-        cookies_row.grid(row=2, column=1, sticky="ew", pady=(0, 12))
+        cookies_row.grid(row=3, column=1, sticky="ew", pady=(0, 12))
         cookies_row.columnconfigure(0, weight=1)
         ttk.Label(cookies_row, textvariable=self.cookie_status_var).grid(row=0, column=0, sticky="w")
         ttk.Button(cookies_row, text="Paste Cookies", command=self._paste_cookies).grid(
@@ -98,10 +128,10 @@ class YtDlpHelperApp:
         )
 
         ttk.Label(form, text="Downloads Folder").grid(
-            row=3, column=0, sticky="w", padx=(0, 12), pady=(0, 12)
+            row=4, column=0, sticky="w", padx=(0, 12), pady=(0, 12)
         )
         download_folder_row = ttk.Frame(form)
-        download_folder_row.grid(row=3, column=1, sticky="ew", pady=(0, 12))
+        download_folder_row.grid(row=4, column=1, sticky="ew", pady=(0, 12))
         download_folder_row.columnconfigure(0, weight=1)
         ttk.Entry(download_folder_row, textvariable=self.download_folder_var).grid(
             row=0, column=0, sticky="ew"
@@ -175,6 +205,52 @@ class YtDlpHelperApp:
             if label == selected_label:
                 self.preset_var.set(value)
                 return
+
+    def _on_url_changed(self, *_args: object) -> None:
+        self.archive_checked_video_id = None
+        self.archive_is_archived = False
+        self.archive_status_var.set("Not checked")
+        self._update_archive_buttons_state()
+
+    def _check_archive_status(self) -> None:
+        video_id = parse_youtube_video_id(self.url_var.get())
+        if not video_id:
+            self.archive_checked_video_id = None
+            self.archive_is_archived = False
+            self.archive_status_var.set(UNSUPPORTED_VIDEO_URL_MESSAGE)
+            self._update_archive_buttons_state()
+            return
+
+        self._set_archive_status_for_video(video_id)
+
+    def _set_archive_status_for_video(self, video_id: str) -> None:
+        self.archive_checked_video_id = video_id
+        self.archive_is_archived = is_archived(self.paths.archive_file, video_id)
+        self.archive_status_var.set("Archived" if self.archive_is_archived else "Not archived")
+        self._update_archive_buttons_state()
+
+    def _clear_archive_status(self) -> None:
+        video_id = self.archive_checked_video_id
+        if not video_id or not self.archive_is_archived:
+            return
+
+        confirmed = messagebox.askyesno(
+            "Clear archive status",
+            "Remove this video from download-archive.txt? Downloaded media files will not be deleted.",
+            parent=self.root,
+        )
+        if not confirmed:
+            return
+
+        removed_count = clear_archive_entry(self.paths.archive_file, video_id)
+        self._set_archive_status_for_video(video_id)
+
+        if removed_count:
+            message = f"Cleared archive entry for YouTube video {video_id}"
+        else:
+            message = f"No archive entry found for YouTube video {video_id}"
+        self._set_status("queued", message)
+        self._append_log(message)
 
     def _start_download(self) -> None:
         if self.worker_thread and self.worker_thread.is_alive():
@@ -365,8 +441,18 @@ class YtDlpHelperApp:
         self._append_log(f"Saved cookies to {self.paths.cookies_file}")
 
     def _set_action_buttons_state(self, state: str) -> None:
+        self.actions_enabled = state == "normal"
         self.download_button.configure(state=state)
         self.help_menu.entryconfigure("Update yt-dlp", state=state)
+        self._update_archive_buttons_state()
+
+    def _update_archive_buttons_state(self) -> None:
+        if not hasattr(self, "archive_check_button"):
+            return
+        check_state = "normal" if self.actions_enabled else "disabled"
+        clear_state = "normal" if self.actions_enabled and self.archive_is_archived else "disabled"
+        self.archive_check_button.configure(state=check_state)
+        self.archive_clear_button.configure(state=clear_state)
 
 
 def main() -> None:
