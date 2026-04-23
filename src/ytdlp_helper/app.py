@@ -47,6 +47,8 @@ class YtDlpHelperApp:
         self.root.after(150, self._poll_worker_messages)
 
     def _build_ui(self) -> None:
+        self._build_menu()
+
         style = ttk.Style()
         style.configure("Header.TLabel", font=("Segoe UI Semibold", 18))
         style.configure("Hint.TLabel", foreground="#4b5563")
@@ -95,8 +97,20 @@ class YtDlpHelperApp:
         ttk.Label(form, text="Downloads Folder").grid(
             row=3, column=0, sticky="w", padx=(0, 12), pady=(0, 12)
         )
-        ttk.Entry(form, textvariable=self.download_folder_var, state="readonly").grid(
-            row=3, column=1, sticky="ew", pady=(0, 12)
+        download_folder_row = ttk.Frame(form)
+        download_folder_row.grid(row=3, column=1, sticky="ew", pady=(0, 12))
+        download_folder_row.columnconfigure(0, weight=1)
+        ttk.Entry(download_folder_row, textvariable=self.download_folder_var, state="readonly").grid(
+            row=0, column=0, sticky="ew"
+        )
+        self.open_downloads_icon = self._create_open_folder_icon()
+        ttk.Button(
+            download_folder_row,
+            image=self.open_downloads_icon,
+            command=self._open_downloads,
+            width=3,
+        ).grid(
+            row=0, column=1, sticky="e", padx=(10, 0)
         )
 
         button_bar = ttk.Frame(container)
@@ -104,11 +118,6 @@ class YtDlpHelperApp:
 
         self.download_button = ttk.Button(button_bar, text="Download", command=self._start_download)
         self.download_button.pack(side="left")
-        self.update_button = ttk.Button(button_bar, text="Update yt-dlp", command=self._start_update)
-        self.update_button.pack(side="left", padx=(10, 0))
-        ttk.Button(button_bar, text="Open Downloads Folder", command=self._open_downloads).pack(
-            side="left", padx=(10, 0)
-        )
 
         progress_frame = ttk.Frame(container)
         progress_frame.grid(row=4, column=0, sticky="ew", pady=(0, 12))
@@ -123,6 +132,30 @@ class YtDlpHelperApp:
         self.log_widget.grid(row=6, column=0, sticky="nsew")
 
         container.rowconfigure(6, weight=1)
+
+    def _build_menu(self) -> None:
+        menu_bar = tk.Menu(self.root)
+        file_menu = tk.Menu(menu_bar, tearoff=False)
+        help_menu = tk.Menu(menu_bar, tearoff=False)
+        help_menu.add_command(label="Update yt-dlp", command=self._start_update)
+
+        menu_bar.add_cascade(label="File", menu=file_menu)
+        menu_bar.add_cascade(label="Help", menu=help_menu)
+        self.root.config(menu=menu_bar)
+        self.help_menu = help_menu
+
+    def _create_open_folder_icon(self) -> tk.PhotoImage:
+        icon = tk.PhotoImage(width=16, height=16)
+        icon.put("#d9a441", to=(1, 5, 15, 14))
+        icon.put("#f0c15d", to=(1, 7, 15, 14))
+        icon.put("#b98220", to=(1, 5, 15, 6))
+        icon.put("#d9a441", to=(2, 3, 8, 6))
+        icon.put("#f7d37a", to=(2, 8, 14, 13))
+        icon.put("#ffffff", to=(11, 4, 13, 6))
+        icon.put("#4b5563", to=(12, 3, 13, 4))
+        icon.put("#4b5563", to=(13, 4, 14, 5))
+        icon.put("#4b5563", to=(12, 5, 13, 6))
+        return icon
 
     def _preset_index(self, preset_key: str) -> int:
         for index, (_, value) in enumerate(PRESET_OPTIONS):
@@ -280,7 +313,7 @@ class YtDlpHelperApp:
 
     def _set_action_buttons_state(self, state: str) -> None:
         self.download_button.configure(state=state)
-        self.update_button.configure(state=state)
+        self.help_menu.entryconfigure("Update yt-dlp", state=state)
 
 
 def main() -> None:
