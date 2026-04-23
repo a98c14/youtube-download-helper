@@ -20,6 +20,8 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(paths.download_dir.name, "youtube-download-helper")
         self.assertEqual(paths.data_dir.name, "YT-DLP Helper")
+        self.assertEqual(paths.logs_dir, paths.data_dir / "logs")
+        self.assertEqual(paths.activity_log_file, paths.logs_dir / "activity.log")
 
     def test_load_settings_uses_saved_download_dir(self) -> None:
         paths = _paths()
@@ -43,6 +45,8 @@ def _paths() -> AppPaths:
         settings_file=root / "data" / "settings.json",
         archive_file=root / "data" / "download-archive.txt",
         cookies_file=root / "data" / "cookies.txt",
+        logs_dir=root / "data" / "logs",
+        activity_log_file=root / "data" / "logs" / "activity.log",
         download_dir=root / "downloads" / "youtube-download-helper",
     )
 

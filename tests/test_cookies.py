@@ -57,6 +57,8 @@ def _paths() -> AppPaths:
         settings_file=root / "data" / "settings.json",
         archive_file=root / "data" / "download-archive.txt",
         cookies_file=root / "data" / "cookies.txt",
+        logs_dir=root / "data" / "logs",
+        activity_log_file=root / "data" / "logs" / "activity.log",
         download_dir=root / "downloads",
     )
 

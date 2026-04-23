@@ -10,7 +10,12 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ytdlp_helper.config import AppPaths
-from ytdlp_helper.downloader import DownloadRequest, DownloadService, _hidden_subprocess_kwargs
+from ytdlp_helper.downloader import (
+    DownloadRequest,
+    DownloadService,
+    _hidden_subprocess_kwargs,
+    _update_status_from_output,
+)
 
 
 class FakeProcess:
@@ -137,7 +142,9 @@ class DownloaderTests(unittest.TestCase):
             patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
             patch(
                 "ytdlp_helper.downloader.subprocess.Popen",
-                return_value=FakeProcess(["[download] 42.3% of 10.00MiB\n", "[Merger] Merging formats\n"]),
+                return_value=FakeProcess(
+                    ["[download] 42.3% of 10.00MiB at 1.23MiB/s ETA 00:12\n", "[Merger] Merging formats\n"]
+                ),
             ) as popen,
         ):
             service.download(
@@ -151,6 +158,7 @@ class DownloaderTests(unittest.TestCase):
 
         popen.assert_called_once()
         self.assertIn(("downloading", "Downloading 42%"), statuses)
+        self.assertIn(("speed", "1.23MiB/s"), statuses)
         self.assertIn(("postprocessing", "Finalizing file"), statuses)
         self.assertIn("[Merger] Merging formats", logs)
 
@@ -176,6 +184,16 @@ class DownloaderTests(unittest.TestCase):
             )
 
         self.assertIn(("skipped", "Already downloaded; skipped by archive"), statuses)
+
+    def test_progress_line_without_speed_does_not_report_speed(self) -> None:
+        statuses: list[tuple[str, str]] = []
+
+        _update_status_from_output(
+            "[download] 42.3% of 10.00MiB",
+            lambda status, message: statuses.append((status, message)),
+        )
+
+        self.assertEqual(statuses, [("downloading", "Downloading 42%")])
 
     def test_download_auth_error_points_to_fresh_pasted_cookies(self) -> None:
         service = DownloadService(_paths())
@@ -304,6 +322,8 @@ def _paths() -> AppPaths:
         settings_file=root / "data" / "settings.json",
         archive_file=root / "data" / "download-archive.txt",
         cookies_file=root / "data" / "cookies.txt",
+        logs_dir=root / "data" / "logs",
+        activity_log_file=root / "data" / "logs" / "activity.log",
         download_dir=root / "downloads",
     )
 

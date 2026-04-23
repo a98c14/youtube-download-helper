@@ -8,6 +8,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from .activity_log import ActivityLogStore
 from .archive import (
     UNSUPPORTED_VIDEO_URL_MESSAGE,
     clear_archive_entry,
@@ -33,16 +34,19 @@ class YtDlpHelperApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("YouTube Download Helper")
-        self.root.geometry("760x560")
-        self.root.minsize(700, 520)
+        self.root.geometry("760x430")
+        self.root.minsize(700, 400)
 
         self.paths = get_app_paths()
         self.settings = load_settings(self.paths)
         self.paths = replace(self.paths, download_dir=Path(self.settings.download_dir).expanduser())
         ensure_app_dirs(self.paths)
         self.downloader = DownloadService(self.paths)
+        self.activity_log = ActivityLogStore(self.paths)
         self.worker_thread: threading.Thread | None = None
         self.message_queue: queue.Queue[tuple[str, str]] = queue.Queue()
+        self.log_window: tk.Toplevel | None = None
+        self.log_text: tk.Text | None = None
 
         self.url_var = tk.StringVar()
         self.archive_status_var = tk.StringVar(value="Not checked")
@@ -53,6 +57,7 @@ class YtDlpHelperApp:
         self.preset_label_var = tk.StringVar()
         self.cookie_status_var = tk.StringVar(value=get_cookie_status(self.paths))
         self.status_var = tk.StringVar(value="Ready")
+        self.speed_var = tk.StringVar(value="Speed: --")
         self.download_folder_var = tk.StringVar(value=str(self.paths.download_dir))
         self.progress_var = tk.IntVar(value=0)
 
@@ -160,25 +165,69 @@ class YtDlpHelperApp:
         progress_frame.columnconfigure(0, weight=1)
 
         ttk.Label(progress_frame, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
+        ttk.Label(progress_frame, textvariable=self.speed_var).grid(
+            row=0, column=1, sticky="e", padx=(12, 0)
+        )
         self.progress = ttk.Progressbar(progress_frame, maximum=100, variable=self.progress_var)
-        self.progress.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-
-        ttk.Label(container, text="Activity Log", style="Hint.TLabel").grid(row=5, column=0, sticky="w")
-        self.log_widget = tk.Text(container, height=16, wrap="word", state="disabled")
-        self.log_widget.grid(row=6, column=0, sticky="nsew")
-
-        container.rowconfigure(6, weight=1)
+        self.progress.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 0))
 
     def _build_menu(self) -> None:
         menu_bar = tk.Menu(self.root)
         file_menu = tk.Menu(menu_bar, tearoff=False)
+        file_menu.add_command(label="Activity Log", command=self._show_activity_log)
         help_menu = tk.Menu(menu_bar, tearoff=False)
         help_menu.add_command(label="Update yt-dlp", command=self._start_update)
 
         menu_bar.add_cascade(label="File", menu=file_menu)
         menu_bar.add_cascade(label="Help", menu=help_menu)
         self.root.config(menu=menu_bar)
+        self.file_menu = file_menu
         self.help_menu = help_menu
+
+    def _show_activity_log(self) -> None:
+        if self.log_window and self.log_window.winfo_exists():
+            self.log_window.lift()
+            self.log_window.focus_set()
+            return
+
+        log_window = tk.Toplevel(self.root)
+        log_window.title("Activity Log")
+        log_window.geometry("820x480")
+        log_window.minsize(640, 360)
+        log_window.protocol("WM_DELETE_WINDOW", self._close_activity_log)
+
+        frame = ttk.Frame(log_window, padding=12)
+        frame.pack(fill="both", expand=True)
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(0, weight=1)
+
+        text = tk.Text(frame, wrap="word", state="disabled")
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=text.yview)
+        text.configure(yscrollcommand=scrollbar.set)
+        text.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        self.log_window = log_window
+        self.log_text = text
+        self._reload_activity_log_window()
+
+    def _close_activity_log(self) -> None:
+        if self.log_window and self.log_window.winfo_exists():
+            self.log_window.destroy()
+        self.log_window = None
+        self.log_text = None
+
+    def _reload_activity_log_window(self) -> None:
+        if not self.log_text:
+            return
+
+        lines = self.activity_log.read_all_lines()
+        self.log_text.configure(state="normal")
+        self.log_text.delete("1.0", "end")
+        if lines:
+            self.log_text.insert("end", "\n".join(lines) + "\n")
+        self.log_text.see("end")
+        self.log_text.configure(state="disabled")
 
     def _create_open_folder_icon(self) -> tk.PhotoImage:
         icon = tk.PhotoImage(width=16, height=16)
@@ -268,6 +317,7 @@ class YtDlpHelperApp:
         self._persist_settings()
         self._set_action_buttons_state("disabled")
         self.progress_var.set(0)
+        self.speed_var.set("Speed: --")
         self._append_log("")
         self._append_log(f"Starting download for {request.url}")
 
@@ -289,6 +339,7 @@ class YtDlpHelperApp:
 
         self._set_action_buttons_state("disabled")
         self.progress_var.set(0)
+        self.speed_var.set("Speed: --")
         self._append_log("")
         self._append_log("Updating yt-dlp")
         self._set_status("queued", "Updating yt-dlp")
@@ -345,26 +396,35 @@ class YtDlpHelperApp:
         self.root.after(150, self._poll_worker_messages)
 
     def _set_status(self, status: str, message: str) -> None:
+        if status == "speed":
+            self.speed_var.set(f"Speed: {message}" if message else "Speed: --")
+            return
+
         self.status_var.set(message)
         if status == "downloading":
             digits = "".join(ch for ch in message if ch.isdigit())
             self.progress_var.set(int(digits) if digits else 10)
         elif status == "postprocessing":
             self.progress_var.set(95)
+            self.speed_var.set("Speed: --")
         elif status == "completed":
             self.progress_var.set(100)
+            self.speed_var.set("Speed: --")
         elif status in {"failed", "skipped"}:
             self.progress_var.set(0)
+            self.speed_var.set("Speed: --")
         elif status in {"queued", "resolving"}:
             self.progress_var.set(5)
+            self.speed_var.set("Speed: --")
 
     def _append_log(self, message: str) -> None:
-        if not message:
+        timestamped_line = self.activity_log.append(message)
+        if not timestamped_line or not self.log_text:
             return
-        self.log_widget.configure(state="normal")
-        self.log_widget.insert("end", message.strip() + "\n")
-        self.log_widget.see("end")
-        self.log_widget.configure(state="disabled")
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", timestamped_line + "\n")
+        self.log_text.see("end")
+        self.log_text.configure(state="disabled")
 
     def _persist_settings(self) -> None:
         self.settings = Settings(

@@ -13,6 +13,8 @@ DEFAULT_DOWNLOAD_FOLDER_NAME = "youtube-download-helper"
 SETTINGS_FILE = "settings.json"
 ARCHIVE_FILE = "download-archive.txt"
 COOKIES_FILE = "cookies.txt"
+LOGS_FOLDER_NAME = "logs"
+ACTIVITY_LOG_FILE = "activity.log"
 
 
 @dataclass
@@ -27,6 +29,8 @@ class AppPaths:
     settings_file: Path
     archive_file: Path
     cookies_file: Path
+    logs_dir: Path
+    activity_log_file: Path
     download_dir: Path
 
 
@@ -40,12 +44,15 @@ def get_app_paths() -> AppPaths:
         settings_file=data_dir / SETTINGS_FILE,
         archive_file=data_dir / ARCHIVE_FILE,
         cookies_file=data_dir / COOKIES_FILE,
+        logs_dir=data_dir / LOGS_FOLDER_NAME,
+        activity_log_file=data_dir / LOGS_FOLDER_NAME / ACTIVITY_LOG_FILE,
         download_dir=download_dir,
     )
 
 
 def ensure_app_dirs(paths: AppPaths) -> None:
     paths.data_dir.mkdir(parents=True, exist_ok=True)
+    paths.logs_dir.mkdir(parents=True, exist_ok=True)
     paths.download_dir.mkdir(parents=True, exist_ok=True)
     paths.archive_file.touch(exist_ok=True)
 

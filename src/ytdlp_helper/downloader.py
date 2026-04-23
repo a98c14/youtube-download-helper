@@ -186,9 +186,12 @@ def _update_status_from_output(line: str, status_callback: StatusCallback) -> No
         status_callback("postprocessing", "Finalizing file")
         return
 
-    match = re.search(r"\[download\]\s+(\d+(?:\.\d+)?)%", line)
-    if match:
-        status_callback("downloading", f"Downloading {int(float(match.group(1)))}%")
+    progress_match = re.search(r"\[download\]\s+(\d+(?:\.\d+)?)%", line)
+    if progress_match:
+        status_callback("downloading", f"Downloading {int(float(progress_match.group(1)))}%")
+        speed_match = re.search(r"\bat\s+([^\s]+/s)\b", line)
+        if speed_match:
+            status_callback("speed", speed_match.group(1))
 
 
 def _process_failed(output: list[str]) -> bool:
