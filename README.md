@@ -18,6 +18,7 @@ A small Windows desktop app that wraps `yt-dlp` in a simple GUI for non-technica
 
 - Windows
 - Python 3.13+
+- `yt-dlp.exe` available from `vendor\yt-dlp.exe`, `vendor\yt-dlp\yt-dlp.exe`, or `PATH` for local runs
 - `ffmpeg` available on `PATH` for local runs, or bundled into `dist\YouTube Download Helper\ffmpeg\` for portable builds
 
 ## Run Locally
@@ -37,7 +38,7 @@ python -m unittest discover -s tests -v
 
 ## Build Portable App
 
-The build produces a portable folder with one launcher executable and bundled `ffmpeg` sidecars.
+The build produces a portable folder with one launcher executable plus bundled `yt-dlp.exe` and `ffmpeg` sidecars.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build_portable.ps1
@@ -46,6 +47,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_portable.ps1
 Expected output:
 
 - `dist\YouTube Download Helper\YouTube Download Helper.exe`
+- `dist\YouTube Download Helper\yt-dlp.exe`
 - `dist\YouTube Download Helper\ffmpeg\ffmpeg.exe`
 - `dist\YouTube Download Helper\ffmpeg\ffprobe.exe`
 
@@ -69,4 +71,3 @@ Files:
 
 - `settings.json`
 - `download-archive.txt`
-

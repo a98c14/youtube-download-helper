@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Callable
 
-from yt_dlp import DownloadError, YoutubeDL
-
-from .config import AppPaths, find_ffmpeg_location
+from .config import AppPaths, find_ffmpeg_location, find_ytdlp_executable
 
 
 StatusCallback = Callable[[str, str], None]
@@ -26,6 +24,31 @@ class DownloadService:
     def __init__(self, paths: AppPaths) -> None:
         self._paths = paths
 
+    def get_ytdlp_version(self) -> str:
+        executable = self._require_ytdlp_executable()
+        result = subprocess.run(
+            [executable, "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError("Could not read yt-dlp version.")
+        return result.stdout.strip()
+
+    def update_ytdlp(self, log_callback: LogCallback) -> str:
+        executable = self._require_ytdlp_executable()
+        log_callback(f"Current yt-dlp version: {self.get_ytdlp_version()}")
+        log_callback(f"Running: {executable} -U")
+        output = self._run_process([executable, "-U"], log_callback)
+
+        if _pip_update_required(output):
+            raise RuntimeError("This yt-dlp executable cannot self-update. Update it outside the app.")
+        if _process_failed(output):
+            raise RuntimeError("yt-dlp update failed. See the activity log for details.")
+
+        return "yt-dlp updated. Restart the app before downloading again."
+
     def download(
         self,
         request: DownloadRequest,
@@ -39,103 +62,136 @@ class DownloadService:
             raise ValueError("Enter a valid URL starting with http:// or https://.")
 
         status_callback("queued", "Preparing download")
-        options = self._build_options(request, status_callback, log_callback)
+        command = self._build_command(request)
+        log_callback(f"Running: {command[0]} ...")
+        status_callback("resolving", "Resolving video information")
+        output = self._run_process(command, log_callback, status_callback)
 
-        try:
-            with YoutubeDL(options) as ydl:
-                status_callback("resolving", "Resolving video information")
-                ydl.download([url])
-        except DownloadError as exc:
-            message = _humanize_error(str(exc))
+        if _process_failed(output):
+            message = _humanize_error("\n".join(output))
             status_callback("failed", message)
-            raise RuntimeError(message) from exc
+            raise RuntimeError(message)
 
-    def _build_options(
-        self,
-        request: DownloadRequest,
-        status_callback: StatusCallback,
-        log_callback: LogCallback,
-    ) -> dict:
+    def _build_command(self, request: DownloadRequest) -> list[str]:
+        executable = self._require_ytdlp_executable()
         ffmpeg_location = find_ffmpeg_location()
-
-        options = {
-            "paths": {"home": str(self._paths.download_dir)},
-            "outtmpl": {
-                "default": "%(title)s [%(id)s].%(ext)s",
-                "pl_video": "%(playlist)s/%(title)s [%(id)s].%(ext)s",
-            },
-            "windowsfilenames": True,
-            "noplaylist": False,
-            "ignoreerrors": False,
-            "no_warnings": True,
-            "download_archive": str(self._paths.archive_file),
-            "cookiesfrombrowser": (request.browser, None, None, request.profile),
-            "logger": _YtdlpLogger(status_callback, log_callback),
-            "progress_hooks": [_progress_hook(status_callback)],
-            "restrictfilenames": False,
-            "quiet": True,
-        }
+        command = [
+            executable,
+            "--paths",
+            f"home:{self._paths.download_dir}",
+            "--output",
+            "default:%(title)s [%(id)s].%(ext)s",
+            "--output",
+            "pl_video:%(playlist)s/%(title)s [%(id)s].%(ext)s",
+            "--windows-filenames",
+            "--yes-playlist",
+            "--no-warnings",
+            "--newline",
+            "--no-color",
+            "--download-archive",
+            str(self._paths.archive_file),
+            "--cookies-from-browser",
+            f"{request.browser}:{request.profile}",
+        ]
 
         if ffmpeg_location:
-            options["ffmpeg_location"] = ffmpeg_location
+            command.extend(["--ffmpeg-location", ffmpeg_location])
 
         if request.preset == "best-video":
-            options["format"] = "bv*+ba/b"
-            options["merge_output_format"] = "mp4"
+            command.extend(["--format", "bv*+ba/b", "--merge-output-format", "mp4"])
         elif request.preset == "audio-mp3":
-            options["format"] = "bestaudio/best"
-            options["postprocessors"] = [
-                {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}
-            ]
+            command.extend(
+                [
+                    "--format",
+                    "bestaudio/best",
+                    "--extract-audio",
+                    "--audio-format",
+                    "mp3",
+                    "--audio-quality",
+                    "192K",
+                ]
+            )
         elif request.preset == "audio-m4a":
-            options["format"] = "bestaudio[ext=m4a]/bestaudio/best"
+            command.extend(["--format", "bestaudio[ext=m4a]/bestaudio/best"])
         else:
             raise ValueError(f"Unsupported preset: {request.preset}")
 
-        return options
+        command.append(request.url.strip())
+        return command
+
+    def _require_ytdlp_executable(self) -> str:
+        executable = find_ytdlp_executable()
+        if executable:
+            return executable
+        raise RuntimeError(
+            "yt-dlp.exe was not found. Add yt-dlp.exe to the app folder, vendor folder, or PATH and try again."
+        )
+
+    def _run_process(
+        self,
+        command: list[str],
+        log_callback: LogCallback,
+        status_callback: StatusCallback | None = None,
+    ) -> list[str]:
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                errors="replace",
+            )
+        except OSError as exc:
+            raise RuntimeError(f"Could not start yt-dlp: {exc}") from exc
+
+        output: list[str] = []
+        if process.stdout:
+            for raw_line in process.stdout:
+                line = raw_line.rstrip()
+                if not line:
+                    continue
+                output.append(line)
+                log_callback(line)
+                if status_callback:
+                    _update_status_from_output(line, status_callback)
+
+        return_code = process.wait()
+        if return_code != 0:
+            output.append(f"yt-dlp exited with code {return_code}")
+        return output
 
 
-def _progress_hook(status_callback: StatusCallback):
-    def hook(data: dict) -> None:
-        status = data.get("status")
-        if status == "downloading":
-            downloaded_bytes = data.get("downloaded_bytes") or 0
-            total_bytes = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
-            if total_bytes:
-                percent = int(downloaded_bytes * 100 / total_bytes)
-                status_callback("downloading", f"Downloading {percent}%")
-            else:
-                status_callback("downloading", "Downloading")
-        elif status == "finished":
-            status_callback("postprocessing", "Finalizing file")
+def _update_status_from_output(line: str, status_callback: StatusCallback) -> None:
+    lowered = line.lower()
+    if "has already been recorded in the archive" in lowered:
+        status_callback("skipped", "Already downloaded; skipped by archive")
+        return
+    if "[download] downloading playlist" in lowered:
+        status_callback("resolving", "Resolving playlist")
+        return
+    if "[merger]" in lowered or "[extractaudio]" in lowered or "post-process" in lowered:
+        status_callback("postprocessing", "Finalizing file")
+        return
 
-    return hook
+    match = re.search(r"\[download\]\s+(\d+(?:\.\d+)?)%", line)
+    if match:
+        status_callback("downloading", f"Downloading {int(float(match.group(1)))}%")
+
+
+def _process_failed(output: list[str]) -> bool:
+    return bool(output and output[-1].startswith("yt-dlp exited with code "))
+
+
+def _pip_update_required(output: list[str]) -> bool:
+    return any("installed yt-dlp with pip" in line.lower() for line in output)
 
 
 def _humanize_error(message: str) -> str:
     lowered = message.lower()
+    if "could not copy" in lowered and "cookie database" in lowered:
+        return message
     if "sign in" in lowered or "cookies" in lowered or "members-only" in lowered or "premium" in lowered:
         return "This video needs an entitled browser profile. Pick the logged-in Chrome or Edge profile and try again."
     if "unsupported url" in lowered or "unable to extract" in lowered:
         return "This URL could not be processed by yt-dlp."
     return message
-
-
-class _YtdlpLogger:
-    def __init__(self, status_callback: StatusCallback, log_callback: LogCallback) -> None:
-        self._status_callback = status_callback
-        self._log_callback = log_callback
-
-    def debug(self, msg: str) -> None:
-        self._log_callback(msg)
-        lowered = msg.lower()
-        if "has already been recorded in the archive" in lowered:
-            self._status_callback("skipped", "Already downloaded; skipped by archive")
-        elif "[download] downloading playlist" in lowered:
-            self._status_callback("resolving", "Resolving playlist")
-
-    def warning(self, msg: str) -> None:
-        self._log_callback(f"Warning: {msg}")
-
-    def error(self, msg: str) -> None:
-        self._log_callback(f"Error: {msg}")

@@ -118,6 +118,8 @@ class YtDlpHelperApp:
 
         self.download_button = ttk.Button(button_bar, text="Download", command=self._start_download)
         self.download_button.pack(side="left")
+        self.update_button = ttk.Button(button_bar, text="Update yt-dlp", command=self._start_update)
+        self.update_button.pack(side="left", padx=(10, 0))
         ttk.Button(button_bar, text="Open Downloads Folder", command=self._open_downloads).pack(
             side="left", padx=(10, 0)
         )
@@ -179,7 +181,7 @@ class YtDlpHelperApp:
 
     def _start_download(self) -> None:
         if self.worker_thread and self.worker_thread.is_alive():
-            messagebox.showinfo("Download in progress", "Please wait for the current download to finish.")
+            messagebox.showinfo("Task in progress", "Please wait for the current task to finish.")
             return
 
         profile = self.profile_lookup.get(self.profile_combo.get())
@@ -195,7 +197,7 @@ class YtDlpHelperApp:
         )
 
         self._persist_settings(profile.profile_id)
-        self.download_button.configure(state="disabled")
+        self._set_action_buttons_state("disabled")
         self.progress_var.set(0)
         self._append_log("")
         self._append_log(f"Starting download for {request.url}")
@@ -210,6 +212,28 @@ class YtDlpHelperApp:
             self.message_queue.put(("error", str(exc)))
         else:
             self.message_queue.put(("done", "Download completed"))
+
+    def _start_update(self) -> None:
+        if self.worker_thread and self.worker_thread.is_alive():
+            messagebox.showinfo("Task in progress", "Please wait for the current task to finish.")
+            return
+
+        self._set_action_buttons_state("disabled")
+        self.progress_var.set(0)
+        self._append_log("")
+        self._append_log("Updating yt-dlp")
+        self._set_status("queued", "Updating yt-dlp")
+
+        self.worker_thread = threading.Thread(target=self._run_update, daemon=True)
+        self.worker_thread.start()
+
+    def _run_update(self) -> None:
+        try:
+            message = self.downloader.update_ytdlp(self._queue_log)
+        except Exception as exc:  # noqa: BLE001
+            self.message_queue.put(("update_error", str(exc)))
+        else:
+            self.message_queue.put(("update_done", message))
 
     def _queue_status(self, status: str, message: str) -> None:
         self.message_queue.put(("status", f"{status}|{message}"))
@@ -231,15 +255,23 @@ class YtDlpHelperApp:
                 self._append_log(payload)
             elif kind == "error":
                 self._set_status("failed", payload)
-                self.download_button.configure(state="normal")
+                self._set_action_buttons_state("normal")
                 messagebox.showerror("Download failed", payload)
             elif kind == "done":
                 self._set_status("completed", payload)
-                self.download_button.configure(state="normal")
+                self._set_action_buttons_state("normal")
                 messagebox.showinfo("Download finished", payload)
+            elif kind == "update_error":
+                self._set_status("failed", payload)
+                self._set_action_buttons_state("normal")
+                messagebox.showerror("Update failed", payload)
+            elif kind == "update_done":
+                self._set_status("completed", payload)
+                self._set_action_buttons_state("normal")
+                messagebox.showinfo("Update finished", payload)
 
         if self.worker_thread and not self.worker_thread.is_alive():
-            self.download_button.configure(state="normal")
+            self._set_action_buttons_state("normal")
 
         self.root.after(150, self._poll_worker_messages)
 
@@ -276,6 +308,10 @@ class YtDlpHelperApp:
 
     def _open_downloads(self) -> None:
         subprocess.Popen(["explorer.exe", str(self.paths.download_dir)])
+
+    def _set_action_buttons_state(self, state: str) -> None:
+        self.download_button.configure(state=state)
+        self.update_button.configure(state=state)
 
 
 def main() -> None:

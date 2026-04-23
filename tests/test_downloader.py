@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,24 +13,144 @@ from ytdlp_helper.config import AppPaths
 from ytdlp_helper.downloader import DownloadRequest, DownloadService
 
 
+class FakeProcess:
+    def __init__(self, lines: list[str], return_code: int = 0) -> None:
+        self.stdout = lines
+        self._return_code = return_code
+
+    def wait(self) -> int:
+        return self._return_code
+
+
 class DownloaderTests(unittest.TestCase):
-    def test_builds_archive_and_cookie_options(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            paths = AppPaths(
-                data_dir=root / "data",
-                settings_file=root / "data" / "settings.json",
-                archive_file=root / "data" / "download-archive.txt",
-                download_dir=root / "downloads",
+    def test_builds_archive_cookie_and_best_video_command(self) -> None:
+        service = DownloadService(_paths())
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="C:/tools/yt-dlp.exe"),
+            patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value="C:/ffmpeg"),
+        ):
+            command = service._build_command(  # noqa: SLF001
+                DownloadRequest(
+                    url="https://www.youtube.com/watch?v=abc123",
+                    preset="best-video",
+                    browser="chrome",
+                    profile="Default",
+                )
             )
-            paths.data_dir.mkdir(parents=True)
-            paths.download_dir.mkdir(parents=True)
-            paths.archive_file.touch()
 
-            service = DownloadService(paths)
+        self.assertEqual(command[0], "C:/tools/yt-dlp.exe")
+        self.assertIn("--yes-playlist", command)
+        self.assertNotIn("--no-playlist", command)
+        self.assertIn(f"home:{service._paths.download_dir}", command)  # noqa: SLF001
+        self.assert_option(command, "--download-archive", str(service._paths.archive_file))  # noqa: SLF001
+        self.assert_option(command, "--cookies-from-browser", "chrome:Default")
+        self.assert_option(command, "--ffmpeg-location", "C:/ffmpeg")
+        self.assert_option(command, "--format", "bv*+ba/b")
+        self.assert_option(command, "--merge-output-format", "mp4")
+        self.assertEqual(command[-1], "https://www.youtube.com/watch?v=abc123")
 
-            with patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value="C:/ffmpeg"):
-                options = service._build_options(  # noqa: SLF001
+    def test_builds_audio_mp3_command(self) -> None:
+        service = DownloadService(_paths())
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
+            patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
+        ):
+            command = service._build_command(  # noqa: SLF001
+                DownloadRequest(
+                    url="https://www.youtube.com/watch?v=abc123",
+                    preset="audio-mp3",
+                    browser="edge",
+                    profile="Profile 1",
+                )
+            )
+
+        self.assert_option(command, "--format", "bestaudio/best")
+        self.assertIn("--extract-audio", command)
+        self.assert_option(command, "--audio-format", "mp3")
+        self.assert_option(command, "--audio-quality", "192K")
+
+    def test_rejects_invalid_url(self) -> None:
+        service = DownloadService(_paths())
+
+        with self.assertRaises(ValueError):
+            service.download(
+                DownloadRequest(url="notaurl", preset="best-video", browser="chrome", profile="Default"),
+                lambda *_args: None,
+                lambda *_args: None,
+            )
+
+    def test_download_streams_progress_and_completes(self) -> None:
+        service = DownloadService(_paths())
+        statuses: list[tuple[str, str]] = []
+        logs: list[str] = []
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
+            patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
+            patch(
+                "ytdlp_helper.downloader.subprocess.Popen",
+                return_value=FakeProcess(["[download] 42.3% of 10.00MiB\n", "[Merger] Merging formats\n"]),
+            ) as popen,
+        ):
+            service.download(
+                DownloadRequest(
+                    url="https://www.youtube.com/watch?v=abc123",
+                    preset="best-video",
+                    browser="chrome",
+                    profile="Default",
+                ),
+                lambda status, message: statuses.append((status, message)),
+                logs.append,
+            )
+
+        popen.assert_called_once()
+        self.assertIn(("downloading", "Downloading 42%"), statuses)
+        self.assertIn(("postprocessing", "Finalizing file"), statuses)
+        self.assertIn("[Merger] Merging formats", logs)
+
+    def test_download_reports_archive_skip(self) -> None:
+        service = DownloadService(_paths())
+        statuses: list[tuple[str, str]] = []
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
+            patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
+            patch(
+                "ytdlp_helper.downloader.subprocess.Popen",
+                return_value=FakeProcess(["[download] abc has already been recorded in the archive\n"]),
+            ),
+        ):
+            service.download(
+                DownloadRequest(
+                    url="https://www.youtube.com/watch?v=abc123",
+                    preset="best-video",
+                    browser="chrome",
+                    profile="Default",
+                ),
+                lambda status, message: statuses.append((status, message)),
+                lambda *_args: None,
+            )
+
+        self.assertIn(("skipped", "Already downloaded; skipped by archive"), statuses)
+
+    def test_download_preserves_cookie_database_error(self) -> None:
+        service = DownloadService(_paths())
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
+            patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
+            patch(
+                "ytdlp_helper.downloader.subprocess.Popen",
+                return_value=FakeProcess(
+                    ["ERROR: Could not copy Chrome cookie database. See https://github.com/yt-dlp/yt-dlp/issues/7271\n"],
+                    return_code=1,
+                ),
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Could not copy Chrome cookie database"):
+                service.download(
                     DownloadRequest(
                         url="https://www.youtube.com/watch?v=abc123",
                         preset="best-video",
@@ -40,28 +161,101 @@ class DownloaderTests(unittest.TestCase):
                     lambda *_args: None,
                 )
 
-            self.assertEqual(options["download_archive"], str(paths.archive_file))
-            self.assertEqual(options["cookiesfrombrowser"], ("chrome", None, None, "Default"))
-            self.assertEqual(options["ffmpeg_location"], "C:/ffmpeg")
-            self.assertEqual(options["format"], "bv*+ba/b")
+    def test_missing_ytdlp_executable_is_actionable(self) -> None:
+        service = DownloadService(_paths())
 
-    def test_rejects_invalid_url(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            paths = AppPaths(
-                data_dir=root / "data",
-                settings_file=root / "data" / "settings.json",
-                archive_file=root / "data" / "download-archive.txt",
-                download_dir=root / "downloads",
-            )
-            service = DownloadService(paths)
-
-            with self.assertRaises(ValueError):
-                service.download(
-                    DownloadRequest(url="notaurl", preset="best-video", browser="chrome", profile="Default"),
-                    lambda *_args: None,
-                    lambda *_args: None,
+        with patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "yt-dlp.exe was not found"):
+                service._build_command(  # noqa: SLF001
+                    DownloadRequest(
+                        url="https://www.youtube.com/watch?v=abc123",
+                        preset="best-video",
+                        browser="chrome",
+                        profile="Default",
+                    )
                 )
+
+    def test_get_ytdlp_version_runs_executable(self) -> None:
+        service = DownloadService(_paths())
+        completed = subprocess.CompletedProcess(
+            args=["yt-dlp.exe", "--version"],
+            returncode=0,
+            stdout="2026.03.17\n",
+            stderr="",
+        )
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
+            patch("ytdlp_helper.downloader.subprocess.run", return_value=completed) as run,
+        ):
+            version = service.get_ytdlp_version()
+
+        run.assert_called_once_with(["yt-dlp.exe", "--version"], capture_output=True, text=True, check=False)
+        self.assertEqual(version, "2026.03.17")
+
+    def test_update_ytdlp_runs_executable_update(self) -> None:
+        service = DownloadService(_paths())
+        logs: list[str] = []
+        completed = subprocess.CompletedProcess(
+            args=["yt-dlp.exe", "--version"],
+            returncode=0,
+            stdout="2026.03.17\n",
+            stderr="",
+        )
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
+            patch("ytdlp_helper.downloader.subprocess.run", return_value=completed),
+            patch(
+                "ytdlp_helper.downloader.subprocess.Popen",
+                return_value=FakeProcess(["Latest version: stable@2026.04.01\n", "yt-dlp is up to date\n"]),
+            ) as popen,
+        ):
+            message = service.update_ytdlp(logs.append)
+
+        popen.assert_called_once_with(
+            ["yt-dlp.exe", "-U"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+        )
+        self.assertEqual(message, "yt-dlp updated. Restart the app before downloading again.")
+        self.assertIn("yt-dlp is up to date", logs)
+
+    def test_update_ytdlp_reports_pip_installed_executable(self) -> None:
+        service = DownloadService(_paths())
+        completed = subprocess.CompletedProcess(
+            args=["yt-dlp.exe", "--version"],
+            returncode=0,
+            stdout="2026.03.17\n",
+            stderr="",
+        )
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
+            patch("ytdlp_helper.downloader.subprocess.run", return_value=completed),
+            patch(
+                "ytdlp_helper.downloader.subprocess.Popen",
+                return_value=FakeProcess(["You installed yt-dlp with pip or using the wheel from PyPi\n"]),
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "cannot self-update"):
+                service.update_ytdlp(lambda *_args: None)
+
+    def assert_option(self, command: list[str], option: str, expected_value: str) -> None:
+        self.assertIn(option, command)
+        self.assertEqual(command[command.index(option) + 1], expected_value)
+
+
+def _paths() -> AppPaths:
+    root = Path(tempfile.mkdtemp())
+    return AppPaths(
+        data_dir=root / "data",
+        settings_file=root / "data" / "settings.json",
+        archive_file=root / "data" / "download-archive.txt",
+        download_dir=root / "downloads",
+    )
 
 
 if __name__ == "__main__":

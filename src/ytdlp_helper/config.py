@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -102,3 +103,29 @@ def find_ffmpeg_location() -> str | None:
 
     return None
 
+
+def find_ytdlp_executable() -> str | None:
+    candidates: list[Path] = []
+
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        candidates.extend(
+            [
+                exe_dir / "yt-dlp.exe",
+                exe_dir / "_internal" / "yt-dlp.exe",
+            ]
+        )
+    else:
+        project_root = Path(__file__).resolve().parents[2]
+        candidates.extend(
+            [
+                project_root / "vendor" / "yt-dlp.exe",
+                project_root / "vendor" / "yt-dlp" / "yt-dlp.exe",
+            ]
+        )
+
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+
+    return shutil.which("yt-dlp.exe") or shutil.which("yt-dlp")
