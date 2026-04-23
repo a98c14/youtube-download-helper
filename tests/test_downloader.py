@@ -73,6 +73,31 @@ class DownloaderTests(unittest.TestCase):
         self.assert_option(command, "--audio-format", "mp3")
         self.assert_option(command, "--audio-quality", "192K")
 
+    def test_builds_capped_video_commands(self) -> None:
+        cases = {
+            "video-1080p": "bv*[height<=1080]+ba/b[height<=1080]",
+            "video-720p": "bv*[height<=720]+ba/b[height<=720]",
+            "video-480p": "bv*[height<=480]+ba/b[height<=480]",
+        }
+
+        for preset, expected_format in cases.items():
+            with self.subTest(preset=preset):
+                service = DownloadService(_paths())
+
+                with (
+                    patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
+                    patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
+                ):
+                    command = service._build_command(  # noqa: SLF001
+                        DownloadRequest(
+                            url="https://www.youtube.com/watch?v=abc123",
+                            preset=preset,
+                        )
+                    )
+
+                self.assert_option(command, "--format", expected_format)
+                self.assert_option(command, "--merge-output-format", "mp4")
+
     def test_rejects_invalid_url(self) -> None:
         service = DownloadService(_paths())
 

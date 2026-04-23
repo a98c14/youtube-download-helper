@@ -13,6 +13,9 @@ from .downloader import DownloadRequest, DownloadService
 
 PRESET_OPTIONS = [
     ("Best Video", "best-video"),
+    ("Video 1080p", "video-1080p"),
+    ("Video 720p", "video-720p"),
+    ("Video 480p", "video-480p"),
     ("Audio MP3", "audio-mp3"),
     ("Audio M4A", "audio-m4a"),
 ]

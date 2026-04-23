@@ -11,6 +11,12 @@ from .config import AppPaths, find_ffmpeg_location, find_ytdlp_executable
 StatusCallback = Callable[[str, str], None]
 LogCallback = Callable[[str], None]
 
+VIDEO_PRESET_FORMATS = {
+    "video-1080p": "bv*[height<=1080]+ba/b[height<=1080]",
+    "video-720p": "bv*[height<=720]+ba/b[height<=720]",
+    "video-480p": "bv*[height<=480]+ba/b[height<=480]",
+}
+
 
 @dataclass(frozen=True)
 class DownloadRequest:
@@ -100,6 +106,10 @@ class DownloadService:
 
         if request.preset == "best-video":
             command.extend(["--format", "bv*+ba/b", "--merge-output-format", "mp4"])
+        elif request.preset in VIDEO_PRESET_FORMATS:
+            command.extend(
+                ["--format", VIDEO_PRESET_FORMATS[request.preset], "--merge-output-format", "mp4"]
+            )
         elif request.preset == "audio-mp3":
             command.extend(
                 [

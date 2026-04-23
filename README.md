@@ -11,6 +11,9 @@ A small Windows desktop app that wraps `yt-dlp` in a simple GUI for non-technica
 - Fixed output folder at `%USERPROFILE%\Downloads\YT-DLP Helper`
 - Simple presets only:
   - `Best Video`
+  - `Video 1080p`
+  - `Video 720p`
+  - `Video 480p`
   - `Audio MP3`
   - `Audio M4A`
 
