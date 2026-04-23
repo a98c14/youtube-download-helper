@@ -35,6 +35,7 @@ class DownloadService:
             capture_output=True,
             text=True,
             check=False,
+            **_hidden_subprocess_kwargs(),
         )
         if result.returncode != 0:
             raise RuntimeError("Could not read yt-dlp version.")
@@ -151,6 +152,7 @@ class DownloadService:
                 stderr=subprocess.STDOUT,
                 text=True,
                 errors="replace",
+                **_hidden_subprocess_kwargs(),
             )
         except OSError as exc:
             raise RuntimeError(f"Could not start yt-dlp: {exc}") from exc
@@ -204,3 +206,10 @@ def _humanize_error(message: str) -> str:
     if "unsupported url" in lowered or "unable to extract" in lowered:
         return "This URL could not be processed by yt-dlp."
     return message
+
+
+def _hidden_subprocess_kwargs() -> dict[str, int]:
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if creationflags:
+        return {"creationflags": creationflags}
+    return {}

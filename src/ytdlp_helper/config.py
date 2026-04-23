@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 APP_NAME = "YT-DLP Helper"
+DEFAULT_DOWNLOAD_FOLDER_NAME = "youtube-download-helper"
 SETTINGS_FILE = "settings.json"
 ARCHIVE_FILE = "download-archive.txt"
 COOKIES_FILE = "cookies.txt"
@@ -33,7 +34,7 @@ def get_app_paths() -> AppPaths:
     local_appdata = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
     downloads_root = Path.home() / "Downloads"
     data_dir = local_appdata / APP_NAME
-    download_dir = downloads_root / APP_NAME
+    download_dir = downloads_root / DEFAULT_DOWNLOAD_FOLDER_NAME
     return AppPaths(
         data_dir=data_dir,
         settings_file=data_dir / SETTINGS_FILE,

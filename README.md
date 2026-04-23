@@ -8,7 +8,7 @@ A small Windows desktop app that wraps `yt-dlp` in a simple GUI for non-technica
 - Supports single videos and playlists
 - Uses pasted Netscape-format `cookies.txt` text for paid/member content
 - Includes a download archive to skip videos that were already downloaded
-- Fixed output folder at `%USERPROFILE%\Downloads\YT-DLP Helper`
+- Editable output folder, defaulting to `%USERPROFILE%\Downloads\youtube-download-helper`
 - Simple presets only:
   - `Best Video`
   - `Video 1080p`

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from pathlib import Path
 import queue
 import subprocess
 import threading
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from .config import Settings, ensure_app_dirs, get_app_paths, load_settings, save_settings
 from .cookies import get_cookie_status, save_cookie_text
@@ -29,8 +31,9 @@ class YtDlpHelperApp:
         self.root.minsize(700, 520)
 
         self.paths = get_app_paths()
-        ensure_app_dirs(self.paths)
         self.settings = load_settings(self.paths)
+        self.paths = replace(self.paths, download_dir=Path(self.settings.download_dir).expanduser())
+        ensure_app_dirs(self.paths)
         self.downloader = DownloadService(self.paths)
         self.worker_thread: threading.Thread | None = None
         self.message_queue: queue.Queue[tuple[str, str]] = queue.Queue()
@@ -100,8 +103,11 @@ class YtDlpHelperApp:
         download_folder_row = ttk.Frame(form)
         download_folder_row.grid(row=3, column=1, sticky="ew", pady=(0, 12))
         download_folder_row.columnconfigure(0, weight=1)
-        ttk.Entry(download_folder_row, textvariable=self.download_folder_var, state="readonly").grid(
+        ttk.Entry(download_folder_row, textvariable=self.download_folder_var).grid(
             row=0, column=0, sticky="ew"
+        )
+        ttk.Button(download_folder_row, text="Browse...", command=self._choose_download_folder).grid(
+            row=0, column=1, sticky="e", padx=(10, 0)
         )
         self.open_downloads_icon = self._create_open_folder_icon()
         ttk.Button(
@@ -110,7 +116,7 @@ class YtDlpHelperApp:
             command=self._open_downloads,
             width=3,
         ).grid(
-            row=0, column=1, sticky="e", padx=(10, 0)
+            row=0, column=2, sticky="e", padx=(10, 0)
         )
 
         button_bar = ttk.Frame(container)
@@ -179,6 +185,9 @@ class YtDlpHelperApp:
             url=self.url_var.get().strip(),
             preset=self.preset_var.get(),
         )
+
+        if not self._apply_download_folder():
+            return
 
         self._persist_settings()
         self._set_action_buttons_state("disabled")
@@ -288,8 +297,52 @@ class YtDlpHelperApp:
         )
         save_settings(self.paths, self.settings)
 
+    def _choose_download_folder(self) -> None:
+        current_dir = self._download_folder_from_entry()
+        initial_dir = current_dir if current_dir and current_dir.exists() else Path.home()
+        selected_dir = filedialog.askdirectory(
+            parent=self.root,
+            title="Choose Downloads Folder",
+            initialdir=str(initial_dir),
+        )
+        if selected_dir:
+            self.download_folder_var.set(selected_dir)
+            if self._apply_download_folder():
+                self._persist_settings()
+
+    def _apply_download_folder(self) -> bool:
+        download_dir = self._download_folder_from_entry()
+        if not download_dir:
+            message = "Choose a downloads folder before starting."
+            self._set_status("failed", message)
+            self._append_log(message)
+            messagebox.showerror("Downloads folder required", message)
+            return False
+
+        try:
+            download_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            message = f"Could not use downloads folder: {exc}"
+            self._set_status("failed", message)
+            self._append_log(message)
+            messagebox.showerror("Downloads folder unavailable", message)
+            return False
+
+        self.paths = replace(self.paths, download_dir=download_dir)
+        self.downloader = DownloadService(self.paths)
+        self.download_folder_var.set(str(download_dir))
+        return True
+
+    def _download_folder_from_entry(self) -> Path | None:
+        raw_path = self.download_folder_var.get().strip()
+        if not raw_path:
+            return None
+        return Path(raw_path).expanduser()
+
     def _open_downloads(self) -> None:
-        subprocess.Popen(["explorer.exe", str(self.paths.download_dir)])
+        if self._apply_download_folder():
+            self._persist_settings()
+            subprocess.Popen(["explorer.exe", str(self.paths.download_dir)])
 
     def _paste_cookies(self) -> None:
         try:

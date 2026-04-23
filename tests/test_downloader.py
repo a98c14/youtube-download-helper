@@ -10,7 +10,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ytdlp_helper.config import AppPaths
-from ytdlp_helper.downloader import DownloadRequest, DownloadService
+from ytdlp_helper.downloader import DownloadRequest, DownloadService, _hidden_subprocess_kwargs
 
 
 class FakeProcess:
@@ -228,8 +228,18 @@ class DownloaderTests(unittest.TestCase):
         ):
             version = service.get_ytdlp_version()
 
-        run.assert_called_once_with(["yt-dlp.exe", "--version"], capture_output=True, text=True, check=False)
+        run.assert_called_once_with(
+            ["yt-dlp.exe", "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            **_hidden_subprocess_kwargs(),
+        )
         self.assertEqual(version, "2026.03.17")
+
+    def test_hidden_subprocess_kwargs_uses_create_no_window_when_available(self) -> None:
+        with patch("ytdlp_helper.downloader.subprocess.CREATE_NO_WINDOW", 134217728, create=True):
+            self.assertEqual(_hidden_subprocess_kwargs(), {"creationflags": 134217728})
 
     def test_update_ytdlp_runs_executable_update(self) -> None:
         service = DownloadService(_paths())
@@ -257,6 +267,7 @@ class DownloaderTests(unittest.TestCase):
             stderr=subprocess.STDOUT,
             text=True,
             errors="replace",
+            **_hidden_subprocess_kwargs(),
         )
         self.assertEqual(message, "yt-dlp updated. Restart the app before downloading again.")
         self.assertIn("yt-dlp is up to date", logs)
