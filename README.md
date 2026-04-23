@@ -1,0 +1,72 @@
+# YouTube Download Helper
+
+A small Windows desktop app that wraps `yt-dlp` in a simple GUI for non-technical users.
+
+## Features
+
+- Paste a YouTube URL and download with one click
+- Supports single videos and playlists
+- Uses browser cookies from local Chrome or Edge profiles for paid/member content
+- Includes a download archive to skip videos that were already downloaded
+- Fixed output folder at `%USERPROFILE%\Downloads\YT-DLP Helper`
+- Simple presets only:
+  - `Best Video`
+  - `Audio MP3`
+  - `Audio M4A`
+
+## Requirements
+
+- Windows
+- Python 3.13+
+- `ffmpeg` available on `PATH` for local runs, or bundled into `dist\YouTube Download Helper\ffmpeg\` for portable builds
+
+## Run Locally
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m ytdlp_helper
+```
+
+## Tests
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+## Build Portable App
+
+The build produces a portable folder with one launcher executable and bundled `ffmpeg` sidecars.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build_portable.ps1
+```
+
+Expected output:
+
+- `dist\YouTube Download Helper\YouTube Download Helper.exe`
+- `dist\YouTube Download Helper\ffmpeg\ffmpeg.exe`
+- `dist\YouTube Download Helper\ffmpeg\ffprobe.exe`
+
+Zip the `dist\YouTube Download Helper` folder and share it. The user only needs to extract it and run the `.exe`.
+
+## How Authenticated Downloads Work
+
+- The app reads cookies from the selected local browser profile on that same PC.
+- It does not export, sync, or ship cookies between users.
+- Premium/member downloads only work if the chosen profile is already logged into an account with access.
+
+## App Data
+
+The app stores settings and the download archive under:
+
+```text
+%LOCALAPPDATA%\YT-DLP Helper\
+```
+
+Files:
+
+- `settings.json`
+- `download-archive.txt`
+

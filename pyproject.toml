@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=82"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "youtube-download-helper"
+version = "0.1.0"
+description = "A simple Windows desktop helper for downloading YouTube videos with yt-dlp."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "yt-dlp==2026.3.17",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
