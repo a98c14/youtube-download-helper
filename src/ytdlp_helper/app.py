@@ -6,8 +6,8 @@ import threading
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from .browser_profiles import BrowserProfile, discover_profiles, list_supported_browsers
 from .config import Settings, ensure_app_dirs, get_app_paths, load_settings, save_settings
+from .cookies import get_cookie_status, save_cookie_text
 from .downloader import DownloadRequest, DownloadService
 
 
@@ -31,21 +31,16 @@ class YtDlpHelperApp:
         self.downloader = DownloadService(self.paths)
         self.worker_thread: threading.Thread | None = None
         self.message_queue: queue.Queue[tuple[str, str]] = queue.Queue()
-        self.profile_lookup: dict[str, BrowserProfile] = {}
 
         self.url_var = tk.StringVar()
-        self.browser_var = tk.StringVar(value=self.settings.browser)
-        self.browser_label_var = tk.StringVar()
-        self.profile_var = tk.StringVar(value=self.settings.profile)
-        self.profile_display_var = tk.StringVar()
         self.preset_var = tk.StringVar(value=self.settings.preset)
         self.preset_label_var = tk.StringVar()
+        self.cookie_status_var = tk.StringVar(value=get_cookie_status(self.paths))
         self.status_var = tk.StringVar(value="Ready")
         self.download_folder_var = tk.StringVar(value=str(self.paths.download_dir))
         self.progress_var = tk.IntVar(value=0)
 
         self._build_ui()
-        self._populate_browser_profiles()
         self.root.after(150, self._poll_worker_messages)
 
     def _build_ui(self) -> None:
@@ -62,7 +57,7 @@ class YtDlpHelperApp:
         )
         ttk.Label(
             container,
-            text="Paste a YouTube URL, choose a preset, and download using a logged-in browser profile.",
+            text="Paste a YouTube URL, choose a preset, and download with optional pasted cookies.",
             style="Hint.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(4, 16))
 
@@ -85,32 +80,20 @@ class YtDlpHelperApp:
         preset_combo.current(self._preset_index(self.settings.preset))
         self.preset_combo = preset_combo
 
-        ttk.Label(form, text="Browser").grid(row=2, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
-        browser_combo = ttk.Combobox(
-            form,
-            textvariable=self.browser_label_var,
-            state="readonly",
-            values=[label for _, label in list_supported_browsers()],
+        ttk.Label(form, text="Cookies").grid(row=2, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
+        cookies_row = ttk.Frame(form)
+        cookies_row.grid(row=2, column=1, sticky="ew", pady=(0, 12))
+        cookies_row.columnconfigure(0, weight=1)
+        ttk.Label(cookies_row, textvariable=self.cookie_status_var).grid(row=0, column=0, sticky="w")
+        ttk.Button(cookies_row, text="Paste Cookies", command=self._paste_cookies).grid(
+            row=0, column=1, sticky="e", padx=(10, 0)
         )
-        browser_combo.grid(row=2, column=1, sticky="ew", pady=(0, 12))
-        browser_combo.bind("<<ComboboxSelected>>", self._on_browser_changed)
-        self.browser_combo = browser_combo
-        self.browser_labels = {label: key for key, label in list_supported_browsers()}
-        browser_label = next(
-            (label for key, label in list_supported_browsers() if key == self.settings.browser),
-            "Chrome",
-        )
-        self.browser_combo.set(browser_label)
-
-        ttk.Label(form, text="Profile").grid(row=3, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
-        self.profile_combo = ttk.Combobox(form, textvariable=self.profile_display_var, state="readonly")
-        self.profile_combo.grid(row=3, column=1, sticky="ew", pady=(0, 12))
 
         ttk.Label(form, text="Downloads Folder").grid(
-            row=4, column=0, sticky="w", padx=(0, 12), pady=(0, 12)
+            row=3, column=0, sticky="w", padx=(0, 12), pady=(0, 12)
         )
         ttk.Entry(form, textvariable=self.download_folder_var, state="readonly").grid(
-            row=4, column=1, sticky="ew", pady=(0, 12)
+            row=3, column=1, sticky="ew", pady=(0, 12)
         )
 
         button_bar = ttk.Frame(container)
@@ -151,52 +134,17 @@ class YtDlpHelperApp:
                 self.preset_var.set(value)
                 return
 
-    def _on_browser_changed(self, _event: object) -> None:
-        self.browser_var.set(self.browser_labels.get(self.browser_combo.get(), "chrome"))
-        self._populate_browser_profiles()
-
-    def _populate_browser_profiles(self) -> None:
-        browser_key = self.browser_var.get() or "chrome"
-        profiles = discover_profiles(browser_key)
-        self.profile_lookup = {profile.display_name: profile for profile in profiles}
-        if not profiles:
-            self.profile_combo["values"] = []
-            self.profile_var.set("")
-            self.profile_display_var.set("")
-            self._set_status("failed", f"No {browser_key.title()} profiles found on this PC")
-            return
-
-        values = [profile.display_name for profile in profiles]
-        self.profile_combo["values"] = values
-
-        saved_match = next((p.display_name for p in profiles if p.profile_id == self.settings.profile), None)
-        if saved_match:
-            self.profile_combo.set(saved_match)
-        else:
-            self.profile_combo.current(0)
-        selected_profile = self.profile_lookup[self.profile_combo.get()]
-        self.profile_var.set(selected_profile.profile_id)
-        self.profile_display_var.set(selected_profile.display_name)
-        self._set_status("queued", "Ready")
-
     def _start_download(self) -> None:
         if self.worker_thread and self.worker_thread.is_alive():
             messagebox.showinfo("Task in progress", "Please wait for the current task to finish.")
             return
 
-        profile = self.profile_lookup.get(self.profile_combo.get())
-        if not profile:
-            messagebox.showerror("Profile required", "Choose a browser profile before downloading.")
-            return
-
         request = DownloadRequest(
             url=self.url_var.get().strip(),
             preset=self.preset_var.get(),
-            browser=profile.browser_key,
-            profile=profile.profile_id,
         )
 
-        self._persist_settings(profile.profile_id)
+        self._persist_settings()
         self._set_action_buttons_state("disabled")
         self.progress_var.set(0)
         self._append_log("")
@@ -297,10 +245,8 @@ class YtDlpHelperApp:
         self.log_widget.see("end")
         self.log_widget.configure(state="disabled")
 
-    def _persist_settings(self, profile_id: str) -> None:
+    def _persist_settings(self) -> None:
         self.settings = Settings(
-            browser=self.browser_var.get(),
-            profile=profile_id,
             preset=self.preset_var.get(),
             download_dir=str(self.paths.download_dir),
         )
@@ -308,6 +254,26 @@ class YtDlpHelperApp:
 
     def _open_downloads(self) -> None:
         subprocess.Popen(["explorer.exe", str(self.paths.download_dir)])
+
+    def _paste_cookies(self) -> None:
+        try:
+            text = self.root.clipboard_get()
+        except tk.TclError:
+            message = "Clipboard does not contain cookies.txt text."
+            self._set_status("failed", message)
+            self._append_log(message)
+            return
+
+        try:
+            save_cookie_text(self.paths, text)
+        except ValueError as exc:
+            self._set_status("failed", str(exc))
+            self._append_log(str(exc))
+            return
+
+        self.cookie_status_var.set(get_cookie_status(self.paths))
+        self._set_status("queued", "Cookies saved")
+        self._append_log(f"Saved cookies to {self.paths.cookies_file}")
 
     def _set_action_buttons_state(self, state: str) -> None:
         self.download_button.configure(state=state)

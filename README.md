@@ -6,7 +6,7 @@ A small Windows desktop app that wraps `yt-dlp` in a simple GUI for non-technica
 
 - Paste a YouTube URL and download with one click
 - Supports single videos and playlists
-- Uses browser cookies from local Chrome or Edge profiles for paid/member content
+- Uses pasted Netscape-format `cookies.txt` text for paid/member content
 - Includes a download archive to skip videos that were already downloaded
 - Fixed output folder at `%USERPROFILE%\Downloads\YT-DLP Helper`
 - Simple presets only:
@@ -55,9 +55,17 @@ Zip the `dist\YouTube Download Helper` folder and share it. The user only needs 
 
 ## How Authenticated Downloads Work
 
-- The app reads cookies from the selected local browser profile on that same PC.
-- It does not export, sync, or ship cookies between users.
-- Premium/member downloads only work if the chosen profile is already logged into an account with access.
+- Install the Chrome/Edge extension `Get cookies.txt LOCALLY`.
+- In a logged-in browser session with access to the content, use the extension to copy Netscape-format cookies for YouTube.
+- In the app, click `Paste Cookies` to save the clipboard text to the app data folder.
+- Premium/member downloads only work while the saved cookies are fresh and tied to an account with access.
+- If a download starts failing with sign-in or cookie errors, copy fresh cookies from the logged-in browser and paste them again.
+
+Extension source:
+
+```text
+https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc
+```
 
 ## App Data
 
@@ -71,3 +79,4 @@ Files:
 
 - `settings.json`
 - `download-archive.txt`
+- `cookies.txt`

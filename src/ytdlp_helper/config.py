@@ -11,12 +11,11 @@ from pathlib import Path
 APP_NAME = "YT-DLP Helper"
 SETTINGS_FILE = "settings.json"
 ARCHIVE_FILE = "download-archive.txt"
+COOKIES_FILE = "cookies.txt"
 
 
 @dataclass
 class Settings:
-    browser: str = "chrome"
-    profile: str = "Default"
     preset: str = "best-video"
     download_dir: str = ""
 
@@ -26,6 +25,7 @@ class AppPaths:
     data_dir: Path
     settings_file: Path
     archive_file: Path
+    cookies_file: Path
     download_dir: Path
 
 
@@ -38,6 +38,7 @@ def get_app_paths() -> AppPaths:
         data_dir=data_dir,
         settings_file=data_dir / SETTINGS_FILE,
         archive_file=data_dir / ARCHIVE_FILE,
+        cookies_file=data_dir / COOKIES_FILE,
         download_dir=download_dir,
     )
 
@@ -59,8 +60,6 @@ def load_settings(paths: AppPaths) -> Settings:
         return defaults
 
     settings = Settings(
-        browser=str(data.get("browser", defaults.browser)),
-        profile=str(data.get("profile", defaults.profile)),
         preset=str(data.get("preset", defaults.preset)),
         download_dir=str(data.get("download_dir", defaults.download_dir)),
     )

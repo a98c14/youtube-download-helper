@@ -24,7 +24,10 @@ class FakeProcess:
 
 class DownloaderTests(unittest.TestCase):
     def test_builds_archive_cookie_and_best_video_command(self) -> None:
-        service = DownloadService(_paths())
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        paths.cookies_file.write_text("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tabc\n")
+        service = DownloadService(paths)
 
         with (
             patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="C:/tools/yt-dlp.exe"),
@@ -34,8 +37,6 @@ class DownloaderTests(unittest.TestCase):
                 DownloadRequest(
                     url="https://www.youtube.com/watch?v=abc123",
                     preset="best-video",
-                    browser="chrome",
-                    profile="Default",
                 )
             )
 
@@ -44,7 +45,8 @@ class DownloaderTests(unittest.TestCase):
         self.assertNotIn("--no-playlist", command)
         self.assertIn(f"home:{service._paths.download_dir}", command)  # noqa: SLF001
         self.assert_option(command, "--download-archive", str(service._paths.archive_file))  # noqa: SLF001
-        self.assert_option(command, "--cookies-from-browser", "chrome:Default")
+        self.assert_option(command, "--cookies", str(service._paths.cookies_file))  # noqa: SLF001
+        self.assertNotIn("--cookies-from-browser", command)
         self.assert_option(command, "--ffmpeg-location", "C:/ffmpeg")
         self.assert_option(command, "--format", "bv*+ba/b")
         self.assert_option(command, "--merge-output-format", "mp4")
@@ -61,11 +63,11 @@ class DownloaderTests(unittest.TestCase):
                 DownloadRequest(
                     url="https://www.youtube.com/watch?v=abc123",
                     preset="audio-mp3",
-                    browser="edge",
-                    profile="Profile 1",
                 )
             )
 
+        self.assertNotIn("--cookies", command)
+        self.assertNotIn("--cookies-from-browser", command)
         self.assert_option(command, "--format", "bestaudio/best")
         self.assertIn("--extract-audio", command)
         self.assert_option(command, "--audio-format", "mp3")
@@ -76,10 +78,29 @@ class DownloaderTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             service.download(
-                DownloadRequest(url="notaurl", preset="best-video", browser="chrome", profile="Default"),
+                DownloadRequest(url="notaurl", preset="best-video"),
                 lambda *_args: None,
                 lambda *_args: None,
             )
+
+    def test_download_without_cookie_file_runs_as_public_session(self) -> None:
+        service = DownloadService(_paths())
+        logs: list[str] = []
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
+            patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
+            patch("ytdlp_helper.downloader.subprocess.Popen", return_value=FakeProcess([])) as popen,
+        ):
+            service.download(
+                DownloadRequest(url="https://www.youtube.com/watch?v=abc123", preset="best-video"),
+                lambda *_args: None,
+                logs.append,
+            )
+
+        command = popen.call_args.args[0]
+        self.assertNotIn("--cookies", command)
+        self.assertIn("No saved cookies; downloading as public session.", logs)
 
     def test_download_streams_progress_and_completes(self) -> None:
         service = DownloadService(_paths())
@@ -98,8 +119,6 @@ class DownloaderTests(unittest.TestCase):
                 DownloadRequest(
                     url="https://www.youtube.com/watch?v=abc123",
                     preset="best-video",
-                    browser="chrome",
-                    profile="Default",
                 ),
                 lambda status, message: statuses.append((status, message)),
                 logs.append,
@@ -126,8 +145,6 @@ class DownloaderTests(unittest.TestCase):
                 DownloadRequest(
                     url="https://www.youtube.com/watch?v=abc123",
                     preset="best-video",
-                    browser="chrome",
-                    profile="Default",
                 ),
                 lambda status, message: statuses.append((status, message)),
                 lambda *_args: None,
@@ -135,7 +152,7 @@ class DownloaderTests(unittest.TestCase):
 
         self.assertIn(("skipped", "Already downloaded; skipped by archive"), statuses)
 
-    def test_download_preserves_cookie_database_error(self) -> None:
+    def test_download_auth_error_points_to_fresh_pasted_cookies(self) -> None:
         service = DownloadService(_paths())
 
         with (
@@ -149,13 +166,11 @@ class DownloaderTests(unittest.TestCase):
                 ),
             ),
         ):
-            with self.assertRaisesRegex(RuntimeError, "Could not copy Chrome cookie database"):
+            with self.assertRaisesRegex(RuntimeError, "Paste updated cookies.txt text"):
                 service.download(
                     DownloadRequest(
                         url="https://www.youtube.com/watch?v=abc123",
                         preset="best-video",
-                        browser="chrome",
-                        profile="Default",
                     ),
                     lambda *_args: None,
                     lambda *_args: None,
@@ -170,8 +185,6 @@ class DownloaderTests(unittest.TestCase):
                     DownloadRequest(
                         url="https://www.youtube.com/watch?v=abc123",
                         preset="best-video",
-                        browser="chrome",
-                        profile="Default",
                     )
                 )
 
@@ -254,6 +267,7 @@ def _paths() -> AppPaths:
         data_dir=root / "data",
         settings_file=root / "data" / "settings.json",
         archive_file=root / "data" / "download-archive.txt",
+        cookies_file=root / "data" / "cookies.txt",
         download_dir=root / "downloads",
     )
 

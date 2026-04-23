@@ -16,8 +16,6 @@ LogCallback = Callable[[str], None]
 class DownloadRequest:
     url: str
     preset: str
-    browser: str
-    profile: str
 
 
 class DownloadService:
@@ -63,6 +61,8 @@ class DownloadService:
 
         status_callback("queued", "Preparing download")
         command = self._build_command(request)
+        if not self._paths.cookies_file.exists():
+            log_callback("No saved cookies; downloading as public session.")
         log_callback(f"Running: {command[0]} ...")
         status_callback("resolving", "Resolving video information")
         output = self._run_process(command, log_callback, status_callback)
@@ -90,9 +90,10 @@ class DownloadService:
             "--no-color",
             "--download-archive",
             str(self._paths.archive_file),
-            "--cookies-from-browser",
-            f"{request.browser}:{request.profile}",
         ]
+
+        if self._paths.cookies_file.exists():
+            command.extend(["--cookies", str(self._paths.cookies_file)])
 
         if ffmpeg_location:
             command.extend(["--ffmpeg-location", ffmpeg_location])
@@ -188,10 +189,8 @@ def _pip_update_required(output: list[str]) -> bool:
 
 def _humanize_error(message: str) -> str:
     lowered = message.lower()
-    if "could not copy" in lowered and "cookie database" in lowered:
-        return message
-    if "sign in" in lowered or "cookies" in lowered or "members-only" in lowered or "premium" in lowered:
-        return "This video needs an entitled browser profile. Pick the logged-in Chrome or Edge profile and try again."
+    if "sign in" in lowered or "cookie" in lowered or "members-only" in lowered or "premium" in lowered:
+        return "This video needs fresh cookies from a logged-in browser. Paste updated cookies.txt text and try again."
     if "unsupported url" in lowered or "unable to extract" in lowered:
         return "This URL could not be processed by yt-dlp."
     return message
