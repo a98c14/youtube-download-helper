@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from ytdlp_helper import __version__
 from ytdlp_helper.app import YtDlpHelperApp
 from ytdlp_helper.config import AppPaths
 
@@ -117,8 +118,9 @@ class AppStatusTests(unittest.TestCase):
         self.assertEqual(app.preset_label_var.value, "Ses M4A")
         self.assertEqual(app.archive_status_var.value, "Kontrol edilmedi")
         self.assertEqual(app.status_var.value, "Hazır")
+        self.assertEqual(app.help_menu.entries[1]["label"], "Hakkında")
 
-    def test_action_state_applies_to_both_download_buttons(self) -> None:
+    def test_action_state_disables_download_buttons_and_update_menu_only(self) -> None:
         app = YtDlpHelperApp.__new__(YtDlpHelperApp)
         app.download_button = FakeWidget()
         app.download_playlist_button = FakeWidget()
@@ -132,12 +134,86 @@ class AppStatusTests(unittest.TestCase):
         self.assertFalse(app.actions_enabled)
         self.assertEqual(app.download_button.options["state"], "disabled")
         self.assertEqual(app.download_playlist_button.options["state"], "disabled")
+        self.assertEqual(app.help_menu.entries[0]["state"], "disabled")
+        self.assertNotIn(1, app.help_menu.entries)
 
         app._set_action_buttons_state("normal")  # noqa: SLF001
 
         self.assertTrue(app.actions_enabled)
         self.assertEqual(app.download_button.options["state"], "normal")
         self.assertEqual(app.download_playlist_button.options["state"], "normal")
+        self.assertEqual(app.help_menu.entries[0]["state"], "normal")
+        self.assertNotIn(1, app.help_menu.entries)
+
+    def test_about_message_includes_app_and_ytdlp_versions(self) -> None:
+        app = YtDlpHelperApp.__new__(YtDlpHelperApp)
+        app.language = "en"
+        app.root = FakeRoot()
+        app.paths = _paths()
+
+        with (
+            patch("ytdlp_helper.app.find_ytdlp_executable", return_value="C:/tools/yt-dlp.exe"),
+            patch("ytdlp_helper.app.read_tool_version", return_value="2026.04.01"),
+            patch("ytdlp_helper.app.messagebox.showinfo") as showinfo,
+        ):
+            app._show_about()  # noqa: SLF001
+
+        title, message = showinfo.call_args.args
+        self.assertEqual(title, "About YouTube Download Helper")
+        self.assertIn(f"App version: {__version__}", message)
+        self.assertIn("yt-dlp version: 2026.04.01", message)
+        self.assertNotIn("ffmpeg", message)
+
+    def test_about_message_reuses_cached_ytdlp_version(self) -> None:
+        app = YtDlpHelperApp.__new__(YtDlpHelperApp)
+        app.language = "en"
+        app.root = FakeRoot()
+        app.paths = _paths()
+
+        with (
+            patch("ytdlp_helper.app.find_ytdlp_executable", return_value="C:/tools/yt-dlp.exe"),
+            patch("ytdlp_helper.app.read_tool_version", return_value="2026.04.01") as read_tool_version,
+            patch("ytdlp_helper.app.messagebox.showinfo") as showinfo,
+        ):
+            app._show_about()  # noqa: SLF001
+            app._show_about()  # noqa: SLF001
+
+        read_tool_version.assert_called_once()
+        self.assertEqual(showinfo.call_count, 2)
+
+    def test_about_message_uses_fallback_for_missing_ytdlp_version(self) -> None:
+        app = YtDlpHelperApp.__new__(YtDlpHelperApp)
+        app.language = "en"
+        app.root = FakeRoot()
+        app.paths = _paths()
+
+        with (
+            patch("ytdlp_helper.app.find_ytdlp_executable", return_value=None),
+            patch("ytdlp_helper.app.read_tool_version", return_value=None) as read_tool_version,
+            patch("ytdlp_helper.app.messagebox.showinfo") as showinfo,
+        ):
+            app._show_about()  # noqa: SLF001
+            app._show_about()  # noqa: SLF001
+
+        message = showinfo.call_args.args[1]
+        self.assertIn("yt-dlp version: Unavailable", message)
+        self.assertNotIn("ffmpeg", message)
+        read_tool_version.assert_not_called()
+
+    def test_refresh_ytdlp_version_cache_updates_cached_value(self) -> None:
+        app = YtDlpHelperApp.__new__(YtDlpHelperApp)
+        app.paths = _paths()
+        app.ytdlp_version_cache = "old"
+        app.ytdlp_version_cache_ready = True
+
+        with (
+            patch("ytdlp_helper.app.find_ytdlp_executable", return_value="C:/tools/yt-dlp.exe"),
+            patch("ytdlp_helper.app.read_tool_version", return_value="new"),
+        ):
+            app._refresh_ytdlp_version_cache()  # noqa: SLF001
+
+        self.assertEqual(app.ytdlp_version_cache, "new")
+        self.assertTrue(app.ytdlp_version_cache_ready)
 
 
 def _app_with_status_vars() -> YtDlpHelperApp:

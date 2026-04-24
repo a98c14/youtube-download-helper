@@ -364,6 +364,10 @@ def _ffmpeg_version_matches(installed_version: str, latest_version: str) -> bool
     return re.search(rf"\b{re.escape(latest_version)}\b", installed_version) is not None
 
 
+def read_tool_version(executable: Path) -> str | None:
+    return _read_tool_version(executable)
+
+
 def _read_tool_version(executable: Path) -> str | None:
     try:
         result = subprocess.run(

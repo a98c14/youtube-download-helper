@@ -9,14 +9,23 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from . import __version__
 from .activity_log import ActivityLogStore
 from .archive import (
     clear_archive_entry,
     is_archived,
     parse_youtube_video_id,
 )
-from .config import Settings, ensure_app_dirs, get_app_paths, load_settings, save_settings
+from .config import (
+    Settings,
+    ensure_app_dirs,
+    find_ytdlp_executable,
+    get_app_paths,
+    load_settings,
+    save_settings,
+)
 from .cookies import get_cookie_status, save_cookie_text
+from .dependencies import read_tool_version
 from .downloader import DownloadRequest, DownloadService
 from .app_update import AppUpdateResult, start_restart_script
 from .i18n import language_options, normalize_language, translate
@@ -66,6 +75,8 @@ class YtDlpHelperApp:
         self.activity_log = ActivityLogStore(self.paths)
         self.worker_thread: threading.Thread | None = None
         self.message_queue: queue.Queue[tuple[str, object]] = queue.Queue()
+        self.ytdlp_version_cache: str | None = None
+        self.ytdlp_version_cache_ready = False
         self.log_window: tk.Toplevel | None = None
         self.log_text: tk.Text | None = None
         self.label_widgets: dict[str, ttk.Label] = {}
@@ -224,6 +235,7 @@ class YtDlpHelperApp:
         file_menu.add_command(label=self._t("menu.activity_log"), command=self._show_activity_log)
         help_menu = tk.Menu(menu_bar, tearoff=False)
         help_menu.add_command(label=self._t("menu.update"), command=self._start_update)
+        help_menu.add_command(label=self._t("menu.about"), command=self._show_about)
 
         menu_bar.add_cascade(label=self._t("menu.file"), menu=file_menu)
         menu_bar.add_cascade(label=self._t("menu.help"), menu=help_menu)
@@ -323,6 +335,27 @@ class YtDlpHelperApp:
         self.log_window = log_window
         self.log_text = text
         self._reload_activity_log_window()
+
+    def _show_about(self) -> None:
+        ytdlp_version = self._cached_ytdlp_version()
+        message = "\n".join(
+            [
+                self._t("about.app_version", version=__version__),
+                self._t("about.ytdlp_version", version=ytdlp_version),
+            ]
+        )
+        messagebox.showinfo(self._t("about.title"), message, parent=self.root)
+
+    def _cached_ytdlp_version(self) -> str:
+        if not getattr(self, "ytdlp_version_cache_ready", False):
+            self._refresh_ytdlp_version_cache()
+        version = getattr(self, "ytdlp_version_cache", None)
+        return version or self._t("about.unavailable")
+
+    def _refresh_ytdlp_version_cache(self) -> None:
+        executable = find_ytdlp_executable(self.paths)
+        self.ytdlp_version_cache = read_tool_version(Path(executable)) if executable else None
+        self.ytdlp_version_cache_ready = True
 
     def _close_activity_log(self) -> None:
         if self.log_window and self.log_window.winfo_exists():
@@ -504,6 +537,7 @@ class YtDlpHelperApp:
                 messagebox.showerror(self._t("dialog.update_failed.title"), payload)
             elif kind == "update_done":
                 assert isinstance(payload, AppUpdateResult)
+                self._refresh_ytdlp_version_cache()
                 self._set_status("completed", payload.message)
                 self._set_action_buttons_state("normal")
                 if payload.restart_ready and payload.restart_script:
@@ -677,6 +711,7 @@ class YtDlpHelperApp:
         self.file_menu.entryconfigure(0, label=self._t("menu.settings"))
         self.file_menu.entryconfigure(1, label=self._t("menu.activity_log"))
         self.help_menu.entryconfigure(0, label=self._t("menu.update"))
+        self.help_menu.entryconfigure(1, label=self._t("menu.about"))
 
         self.preset_combo.configure(values=self._preset_labels())
         self.preset_label_var.set(self._preset_label(self.preset_var.get()))
