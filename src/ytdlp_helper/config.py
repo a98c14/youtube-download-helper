@@ -125,8 +125,8 @@ def find_ffmpeg_location(paths: AppPaths | None = None) -> str | None:
     path_ffmpeg = shutil.which("ffmpeg.exe") or shutil.which("ffmpeg")
     path_ffprobe = shutil.which("ffprobe.exe") or shutil.which("ffprobe")
     if path_ffmpeg and path_ffprobe:
-        ffmpeg_dir = Path(path_ffmpeg).resolve().parent
-        ffprobe_dir = Path(path_ffprobe).resolve().parent
+        ffmpeg_dir = Path(path_ffmpeg).parent
+        ffprobe_dir = Path(path_ffprobe).parent
         if ffmpeg_dir == ffprobe_dir:
             return str(ffmpeg_dir)
 
