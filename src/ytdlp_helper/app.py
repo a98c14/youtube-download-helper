@@ -2,10 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-import queue
-import re
 import subprocess
-import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -31,23 +28,7 @@ from .downloader import DownloadRequest, DownloadService
 from .app_update import AppUpdateResult, start_restart_script
 from .i18n import language_options, normalize_language, translate
 from .update_service import UpdateService
-
-
-STATUS_MESSAGE_KEYS = {
-    "Updating runtime tools": "status.updating_runtime_tools",
-    "Checking yt-dlp": "status.checking_ytdlp",
-    "Checking ffmpeg": "status.checking_ffmpeg",
-    "Installing yt-dlp": "status.installing_ytdlp",
-    "Installing ffmpeg": "status.installing_ffmpeg",
-    "Preparing download": "status.preparing_download",
-    "Resolving video information": "status.resolving_video",
-    "Resolving playlist": "status.resolving_playlist",
-    "Finalizing file": "status.finalizing_file",
-    "Already downloaded; skipped by archive": "status.archive_skipped",
-    "Checking latest app release": "status.checking_app_release",
-    "Downloading app update": "status.downloading_app_update",
-    "Ready to restart": "status.ready_to_restart",
-}
+from .worker_status import WorkerPhase, WorkerStatusPipeline, WorkerTask, WorkerUi, percent_from_message
 
 PRESET_KEYS = [
     "best-video",
@@ -74,8 +55,7 @@ class YtDlpHelperApp:
         self.downloader = DownloadService(self.paths, self.settings.filename_template)
         self.update_service = UpdateService(self.paths)
         self.activity_log = ActivityLogStore(self.paths)
-        self.worker_thread: threading.Thread | None = None
-        self.message_queue: queue.Queue[tuple[str, object]] = queue.Queue()
+        self.worker_pipeline = WorkerStatusPipeline(self, self._t, self.root.after)
         self.ytdlp_version_cache: str | None = None
         self.ytdlp_version_cache_ready = False
         self.log_window: tk.Toplevel | None = None
@@ -101,7 +81,7 @@ class YtDlpHelperApp:
 
         self._build_ui()
         self.url_var.trace_add("write", self._on_url_changed)
-        self.root.after(150, self._poll_worker_messages)
+        self.root.after(150, self.worker_pipeline.poll)
 
     def _build_ui(self) -> None:
         self._build_menu()
@@ -484,7 +464,7 @@ class YtDlpHelperApp:
         self._start_download_request(playlist=True)
 
     def _start_download_request(self, playlist: bool) -> None:
-        if self.worker_thread and self.worker_thread.is_alive():
+        if self.worker_pipeline.is_busy:
             messagebox.showinfo(self._t("dialog.task_in_progress.title"), self._t("dialog.task_in_progress.message"))
             return
 
@@ -498,107 +478,92 @@ class YtDlpHelperApp:
             return
 
         self._persist_settings()
-        self._set_action_buttons_state("disabled")
-        self.progress_var.set(0)
-        self.speed_var.set(self._t("status.speed_empty"))
-        self._append_log("")
-        self._append_log(f"Starting download for {request.url}")
-
-        self.worker_thread = threading.Thread(target=self._run_download, args=(request,), daemon=True)
-        self.worker_thread.start()
-
-    def _run_download(self, request: DownloadRequest) -> None:
-        try:
-            self.downloader.download(request, self._queue_status, self._queue_log)
-        except Exception as exc:  # noqa: BLE001
-            self.message_queue.put(("error", str(exc)))
-        else:
-            self.message_queue.put(("done", "status.download_completed"))
+        self.worker_pipeline.start(
+            WorkerTask[None](
+                kind="download",
+                initial_status_key=None,
+                initial_log=f"Starting download for {request.url}",
+                run=lambda reporter: self.downloader.download(
+                    request,
+                    reporter.status_callback,
+                    reporter.log_callback,
+                ),
+                success=self._download_succeeded,
+                error_title_key="dialog.download_failed.title",
+            )
+        )
 
     def _start_update(self) -> None:
-        if self.worker_thread and self.worker_thread.is_alive():
+        if self.worker_pipeline.is_busy:
             messagebox.showinfo(self._t("dialog.task_in_progress.title"), self._t("dialog.task_in_progress.message"))
             return
 
-        self._set_action_buttons_state("disabled")
-        self.progress_var.set(0)
-        self.speed_var.set(self._t("status.speed_empty"))
-        self._append_log("")
-        self._append_log("Starting update")
-        self._set_status_key("queued", "status.updating_runtime_tools")
+        self.worker_pipeline.start(
+            WorkerTask[AppUpdateResult](
+                kind="update",
+                initial_status_key="status.updating_runtime_tools",
+                initial_log="Starting update",
+                run=lambda reporter: self.update_service.update(
+                    reporter.log_callback,
+                    reporter.status_callback,
+                ),
+                success=self._update_succeeded,
+                error_title_key="dialog.update_failed.title",
+            )
+        )
 
-        self.worker_thread = threading.Thread(target=self._run_update, daemon=True)
-        self.worker_thread.start()
+    def _download_succeeded(self, _result: None, ui: WorkerUi) -> None:
+        ui.show_status_key("completed", "status.download_completed")
+        ui.info("dialog.download_finished.title", "status.download_completed", localized=True)
 
-    def _run_update(self) -> None:
-        try:
-            result = self.update_service.update(self._queue_log, self._queue_status)
-        except Exception as exc:  # noqa: BLE001
-            self.message_queue.put(("update_error", str(exc)))
+    def _update_succeeded(self, result: AppUpdateResult, ui: WorkerUi) -> None:
+        ui.refresh_runtime_version_cache()
+        ui.show_status("completed", result.message)
+        ui.show_progress(100)
+        ui.show_speed(None)
+        if result.restart_ready and result.restart_script:
+            if ui.confirm("dialog.restart_to_update.title", "dialog.restart_to_update.message"):
+                ui.show_status_key("completed", "status.ready_to_restart")
+                ui.restart(result.restart_script)
+            else:
+                ui.info("dialog.update_ready.title", "dialog.update_ready.message", localized=True)
         else:
-            self.message_queue.put(("update_done", result))
+            ui.info("dialog.update_finished.title", result.message)
 
-    def _queue_status(self, status: str, message: str) -> None:
-        self.message_queue.put(("status", f"{status}|{message}"))
+    def set_busy(self, busy: bool) -> None:
+        self._set_action_buttons_state("disabled" if busy else "normal")
 
-    def _queue_log(self, message: str) -> None:
-        self.message_queue.put(("log", message))
+    def show_status(self, phase: WorkerPhase, message: str) -> None:
+        self.status_key = None
+        self.status_var.set(message)
 
-    def _poll_worker_messages(self) -> None:
-        while True:
-            try:
-                kind, payload = self.message_queue.get_nowait()
-            except queue.Empty:
-                break
+    def show_status_key(self, phase: WorkerPhase, key: str, **params: object) -> None:
+        self._set_status_key(phase, key, **params)
 
-            if kind == "status":
-                status, message = payload.split("|", 1)
-                self._set_status(status, self._localized_worker_status(message))
-            elif kind == "log":
-                self._append_log(payload)
-            elif kind == "error":
-                self._set_status("failed", payload)
-                self._set_action_buttons_state("normal")
-                messagebox.showerror(self._t("dialog.download_failed.title"), payload)
-            elif kind == "done":
-                self._set_status_key("completed", str(payload))
-                self._set_action_buttons_state("normal")
-                messagebox.showinfo(
-                    self._t("dialog.download_finished.title"),
-                    self._t(str(payload)),
-                )
-            elif kind == "update_error":
-                self._set_status("failed", str(payload))
-                self._set_action_buttons_state("normal")
-                messagebox.showerror(self._t("dialog.update_failed.title"), payload)
-            elif kind == "update_done":
-                assert isinstance(payload, AppUpdateResult)
-                self._refresh_ytdlp_version_cache()
-                self._set_status("completed", payload.message)
-                self._set_action_buttons_state("normal")
-                if payload.restart_ready and payload.restart_script:
-                    confirmed = messagebox.askyesno(
-                        self._t("dialog.restart_to_update.title"),
-                        self._t("dialog.restart_to_update.message"),
-                        parent=self.root,
-                    )
-                    if confirmed:
-                        self._set_status_key("completed", "status.ready_to_restart")
-                        start_restart_script(payload.restart_script)
-                        self.root.destroy()
-                    else:
-                        messagebox.showinfo(
-                            self._t("dialog.update_ready.title"),
-                            self._t("dialog.update_ready.message"),
-                            parent=self.root,
-                        )
-                else:
-                    messagebox.showinfo(self._t("dialog.update_finished.title"), payload.message, parent=self.root)
+    def show_speed(self, speed: str | None) -> None:
+        self.speed_var.set(self._t("status.speed", speed=speed) if speed else self._t("status.speed_empty"))
 
-        if self.worker_thread and not self.worker_thread.is_alive():
-            self._set_action_buttons_state("normal")
+    def show_progress(self, value: int) -> None:
+        self.progress_var.set(value)
 
-        self.root.after(150, self._poll_worker_messages)
+    def append_log(self, message: str) -> None:
+        self._append_log(message)
+
+    def info(self, title_key: str, message: str, *, localized: bool = False) -> None:
+        messagebox.showinfo(self._t(title_key), self._t(message) if localized else message, parent=self.root)
+
+    def error(self, title_key: str, message: str) -> None:
+        messagebox.showerror(self._t(title_key), message, parent=self.root)
+
+    def confirm(self, title_key: str, message_key: str) -> bool:
+        return messagebox.askyesno(self._t(title_key), self._t(message_key), parent=self.root)
+
+    def restart(self, script_path: Path) -> None:
+        start_restart_script(script_path)
+        self.root.destroy()
+
+    def refresh_runtime_version_cache(self) -> None:
+        self._refresh_ytdlp_version_cache()
 
     def _set_status(self, status: str, message: str) -> None:
         if status == "speed":
@@ -608,10 +573,10 @@ class YtDlpHelperApp:
         self.status_key = None
         self.status_var.set(message)
         if status == "downloading":
-            percent = _percent_from_message(message)
+            percent = percent_from_message(message)
             self.progress_var.set(percent if percent is not None else 10)
         elif status == "installing":
-            percent = _percent_from_message(message)
+            percent = percent_from_message(message)
             self.progress_var.set(percent if percent is not None else 5)
             self.speed_var.set(self._t("status.speed_empty"))
         elif status == "postprocessing":
@@ -804,33 +769,6 @@ class YtDlpHelperApp:
             return self._t("cookies.saved", timestamp=status.removeprefix("Saved "))
         return status
 
-    def _localized_worker_status(self, message: str) -> str:
-        key = STATUS_MESSAGE_KEYS.get(message)
-        if key:
-            return self._t(key)
-
-        download_match = re.fullmatch(r"Downloading (\d+)%", message)
-        if download_match:
-            return self._t("status.downloading_percent", percent=download_match.group(1))
-
-        tool_percent_match = re.fullmatch(r"Downloading (.+) (\d+)%", message)
-        if tool_percent_match:
-            return self._t(
-                "status.downloading_tool_percent",
-                tool_name=tool_percent_match.group(1),
-                percent=tool_percent_match.group(2),
-            )
-
-        tool_mb_match = re.fullmatch(r"Downloading (.+) ([0-9.]+) MB", message)
-        if tool_mb_match:
-            return self._t(
-                "status.downloading_tool_mb",
-                tool_name=tool_mb_match.group(1),
-                size=tool_mb_match.group(2),
-            )
-
-        return message
-
     def _t(self, key: str, **params: object) -> str:
         return translate(getattr(self, "language", "tr"), key, **params)
 
@@ -839,19 +777,3 @@ def main() -> None:
     root = tk.Tk()
     app = YtDlpHelperApp(root)
     root.mainloop()
-
-
-def _percent_from_message(message: str) -> int | None:
-    percent_index = message.find("%")
-    if percent_index == -1:
-        return None
-    digits = []
-    for character in reversed(message[:percent_index]):
-        if not character.isdigit():
-            if digits:
-                break
-            continue
-        digits.append(character)
-    if not digits:
-        return None
-    return max(0, min(100, int("".join(reversed(digits)))))

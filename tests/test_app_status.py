@@ -61,22 +61,6 @@ class FakeDialog:
 
 
 class AppStatusTests(unittest.TestCase):
-    def test_installing_percent_updates_progress_bar(self) -> None:
-        app = _app_with_status_vars()
-
-        app._set_status("installing", "Downloading ffmpeg 62%")  # noqa: SLF001
-
-        self.assertEqual(app.status_var.value, "Downloading ffmpeg 62%")
-        self.assertEqual(app.progress_var.value, 62)
-
-    def test_installing_without_percent_keeps_coarse_progress(self) -> None:
-        app = _app_with_status_vars()
-
-        app._set_status("installing", "Downloading ffmpeg 18.4 MB")  # noqa: SLF001
-
-        self.assertEqual(app.status_var.value, "Downloading ffmpeg 18.4 MB")
-        self.assertEqual(app.progress_var.value, 5)
-
     def test_preset_mapping_uses_current_language_labels(self) -> None:
         app = YtDlpHelperApp.__new__(YtDlpHelperApp)
         app.language = "tr"
@@ -86,19 +70,6 @@ class AppStatusTests(unittest.TestCase):
         app._on_preset_changed(None)  # noqa: SLF001
 
         self.assertEqual(app.preset_var.value, "audio-mp3")
-
-    def test_worker_status_messages_localize_at_ui_boundary(self) -> None:
-        app = YtDlpHelperApp.__new__(YtDlpHelperApp)
-        app.language = "tr"
-
-        self.assertEqual(
-            app._localized_worker_status("Resolving video information"),  # noqa: SLF001
-            "Video bilgileri alınıyor",
-        )
-        self.assertEqual(
-            app._localized_worker_status("Downloading ffmpeg 42%"),  # noqa: SLF001
-            "ffmpeg indiriliyor 42%",
-        )
 
     def test_settings_save_persists_language_and_refreshes_visible_ui(self) -> None:
         app = _app_with_localized_widgets()
@@ -286,15 +257,6 @@ class AppStatusTests(unittest.TestCase):
 
         self.assertEqual(app.ytdlp_version_cache, "new")
         self.assertTrue(app.ytdlp_version_cache_ready)
-
-
-def _app_with_status_vars() -> YtDlpHelperApp:
-    app = YtDlpHelperApp.__new__(YtDlpHelperApp)
-    app.language = "en"
-    app.status_var = FakeVar()
-    app.speed_var = FakeVar()
-    app.progress_var = FakeVar()
-    return app
 
 
 def _app_with_localized_widgets() -> YtDlpHelperApp:
