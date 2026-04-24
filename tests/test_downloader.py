@@ -247,7 +247,6 @@ class DownloaderTests(unittest.TestCase):
         )
 
         with (
-            patch("ytdlp_helper.downloader.ensure_ytdlp"),
             patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
             patch("ytdlp_helper.downloader.subprocess.run", return_value=completed) as run,
         ):
@@ -265,59 +264,6 @@ class DownloaderTests(unittest.TestCase):
     def test_hidden_subprocess_kwargs_uses_create_no_window_when_available(self) -> None:
         with patch("ytdlp_helper.downloader.subprocess.CREATE_NO_WINDOW", 134217728, create=True):
             self.assertEqual(_hidden_subprocess_kwargs(), {"creationflags": 134217728})
-
-    def test_update_ytdlp_runs_executable_update(self) -> None:
-        service = DownloadService(_paths())
-        logs: list[str] = []
-        completed = subprocess.CompletedProcess(
-            args=["yt-dlp.exe", "--version"],
-            returncode=0,
-            stdout="2026.03.17\n",
-            stderr="",
-        )
-
-        with (
-            patch("ytdlp_helper.downloader.ensure_ytdlp"),
-            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
-            patch("ytdlp_helper.downloader.subprocess.run", return_value=completed),
-            patch(
-                "ytdlp_helper.downloader.subprocess.Popen",
-                return_value=FakeProcess(["Latest version: stable@2026.04.01\n", "yt-dlp is up to date\n"]),
-            ) as popen,
-        ):
-            message = service.update_ytdlp(logs.append)
-
-        popen.assert_called_once_with(
-            ["yt-dlp.exe", "-U"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            errors="replace",
-            **_hidden_subprocess_kwargs(),
-        )
-        self.assertEqual(message, "yt-dlp updated. Restart the app before downloading again.")
-        self.assertIn("yt-dlp is up to date", logs)
-
-    def test_update_ytdlp_reports_pip_installed_executable(self) -> None:
-        service = DownloadService(_paths())
-        completed = subprocess.CompletedProcess(
-            args=["yt-dlp.exe", "--version"],
-            returncode=0,
-            stdout="2026.03.17\n",
-            stderr="",
-        )
-
-        with (
-            patch("ytdlp_helper.downloader.ensure_ytdlp"),
-            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
-            patch("ytdlp_helper.downloader.subprocess.run", return_value=completed),
-            patch(
-                "ytdlp_helper.downloader.subprocess.Popen",
-                return_value=FakeProcess(["You installed yt-dlp with pip or using the wheel from PyPi\n"]),
-            ),
-        ):
-            with self.assertRaisesRegex(RuntimeError, "cannot self-update"):
-                service.update_ytdlp(lambda *_args: None)
 
     def assert_option(self, command: list[str], option: str, expected_value: str) -> None:
         self.assertIn(option, command)

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from .config import AppPaths, find_ffmpeg_location, find_ytdlp_executable
-from .dependencies import ensure_runtime_tools, ensure_ytdlp
+from .dependencies import ensure_runtime_tools
 
 
 StatusCallback = Callable[[str, str], None]
@@ -41,20 +41,6 @@ class DownloadService:
         if result.returncode != 0:
             raise RuntimeError("Could not read yt-dlp version.")
         return result.stdout.strip()
-
-    def update_ytdlp(self, log_callback: LogCallback, status_callback: StatusCallback | None = None) -> str:
-        ensure_ytdlp(self._paths, log_callback, status_callback or _ignore_status)
-        executable = self._require_ytdlp_executable()
-        log_callback(f"Current yt-dlp version: {self.get_ytdlp_version()}")
-        log_callback(f"Running: {executable} -U")
-        output = self._run_process([executable, "-U"], log_callback)
-
-        if _pip_update_required(output):
-            raise RuntimeError("This yt-dlp executable cannot self-update. Update it outside the app.")
-        if _process_failed(output):
-            raise RuntimeError("yt-dlp update failed. See the activity log for details.")
-
-        return "yt-dlp updated. Restart the app before downloading again."
 
     def download(
         self,
@@ -201,10 +187,6 @@ def _process_failed(output: list[str]) -> bool:
     return bool(output and output[-1].startswith("yt-dlp exited with code "))
 
 
-def _pip_update_required(output: list[str]) -> bool:
-    return any("installed yt-dlp with pip" in line.lower() for line in output)
-
-
 def _humanize_error(message: str) -> str:
     lowered = message.lower()
     if "sign in" in lowered or "cookie" in lowered or "members-only" in lowered or "premium" in lowered:
@@ -220,6 +202,3 @@ def _hidden_subprocess_kwargs() -> dict[str, int]:
         return {"creationflags": creationflags}
     return {}
 
-
-def _ignore_status(_status: str, _message: str) -> None:
-    return

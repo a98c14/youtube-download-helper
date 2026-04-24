@@ -17,8 +17,11 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("python -m unittest discover -s tests -v", workflow)
         self.assertIn(r"powershell -ExecutionPolicy Bypass -File .\scripts\build_portable.ps1", workflow)
         self.assertIn(r'Compress-Archive -Path "dist\YouTube Download Helper\*"', workflow)
+        self.assertIn("Get-FileHash -Algorithm SHA256", workflow)
         self.assertIn("YouTube-Download-Helper-${{ github.ref_name }}-windows-portable.zip", workflow)
+        self.assertIn("YouTube-Download-Helper-${{ github.ref_name }}-windows-portable.zip.sha256", workflow)
         self.assertIn("gh release create", workflow)
+        self.assertIn("$env:RELEASE_SHA256", workflow)
         self.assertIn("GH_TOKEN: ${{ github.token }}", workflow)
 
 

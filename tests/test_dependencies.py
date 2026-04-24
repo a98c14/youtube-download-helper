@@ -12,7 +12,13 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ytdlp_helper.config import AppPaths, find_ffmpeg_location, find_ytdlp_executable
-from ytdlp_helper.dependencies import DependencyInstallError, _download_file, ensure_ffmpeg, ensure_ytdlp
+from ytdlp_helper.dependencies import (
+    DependencyInstallError,
+    _download_file,
+    ensure_ffmpeg,
+    ensure_ytdlp,
+    refresh_runtime_tools,
+)
 
 
 class FakeResponse(io.BytesIO):
@@ -88,6 +94,69 @@ class DependencyTests(unittest.TestCase):
         self.assertEqual(metadata["install_path"], str(paths.ffmpeg_dir))
         self.assertTrue(any("gyan.dev" in line for line in logs))
 
+    def test_refresh_runtime_tools_replaces_existing_managed_tools(self) -> None:
+        paths = _paths()
+        paths.ytdlp_executable.parent.mkdir(parents=True)
+        paths.ytdlp_executable.write_bytes(b"old yt-dlp")
+        paths.ffmpeg_dir.mkdir(parents=True)
+        paths.ffmpeg_executable.write_bytes(b"old ffmpeg")
+        paths.ffprobe_executable.write_bytes(b"old ffprobe")
+        payloads = [
+            FakeUrlOpen(b"new yt-dlp"),
+            FakeUrlOpen(
+                _ffmpeg_zip(
+                    {
+                        "ffmpeg-essentials/bin/ffmpeg.exe": b"new ffmpeg",
+                        "ffmpeg-essentials/bin/ffprobe.exe": b"new ffprobe",
+                    }
+                )
+            ),
+        ]
+        statuses: list[tuple[str, str]] = []
+
+        with (
+            patch("ytdlp_helper.dependencies.urllib.request.urlopen", side_effect=payloads),
+            patch("ytdlp_helper.dependencies._fetch_latest_ytdlp_version", return_value="latest"),
+            patch("ytdlp_helper.dependencies._fetch_latest_ffmpeg_version", return_value="new"),
+            patch("ytdlp_helper.dependencies._read_source_identity", return_value={"etag": "new-ffmpeg"}),
+            patch("ytdlp_helper.dependencies._read_tool_version", side_effect=["old", "latest", "ffmpeg version old", "ffmpeg version new"]),
+        ):
+            refresh_runtime_tools(paths, lambda *_args: None, lambda status, message: statuses.append((status, message)))
+
+        self.assertEqual(paths.ytdlp_executable.read_bytes(), b"new yt-dlp")
+        self.assertEqual(paths.ffmpeg_executable.read_bytes(), b"new ffmpeg")
+        self.assertEqual(paths.ffprobe_executable.read_bytes(), b"new ffprobe")
+        self.assertIn(("installing", "Updating runtime tools"), statuses)
+
+    def test_refresh_runtime_tools_skips_current_managed_tools(self) -> None:
+        paths = _paths()
+        paths.ytdlp_executable.parent.mkdir(parents=True)
+        paths.ytdlp_executable.write_bytes(b"current yt-dlp")
+        paths.ffmpeg_dir.mkdir(parents=True)
+        paths.ffmpeg_executable.write_bytes(b"current ffmpeg")
+        paths.ffprobe_executable.write_bytes(b"current ffprobe")
+        paths.tools_dir.mkdir(parents=True, exist_ok=True)
+        (paths.tools_dir / "ffmpeg.json").write_text(
+            json.dumps({"version": "ffmpeg version current", "source_identity": {"etag": "current-ffmpeg"}}),
+            encoding="utf-8",
+        )
+        logs: list[str] = []
+
+        with (
+            patch("ytdlp_helper.dependencies._fetch_latest_ytdlp_version", return_value="2026.04.01"),
+            patch("ytdlp_helper.dependencies._fetch_latest_ffmpeg_version", return_value="current"),
+            patch("ytdlp_helper.dependencies._read_source_identity", side_effect=AssertionError("checked ffmpeg package")),
+            patch("ytdlp_helper.dependencies._read_tool_version", side_effect=["2026.04.01", "ffmpeg version current"]),
+            patch("ytdlp_helper.dependencies.urllib.request.urlopen", side_effect=AssertionError("downloaded")),
+        ):
+            refresh_runtime_tools(paths, logs.append, lambda *_args: None)
+
+        self.assertEqual(paths.ytdlp_executable.read_bytes(), b"current yt-dlp")
+        self.assertEqual(paths.ffmpeg_executable.read_bytes(), b"current ffmpeg")
+        self.assertEqual(paths.ffprobe_executable.read_bytes(), b"current ffprobe")
+        self.assertTrue(any("yt-dlp is already current" in line for line in logs))
+        self.assertTrue(any("ffmpeg is already current" in line for line in logs))
+
     def test_partial_ffmpeg_install_is_not_promoted(self) -> None:
         paths = _paths()
         payload = _ffmpeg_zip({"ffmpeg-essentials/bin/ffmpeg.exe": b"ffmpeg"})
@@ -116,6 +185,17 @@ class DependencyTests(unittest.TestCase):
 
         self.assertFalse(paths.ytdlp_executable.exists())
         self.assertTrue(any("network down" in line for line in logs))
+
+    def test_refresh_ytdlp_failure_keeps_existing_managed_executable(self) -> None:
+        paths = _paths()
+        paths.ytdlp_executable.parent.mkdir(parents=True)
+        paths.ytdlp_executable.write_bytes(b"old yt-dlp")
+
+        with patch("ytdlp_helper.dependencies.urllib.request.urlopen", side_effect=OSError("network down")):
+            with self.assertRaisesRegex(DependencyInstallError, "Could not check the latest yt-dlp"):
+                refresh_runtime_tools(paths, lambda *_args: None, lambda *_args: None)
+
+        self.assertEqual(paths.ytdlp_executable.read_bytes(), b"old yt-dlp")
 
     def test_download_file_reports_percent_progress_when_content_length_exists(self) -> None:
         root = Path(tempfile.mkdtemp())

@@ -18,6 +18,8 @@ from .archive import (
 from .config import Settings, ensure_app_dirs, get_app_paths, load_settings, save_settings
 from .cookies import get_cookie_status, save_cookie_text
 from .downloader import DownloadRequest, DownloadService
+from .app_update import AppUpdateResult, start_restart_script
+from .update_service import UpdateService
 
 
 PRESET_OPTIONS = [
@@ -42,9 +44,10 @@ class YtDlpHelperApp:
         self.paths = replace(self.paths, download_dir=Path(self.settings.download_dir).expanduser())
         ensure_app_dirs(self.paths)
         self.downloader = DownloadService(self.paths)
+        self.update_service = UpdateService(self.paths)
         self.activity_log = ActivityLogStore(self.paths)
         self.worker_thread: threading.Thread | None = None
-        self.message_queue: queue.Queue[tuple[str, str]] = queue.Queue()
+        self.message_queue: queue.Queue[tuple[str, object]] = queue.Queue()
         self.log_window: tk.Toplevel | None = None
         self.log_text: tk.Text | None = None
 
@@ -176,7 +179,7 @@ class YtDlpHelperApp:
         file_menu = tk.Menu(menu_bar, tearoff=False)
         file_menu.add_command(label="Activity Log", command=self._show_activity_log)
         help_menu = tk.Menu(menu_bar, tearoff=False)
-        help_menu.add_command(label="Update yt-dlp", command=self._start_update)
+        help_menu.add_command(label="Update...", command=self._start_update)
 
         menu_bar.add_cascade(label="File", menu=file_menu)
         menu_bar.add_cascade(label="Help", menu=help_menu)
@@ -341,19 +344,19 @@ class YtDlpHelperApp:
         self.progress_var.set(0)
         self.speed_var.set("Speed: --")
         self._append_log("")
-        self._append_log("Updating yt-dlp")
-        self._set_status("queued", "Updating yt-dlp")
+        self._append_log("Starting update")
+        self._set_status("queued", "Updating runtime tools")
 
         self.worker_thread = threading.Thread(target=self._run_update, daemon=True)
         self.worker_thread.start()
 
     def _run_update(self) -> None:
         try:
-            message = self.downloader.update_ytdlp(self._queue_log, self._queue_status)
+            result = self.update_service.update(self._queue_log, self._queue_status)
         except Exception as exc:  # noqa: BLE001
             self.message_queue.put(("update_error", str(exc)))
         else:
-            self.message_queue.put(("update_done", message))
+            self.message_queue.put(("update_done", result))
 
     def _queue_status(self, status: str, message: str) -> None:
         self.message_queue.put(("status", f"{status}|{message}"))
@@ -382,13 +385,31 @@ class YtDlpHelperApp:
                 self._set_action_buttons_state("normal")
                 messagebox.showinfo("Download finished", payload)
             elif kind == "update_error":
-                self._set_status("failed", payload)
+                self._set_status("failed", str(payload))
                 self._set_action_buttons_state("normal")
                 messagebox.showerror("Update failed", payload)
             elif kind == "update_done":
-                self._set_status("completed", payload)
+                assert isinstance(payload, AppUpdateResult)
+                self._set_status("completed", payload.message)
                 self._set_action_buttons_state("normal")
-                messagebox.showinfo("Update finished", payload)
+                if payload.restart_ready and payload.restart_script:
+                    confirmed = messagebox.askyesno(
+                        "Restart to update",
+                        "Runtime tools were updated and a new app version is ready. Restart now to finish updating?",
+                        parent=self.root,
+                    )
+                    if confirmed:
+                        self._set_status("completed", "Ready to restart")
+                        start_restart_script(payload.restart_script)
+                        self.root.destroy()
+                    else:
+                        messagebox.showinfo(
+                            "Update ready",
+                            "The app update is staged. Restart later to finish updating.",
+                            parent=self.root,
+                        )
+                else:
+                    messagebox.showinfo("Update finished", payload.message, parent=self.root)
 
         if self.worker_thread and not self.worker_thread.is_alive():
             self._set_action_buttons_state("normal")
@@ -470,6 +491,7 @@ class YtDlpHelperApp:
 
         self.paths = replace(self.paths, download_dir=download_dir)
         self.downloader = DownloadService(self.paths)
+        self.update_service = UpdateService(self.paths)
         self.download_folder_var.set(str(download_dir))
         return True
 
@@ -507,7 +529,7 @@ class YtDlpHelperApp:
     def _set_action_buttons_state(self, state: str) -> None:
         self.actions_enabled = state == "normal"
         self.download_button.configure(state=state)
-        self.help_menu.entryconfigure("Update yt-dlp", state=state)
+        self.help_menu.entryconfigure("Update...", state=state)
         self._update_archive_buttons_state()
 
     def _update_archive_buttons_state(self) -> None:

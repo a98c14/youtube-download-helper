@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -19,6 +21,8 @@ StatusCallback = Callable[[str, str], None]
 
 YTDLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
 FFMPEG_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+YTDLP_RELEASE_API_URL = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
+FFMPEG_RELEASE_VERSION_URL = "https://www.gyan.dev/ffmpeg/builds/release-version"
 DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 UNKNOWN_TOTAL_LOG_BYTES = 5 * 1024 * 1024
 
@@ -36,6 +40,66 @@ def ensure_runtime_tools(
     ensure_ffmpeg(paths, log_callback, status_callback)
 
 
+def refresh_runtime_tools(
+    paths: AppPaths,
+    log_callback: LogCallback,
+    status_callback: StatusCallback,
+) -> None:
+    status_callback("installing", "Updating runtime tools")
+    log_callback("Checking app-managed runtime tools")
+    refresh_ytdlp(paths, log_callback, status_callback)
+    refresh_ffmpeg(paths, log_callback, status_callback)
+
+
+def refresh_ytdlp(
+    paths: AppPaths,
+    log_callback: LogCallback,
+    status_callback: StatusCallback,
+) -> None:
+    if not paths.ytdlp_executable.exists():
+        install_ytdlp(paths, log_callback, status_callback)
+        return
+
+    status_callback("installing", "Checking yt-dlp")
+    latest_version = _fetch_latest_ytdlp_version()
+    installed_version = _read_tool_version(paths.ytdlp_executable)
+    if installed_version and _normalize_version(installed_version) == _normalize_version(latest_version):
+        log_callback(f"yt-dlp is already current at {installed_version}.")
+        return
+
+    log_callback(f"yt-dlp update available: {installed_version or 'unknown'} -> {latest_version}")
+    install_ytdlp(paths, log_callback, status_callback)
+
+
+def refresh_ffmpeg(
+    paths: AppPaths,
+    log_callback: LogCallback,
+    status_callback: StatusCallback,
+) -> None:
+    if not paths.ffmpeg_executable.exists() or not paths.ffprobe_executable.exists():
+        install_ffmpeg(paths, log_callback, status_callback)
+        return
+
+    status_callback("installing", "Checking ffmpeg")
+    latest_version = _fetch_latest_ffmpeg_version()
+    installed_version = _read_tool_version(paths.ffmpeg_executable)
+    if installed_version and _ffmpeg_version_matches(installed_version, latest_version):
+        log_callback(f"ffmpeg is already current at {installed_version}.")
+        return
+
+    latest_source = _read_source_identity(FFMPEG_URL)
+    if latest_version:
+        latest_source["release-version"] = latest_version
+    metadata = _read_metadata(paths, "ffmpeg")
+    if latest_source and metadata and _metadata_matches_source(metadata, latest_source):
+        version = metadata.get("version") or _read_tool_version(paths.ffmpeg_executable) or "installed version"
+        log_callback(f"ffmpeg is already current at {version}.")
+        return
+
+    log_callback(f"ffmpeg update available: {installed_version or 'unknown'} -> {latest_version}")
+    install_ffmpeg(paths, log_callback, status_callback, source_identity=latest_source)
+
+
 def ensure_ytdlp(
     paths: AppPaths,
     log_callback: LogCallback,
@@ -44,8 +108,17 @@ def ensure_ytdlp(
     if find_ytdlp_executable(paths):
         return
 
+    install_ytdlp(paths, log_callback, status_callback)
+
+
+def install_ytdlp(
+    paths: AppPaths,
+    log_callback: LogCallback,
+    status_callback: StatusCallback,
+) -> None:
+
     status_callback("installing", "Installing yt-dlp")
-    log_callback(f"yt-dlp not found; downloading {YTDLP_URL}")
+    log_callback(f"Downloading fresh yt-dlp from {YTDLP_URL}")
     paths.tools_dir.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="ytdlp-helper-") as temp_dir:
@@ -55,11 +128,10 @@ def ensure_ytdlp(
             _download_file(YTDLP_URL, download_path, "yt-dlp", log_callback, status_callback)
             if not download_path.exists() or download_path.stat().st_size == 0:
                 raise DependencyInstallError("Downloaded yt-dlp.exe was empty.")
-            shutil.copy2(download_path, paths.ytdlp_executable)
+            os.replace(download_path, paths.ytdlp_executable)
             version = _read_tool_version(paths.ytdlp_executable)
-            _write_metadata(paths, "yt-dlp", YTDLP_URL, paths.ytdlp_executable, version)
+            _write_metadata(paths, "yt-dlp", YTDLP_URL, paths.ytdlp_executable, version, {})
         except (OSError, urllib.error.URLError, DependencyInstallError) as exc:
-            _remove_file(paths.ytdlp_executable)
             log_callback(f"yt-dlp install failed from {YTDLP_URL}: {exc}")
             raise DependencyInstallError(
                 "Could not install yt-dlp. Check your internet connection and click Download again."
@@ -76,8 +148,18 @@ def ensure_ffmpeg(
     if find_ffmpeg_location(paths):
         return
 
+    install_ffmpeg(paths, log_callback, status_callback)
+
+
+def install_ffmpeg(
+    paths: AppPaths,
+    log_callback: LogCallback,
+    status_callback: StatusCallback,
+    source_identity: dict[str, str] | None = None,
+) -> None:
+
     status_callback("installing", "Installing ffmpeg")
-    log_callback(f"ffmpeg not found; downloading {FFMPEG_URL}")
+    log_callback(f"Downloading fresh ffmpeg from {FFMPEG_URL}")
     paths.tools_dir.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="ytdlp-helper-") as temp_dir:
@@ -104,7 +186,7 @@ def ensure_ffmpeg(
                 shutil.rmtree(paths.ffmpeg_dir)
             shutil.move(str(stage_dir), str(paths.ffmpeg_dir))
             version = _read_tool_version(paths.ffmpeg_executable)
-            _write_metadata(paths, "ffmpeg", FFMPEG_URL, paths.ffmpeg_dir, version)
+            _write_metadata(paths, "ffmpeg", FFMPEG_URL, paths.ffmpeg_dir, version, source_identity or {})
         except (OSError, urllib.error.URLError, zipfile.BadZipFile, DependencyInstallError) as exc:
             if paths.ffmpeg_dir.exists() and (
                 not paths.ffmpeg_executable.exists() or not paths.ffprobe_executable.exists()
@@ -181,16 +263,105 @@ def _find_extracted_executable(root: Path, name: str) -> Path | None:
     return None
 
 
-def _write_metadata(paths: AppPaths, tool: str, source_url: str, install_path: Path, version: str | None) -> None:
+def _write_metadata(
+    paths: AppPaths,
+    tool: str,
+    source_url: str,
+    install_path: Path,
+    version: str | None,
+    source_identity: dict[str, str],
+) -> None:
     metadata = {
         "tool": tool,
         "source_url": source_url,
         "install_path": str(install_path),
         "installed_at": datetime.now(UTC).isoformat(),
         "version": version,
+        "source_identity": source_identity,
     }
     metadata_path = paths.tools_dir / f"{tool}.json"
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+
+def _read_metadata(paths: AppPaths, tool: str) -> dict[str, object] | None:
+    metadata_path = paths.tools_dir / f"{tool}.json"
+    try:
+        data = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _fetch_latest_ytdlp_version() -> str:
+    request = urllib.request.Request(YTDLP_RELEASE_API_URL, headers={"User-Agent": "YT-DLP Helper"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = response.read()
+    except (OSError, urllib.error.URLError) as exc:
+        raise DependencyInstallError("Could not check the latest yt-dlp version. Check your internet connection.") from exc
+
+    try:
+        data = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DependencyInstallError("GitHub returned an invalid yt-dlp release response.") from exc
+    if not isinstance(data, dict):
+        raise DependencyInstallError("GitHub returned an invalid yt-dlp release response.")
+    tag_name = str(data.get("tag_name", "")).strip()
+    if not tag_name:
+        raise DependencyInstallError("GitHub did not return a yt-dlp release version.")
+    return tag_name
+
+
+def _fetch_latest_ffmpeg_version() -> str:
+    request = urllib.request.Request(FFMPEG_RELEASE_VERSION_URL, headers={"User-Agent": "YT-DLP Helper"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = response.read()
+    except (OSError, urllib.error.URLError) as exc:
+        raise DependencyInstallError("Could not check the latest ffmpeg version. Check your internet connection.") from exc
+
+    try:
+        version = payload.decode("utf-8").strip()
+    except UnicodeDecodeError as exc:
+        raise DependencyInstallError("Gyan.dev returned an invalid ffmpeg version response.") from exc
+    if not version:
+        raise DependencyInstallError("Gyan.dev did not return a ffmpeg release version.")
+    return version
+
+
+def _read_source_identity(url: str) -> dict[str, str]:
+    request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "YT-DLP Helper"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            headers = getattr(response, "headers", None)
+    except (OSError, urllib.error.URLError) as exc:
+        raise DependencyInstallError("Could not check the latest ffmpeg package. Check your internet connection.") from exc
+
+    identity: dict[str, str] = {}
+    if headers:
+        for header in ("ETag", "Last-Modified", "Content-Length"):
+            value = headers.get(header)
+            if value:
+                identity[header.lower()] = str(value)
+    return identity
+
+
+def _metadata_matches_source(metadata: dict[str, object], source_identity: dict[str, str]) -> bool:
+    stored_identity = metadata.get("source_identity")
+    if not isinstance(stored_identity, dict) or not source_identity:
+        return False
+    return all(stored_identity.get(key) == value for key, value in source_identity.items())
+
+
+def _normalize_version(version: str) -> str:
+    normalized = version.strip()
+    if normalized.startswith("v"):
+        normalized = normalized[1:]
+    return normalized
+
+
+def _ffmpeg_version_matches(installed_version: str, latest_version: str) -> bool:
+    return re.search(rf"\b{re.escape(latest_version)}\b", installed_version) is not None
 
 
 def _read_tool_version(executable: Path) -> str | None:
@@ -208,10 +379,3 @@ def _read_tool_version(executable: Path) -> str | None:
         return None
     first_line = (result.stdout or result.stderr).splitlines()
     return first_line[0].strip() if first_line else None
-
-
-def _remove_file(path: Path) -> None:
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        return
