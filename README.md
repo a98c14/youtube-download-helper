@@ -21,8 +21,7 @@ A small Windows desktop app that wraps `yt-dlp` in a simple GUI for non-technica
 
 - Windows
 - Python 3.13+
-- `yt-dlp.exe` available from `vendor\yt-dlp.exe`, `vendor\yt-dlp\yt-dlp.exe`, or `PATH` for local runs
-- `ffmpeg` available on `PATH` for local runs, or bundled into `dist\YouTube Download Helper\ffmpeg\` for portable builds
+- Internet access the first time a download or yt-dlp update needs missing runtime tools
 
 ## Run Locally
 
@@ -41,7 +40,7 @@ python -m unittest discover -s tests -v
 
 ## Build Portable App
 
-The build produces a portable folder with one launcher executable plus bundled `yt-dlp.exe` and `ffmpeg` sidecars.
+The build produces a portable folder with one launcher executable. The app downloads `yt-dlp`, `ffmpeg`, and `ffprobe` into `%LOCALAPPDATA%\YT-DLP Helper\tools\` on first use when they are missing.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build_portable.ps1
@@ -50,9 +49,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_portable.ps1
 Expected output:
 
 - `dist\YouTube Download Helper\YouTube Download Helper.exe`
-- `dist\YouTube Download Helper\yt-dlp.exe`
-- `dist\YouTube Download Helper\ffmpeg\ffmpeg.exe`
-- `dist\YouTube Download Helper\ffmpeg\ffprobe.exe`
 
 Zip the `dist\YouTube Download Helper` folder and share it. The user only needs to extract it and run the `.exe`.
 
@@ -83,3 +79,7 @@ Files:
 - `settings.json`
 - `download-archive.txt`
 - `cookies.txt`
+- `tools\yt-dlp.exe`
+- `tools\ffmpeg\ffmpeg.exe`
+- `tools\ffmpeg\ffprobe.exe`
+- `tools\*.json` runtime tool metadata

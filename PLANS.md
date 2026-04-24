@@ -60,14 +60,15 @@ YouTube Download Helper is a Windows-first desktop app that makes `yt-dlp` usabl
 - Platform: Windows only.
 - Runtime: Python 3.13+, Tkinter GUI.
 - Downloader: `yt-dlp`.
-- Media processing: bundled `ffmpeg` and `ffprobe`.
-- Packaging: PyInstaller portable bundle.
+- Media processing: app-managed `ffmpeg` and `ffprobe`, installed on first use when missing.
+- Packaging: PyInstaller portable bundle without bundled downloader/media-processing binaries.
 
 ## Data & Storage
 - App data location: `%LOCALAPPDATA%\YT-DLP Helper\`
 - Files:
   - `settings.json`
   - `download-archive.txt`
+  - `tools\` managed runtime tools and metadata
 
 ## Success Criteria
 - A non-technical user can complete a download without using the command line.
@@ -78,4 +79,4 @@ YouTube Download Helper is a Windows-first desktop app that makes `yt-dlp` usabl
 ## Known Risks
 - Browser cookie extraction may fail if the selected profile is locked, not logged in, or lacks entitlement.
 - Upstream site changes may require `yt-dlp` updates.
-- Windows packaging increases bundle size because Python, Tk, and `yt-dlp` dependencies are included.
+- First-use downloads can fail when the machine is offline or GitHub/Gyan.dev is blocked.

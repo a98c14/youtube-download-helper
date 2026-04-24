@@ -349,7 +349,7 @@ class YtDlpHelperApp:
 
     def _run_update(self) -> None:
         try:
-            message = self.downloader.update_ytdlp(self._queue_log)
+            message = self.downloader.update_ytdlp(self._queue_log, self._queue_status)
         except Exception as exc:  # noqa: BLE001
             self.message_queue.put(("update_error", str(exc)))
         else:
@@ -402,8 +402,12 @@ class YtDlpHelperApp:
 
         self.status_var.set(message)
         if status == "downloading":
-            digits = "".join(ch for ch in message if ch.isdigit())
-            self.progress_var.set(int(digits) if digits else 10)
+            percent = _percent_from_message(message)
+            self.progress_var.set(percent if percent is not None else 10)
+        elif status == "installing":
+            percent = _percent_from_message(message)
+            self.progress_var.set(percent if percent is not None else 5)
+            self.speed_var.set("Speed: --")
         elif status == "postprocessing":
             self.progress_var.set(95)
             self.speed_var.set("Speed: --")
@@ -413,7 +417,7 @@ class YtDlpHelperApp:
         elif status in {"failed", "skipped"}:
             self.progress_var.set(0)
             self.speed_var.set("Speed: --")
-        elif status in {"queued", "resolving"}:
+        elif status in {"queued", "resolving", "installing"}:
             self.progress_var.set(5)
             self.speed_var.set("Speed: --")
 
@@ -519,3 +523,19 @@ def main() -> None:
     root = tk.Tk()
     app = YtDlpHelperApp(root)
     root.mainloop()
+
+
+def _percent_from_message(message: str) -> int | None:
+    percent_index = message.find("%")
+    if percent_index == -1:
+        return None
+    digits = []
+    for character in reversed(message[:percent_index]):
+        if not character.isdigit():
+            if digits:
+                break
+            continue
+        digits.append(character)
+    if not digits:
+        return None
+    return max(0, min(100, int("".join(reversed(digits)))))

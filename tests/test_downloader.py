@@ -61,6 +61,7 @@ class DownloaderTests(unittest.TestCase):
         service = DownloadService(_paths())
 
         with (
+            patch("ytdlp_helper.downloader.ensure_runtime_tools"),
             patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
             patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
         ):
@@ -118,6 +119,7 @@ class DownloaderTests(unittest.TestCase):
         logs: list[str] = []
 
         with (
+            patch("ytdlp_helper.downloader.ensure_runtime_tools") as ensure_tools,
             patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
             patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
             patch("ytdlp_helper.downloader.subprocess.Popen", return_value=FakeProcess([])) as popen,
@@ -129,6 +131,7 @@ class DownloaderTests(unittest.TestCase):
             )
 
         command = popen.call_args.args[0]
+        ensure_tools.assert_called_once()
         self.assertNotIn("--cookies", command)
         self.assertIn("No saved cookies; downloading as public session.", logs)
 
@@ -138,6 +141,7 @@ class DownloaderTests(unittest.TestCase):
         logs: list[str] = []
 
         with (
+            patch("ytdlp_helper.downloader.ensure_runtime_tools"),
             patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
             patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
             patch(
@@ -167,6 +171,7 @@ class DownloaderTests(unittest.TestCase):
         statuses: list[tuple[str, str]] = []
 
         with (
+            patch("ytdlp_helper.downloader.ensure_runtime_tools"),
             patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
             patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
             patch(
@@ -199,6 +204,7 @@ class DownloaderTests(unittest.TestCase):
         service = DownloadService(_paths())
 
         with (
+            patch("ytdlp_helper.downloader.ensure_runtime_tools"),
             patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
             patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
             patch(
@@ -223,7 +229,7 @@ class DownloaderTests(unittest.TestCase):
         service = DownloadService(_paths())
 
         with patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value=None):
-            with self.assertRaisesRegex(RuntimeError, "yt-dlp.exe was not found"):
+            with self.assertRaisesRegex(RuntimeError, "could not be installed"):
                 service._build_command(  # noqa: SLF001
                     DownloadRequest(
                         url="https://www.youtube.com/watch?v=abc123",
@@ -241,6 +247,7 @@ class DownloaderTests(unittest.TestCase):
         )
 
         with (
+            patch("ytdlp_helper.downloader.ensure_ytdlp"),
             patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
             patch("ytdlp_helper.downloader.subprocess.run", return_value=completed) as run,
         ):
@@ -270,6 +277,7 @@ class DownloaderTests(unittest.TestCase):
         )
 
         with (
+            patch("ytdlp_helper.downloader.ensure_ytdlp"),
             patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
             patch("ytdlp_helper.downloader.subprocess.run", return_value=completed),
             patch(
@@ -300,6 +308,7 @@ class DownloaderTests(unittest.TestCase):
         )
 
         with (
+            patch("ytdlp_helper.downloader.ensure_ytdlp"),
             patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
             patch("ytdlp_helper.downloader.subprocess.run", return_value=completed),
             patch(
@@ -324,6 +333,11 @@ def _paths() -> AppPaths:
         cookies_file=root / "data" / "cookies.txt",
         logs_dir=root / "data" / "logs",
         activity_log_file=root / "data" / "logs" / "activity.log",
+        tools_dir=root / "data" / "tools",
+        ytdlp_executable=root / "data" / "tools" / "yt-dlp.exe",
+        ffmpeg_dir=root / "data" / "tools" / "ffmpeg",
+        ffmpeg_executable=root / "data" / "tools" / "ffmpeg" / "ffmpeg.exe",
+        ffprobe_executable=root / "data" / "tools" / "ffmpeg" / "ffprobe.exe",
         download_dir=root / "downloads",
     )
 

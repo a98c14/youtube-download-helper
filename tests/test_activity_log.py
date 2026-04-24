@@ -67,6 +67,11 @@ def _paths() -> AppPaths:
         cookies_file=root / "data" / "cookies.txt",
         logs_dir=root / "data" / "logs",
         activity_log_file=root / "data" / "logs" / "activity.log",
+        tools_dir=root / "data" / "tools",
+        ytdlp_executable=root / "data" / "tools" / "yt-dlp.exe",
+        ffmpeg_dir=root / "data" / "tools" / "ffmpeg",
+        ffmpeg_executable=root / "data" / "tools" / "ffmpeg" / "ffmpeg.exe",
+        ffprobe_executable=root / "data" / "tools" / "ffmpeg" / "ffprobe.exe",
         download_dir=root / "downloads",
     )
 

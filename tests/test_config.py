@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from ytdlp_helper.config import AppPaths, get_app_paths, load_settings
+from ytdlp_helper.config import AppPaths, find_ffmpeg_location, get_app_paths, load_settings
 
 
 class ConfigTests(unittest.TestCase):
@@ -22,6 +22,11 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(paths.data_dir.name, "YT-DLP Helper")
         self.assertEqual(paths.logs_dir, paths.data_dir / "logs")
         self.assertEqual(paths.activity_log_file, paths.logs_dir / "activity.log")
+        self.assertEqual(paths.tools_dir, paths.data_dir / "tools")
+        self.assertEqual(paths.ytdlp_executable, paths.tools_dir / "yt-dlp.exe")
+        self.assertEqual(paths.ffmpeg_dir, paths.tools_dir / "ffmpeg")
+        self.assertEqual(paths.ffmpeg_executable, paths.ffmpeg_dir / "ffmpeg.exe")
+        self.assertEqual(paths.ffprobe_executable, paths.ffmpeg_dir / "ffprobe.exe")
 
     def test_load_settings_uses_saved_download_dir(self) -> None:
         paths = _paths()
@@ -37,6 +42,36 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.preset, "audio-mp3")
         self.assertEqual(settings.download_dir, str(saved_download_dir))
 
+    def test_find_ffmpeg_location_falls_back_to_path_when_ffmpeg_and_ffprobe_exist(self) -> None:
+        paths = _paths()
+        tools_dir = paths.data_dir.parent / "path-tools"
+        ffmpeg = tools_dir / "ffmpeg.exe"
+        ffprobe = tools_dir / "ffprobe.exe"
+
+        with patch("ytdlp_helper.config.shutil.which") as which:
+            which.side_effect = lambda name: {
+                "ffmpeg.exe": str(ffmpeg),
+                "ffmpeg": None,
+                "ffprobe.exe": str(ffprobe),
+                "ffprobe": None,
+            }[name]
+
+            self.assertEqual(find_ffmpeg_location(paths), str(tools_dir))
+
+    def test_find_ffmpeg_location_does_not_use_path_without_ffprobe(self) -> None:
+        paths = _paths()
+        ffmpeg = paths.data_dir.parent / "path-tools" / "ffmpeg.exe"
+
+        with patch("ytdlp_helper.config.shutil.which") as which:
+            which.side_effect = lambda name: {
+                "ffmpeg.exe": str(ffmpeg),
+                "ffmpeg": None,
+                "ffprobe.exe": None,
+                "ffprobe": None,
+            }[name]
+
+            self.assertIsNone(find_ffmpeg_location(paths))
+
 
 def _paths() -> AppPaths:
     root = Path(tempfile.mkdtemp())
@@ -47,6 +82,11 @@ def _paths() -> AppPaths:
         cookies_file=root / "data" / "cookies.txt",
         logs_dir=root / "data" / "logs",
         activity_log_file=root / "data" / "logs" / "activity.log",
+        tools_dir=root / "data" / "tools",
+        ytdlp_executable=root / "data" / "tools" / "yt-dlp.exe",
+        ffmpeg_dir=root / "data" / "tools" / "ffmpeg",
+        ffmpeg_executable=root / "data" / "tools" / "ffmpeg" / "ffmpeg.exe",
+        ffprobe_executable=root / "data" / "tools" / "ffmpeg" / "ffprobe.exe",
         download_dir=root / "downloads" / "youtube-download-helper",
     )
 

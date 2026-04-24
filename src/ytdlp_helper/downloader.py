@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from .config import AppPaths, find_ffmpeg_location, find_ytdlp_executable
+from .dependencies import ensure_runtime_tools, ensure_ytdlp
 
 
 StatusCallback = Callable[[str, str], None]
@@ -41,7 +42,8 @@ class DownloadService:
             raise RuntimeError("Could not read yt-dlp version.")
         return result.stdout.strip()
 
-    def update_ytdlp(self, log_callback: LogCallback) -> str:
+    def update_ytdlp(self, log_callback: LogCallback, status_callback: StatusCallback | None = None) -> str:
+        ensure_ytdlp(self._paths, log_callback, status_callback or _ignore_status)
         executable = self._require_ytdlp_executable()
         log_callback(f"Current yt-dlp version: {self.get_ytdlp_version()}")
         log_callback(f"Running: {executable} -U")
@@ -67,6 +69,7 @@ class DownloadService:
             raise ValueError("Enter a valid URL starting with http:// or https://.")
 
         status_callback("queued", "Preparing download")
+        ensure_runtime_tools(self._paths, log_callback, status_callback)
         command = self._build_command(request)
         if not self._paths.cookies_file.exists():
             log_callback("No saved cookies; downloading as public session.")
@@ -81,7 +84,7 @@ class DownloadService:
 
     def _build_command(self, request: DownloadRequest) -> list[str]:
         executable = self._require_ytdlp_executable()
-        ffmpeg_location = find_ffmpeg_location()
+        ffmpeg_location = find_ffmpeg_location(self._paths)
         command = [
             executable,
             "--paths",
@@ -132,11 +135,11 @@ class DownloadService:
         return command
 
     def _require_ytdlp_executable(self) -> str:
-        executable = find_ytdlp_executable()
+        executable = find_ytdlp_executable(self._paths)
         if executable:
             return executable
         raise RuntimeError(
-            "yt-dlp.exe was not found. Add yt-dlp.exe to the app folder, vendor folder, or PATH and try again."
+            "yt-dlp.exe was not found and could not be installed. Check your internet connection and try again."
         )
 
     def _run_process(
@@ -216,3 +219,7 @@ def _hidden_subprocess_kwargs() -> dict[str, int]:
     if creationflags:
         return {"creationflags": creationflags}
     return {}
+
+
+def _ignore_status(_status: str, _message: str) -> None:
+    return

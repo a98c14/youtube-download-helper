@@ -31,6 +31,11 @@ class AppPaths:
     cookies_file: Path
     logs_dir: Path
     activity_log_file: Path
+    tools_dir: Path
+    ytdlp_executable: Path
+    ffmpeg_dir: Path
+    ffmpeg_executable: Path
+    ffprobe_executable: Path
     download_dir: Path
 
 
@@ -46,6 +51,11 @@ def get_app_paths() -> AppPaths:
         cookies_file=data_dir / COOKIES_FILE,
         logs_dir=data_dir / LOGS_FOLDER_NAME,
         activity_log_file=data_dir / LOGS_FOLDER_NAME / ACTIVITY_LOG_FILE,
+        tools_dir=data_dir / "tools",
+        ytdlp_executable=data_dir / "tools" / "yt-dlp.exe",
+        ffmpeg_dir=data_dir / "tools" / "ffmpeg",
+        ffmpeg_executable=data_dir / "tools" / "ffmpeg" / "ffmpeg.exe",
+        ffprobe_executable=data_dir / "tools" / "ffmpeg" / "ffprobe.exe",
         download_dir=download_dir,
     )
 
@@ -53,6 +63,7 @@ def get_app_paths() -> AppPaths:
 def ensure_app_dirs(paths: AppPaths) -> None:
     paths.data_dir.mkdir(parents=True, exist_ok=True)
     paths.logs_dir.mkdir(parents=True, exist_ok=True)
+    paths.tools_dir.mkdir(parents=True, exist_ok=True)
     paths.download_dir.mkdir(parents=True, exist_ok=True)
     paths.archive_file.touch(exist_ok=True)
 
@@ -84,8 +95,11 @@ def save_settings(paths: AppPaths, settings: Settings) -> None:
     )
 
 
-def find_ffmpeg_location() -> str | None:
+def find_ffmpeg_location(paths: AppPaths | None = None) -> str | None:
     candidates: list[Path] = []
+
+    if paths and paths.ffmpeg_executable.exists() and paths.ffprobe_executable.exists():
+        return str(paths.ffmpeg_dir)
 
     if getattr(sys, "frozen", False):
         exe_dir = Path(sys.executable).resolve().parent
@@ -105,14 +119,25 @@ def find_ffmpeg_location() -> str | None:
         )
 
     for candidate in candidates:
-        if (candidate / "ffmpeg.exe").exists():
+        if _has_ffmpeg_pair(candidate):
             return str(candidate)
+
+    path_ffmpeg = shutil.which("ffmpeg.exe") or shutil.which("ffmpeg")
+    path_ffprobe = shutil.which("ffprobe.exe") or shutil.which("ffprobe")
+    if path_ffmpeg and path_ffprobe:
+        ffmpeg_dir = Path(path_ffmpeg).resolve().parent
+        ffprobe_dir = Path(path_ffprobe).resolve().parent
+        if ffmpeg_dir == ffprobe_dir:
+            return str(ffmpeg_dir)
 
     return None
 
 
-def find_ytdlp_executable() -> str | None:
+def find_ytdlp_executable(paths: AppPaths | None = None) -> str | None:
     candidates: list[Path] = []
+
+    if paths and paths.ytdlp_executable.exists():
+        return str(paths.ytdlp_executable)
 
     if getattr(sys, "frozen", False):
         exe_dir = Path(sys.executable).resolve().parent
@@ -136,3 +161,7 @@ def find_ytdlp_executable() -> str | None:
             return str(candidate)
 
     return shutil.which("yt-dlp.exe") or shutil.which("yt-dlp")
+
+
+def _has_ffmpeg_pair(directory: Path) -> bool:
+    return (directory / "ffmpeg.exe").exists() and (directory / "ffprobe.exe").exists()
