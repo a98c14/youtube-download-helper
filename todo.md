@@ -7,7 +7,7 @@
 - [x] Turkish language translations. Also a settings button under 'File' menu that opens a settings panel. Language selection should be in there. It should use 'Turkish' by default but also remember the settings selections by the user.
 - [x] Ability to download playlist urls as single video (ignoring the playlist). We should have separate button for downloading as playlist.
 - [x] About screen that tells us about the app and yt-dlp versions.
-- [] Editable video file name format.
+- [x] Editable video file name format. This should be located in settings screen. Also move the download folder to the settings screen. We can remove the download folder from the main view. Just keep 'Go to download folder' button but move it next to download buttons. 
 - [] Multiple file download support. We should have a table view like in torrent clients with columns like video name, progress percentages (no bar), speed, video add date.
 - [] Activity Log should only show the current session's log. Not the whole log file.
 - [] Contact support button under 'Help' menu. It should mail the latest activity log and have a little message box for custom message by the user. Mail should be sent to 'selimyesilkaya@gmail.com'. It can use the user's own mail account or maybe it can send it via an online service I am not sure.

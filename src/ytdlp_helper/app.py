@@ -17,6 +17,7 @@ from .archive import (
     parse_youtube_video_id,
 )
 from .config import (
+    DEFAULT_FILENAME_TEMPLATE,
     Settings,
     ensure_app_dirs,
     find_ytdlp_executable,
@@ -70,7 +71,7 @@ class YtDlpHelperApp:
         self.language = normalize_language(self.settings.language)
         self.paths = replace(self.paths, download_dir=Path(self.settings.download_dir).expanduser())
         ensure_app_dirs(self.paths)
-        self.downloader = DownloadService(self.paths)
+        self.downloader = DownloadService(self.paths, self.settings.filename_template)
         self.update_service = UpdateService(self.paths)
         self.activity_log = ActivityLogStore(self.paths)
         self.worker_thread: threading.Thread | None = None
@@ -95,6 +96,7 @@ class YtDlpHelperApp:
         self.status_var = tk.StringVar(value=self._t(self.status_key))
         self.speed_var = tk.StringVar(value=self._t("status.speed_empty"))
         self.download_folder_var = tk.StringVar(value=str(self.paths.download_dir))
+        self.filename_template_var = tk.StringVar(value=self.settings.filename_template)
         self.progress_var = tk.IntVar(value=0)
 
         self._build_ui()
@@ -174,30 +176,6 @@ class YtDlpHelperApp:
             row=0, column=1, sticky="e", padx=(10, 0)
         )
 
-        self._form_label(form, "field.downloads_folder").grid(
-            row=4, column=0, sticky="w", padx=(0, 12), pady=(0, 12)
-        )
-        download_folder_row = ttk.Frame(form)
-        download_folder_row.grid(row=4, column=1, sticky="ew", pady=(0, 12))
-        download_folder_row.columnconfigure(0, weight=1)
-        ttk.Entry(download_folder_row, textvariable=self.download_folder_var).grid(
-            row=0, column=0, sticky="ew"
-        )
-        browse_button = ttk.Button(download_folder_row, text=self._t("button.browse"), command=self._choose_download_folder)
-        self.button_widgets["button.browse"] = browse_button
-        browse_button.grid(
-            row=0, column=1, sticky="e", padx=(10, 0)
-        )
-        self.open_downloads_icon = self._create_open_folder_icon()
-        ttk.Button(
-            download_folder_row,
-            image=self.open_downloads_icon,
-            command=self._open_downloads,
-            width=3,
-        ).grid(
-            row=0, column=2, sticky="e", padx=(10, 0)
-        )
-
         button_bar = ttk.Frame(container)
         button_bar.grid(row=3, column=0, sticky="ew", pady=(16, 12))
 
@@ -211,6 +189,13 @@ class YtDlpHelperApp:
         )
         self.button_widgets["button.download_playlist"] = self.download_playlist_button
         self.download_playlist_button.pack(side="left")
+        self.open_downloads_icon = self._create_open_folder_icon()
+        ttk.Button(
+            button_bar,
+            image=self.open_downloads_icon,
+            command=self._open_downloads,
+            width=3,
+        ).pack(side="left", padx=(10, 0))
 
         progress_frame = ttk.Frame(container)
         progress_frame.grid(row=4, column=0, sticky="ew", pady=(0, 12))
@@ -255,9 +240,12 @@ class YtDlpHelperApp:
         language_pairs = language_options(self.language)
         language_labels = [label for label, _ in language_pairs]
         selected_language.set(self._language_label_for_code(language_pairs, self.language))
+        selected_download_folder = tk.StringVar(value=str(self.paths.download_dir))
+        selected_filename_template = tk.StringVar(value=self.filename_template_var.get())
 
         frame = ttk.Frame(dialog, padding=16)
         frame.grid(row=0, column=0, sticky="nsew")
+        frame.columnconfigure(1, weight=1)
         ttk.Label(frame, text=self._t("settings.language")).grid(
             row=0, column=0, sticky="w", padx=(0, 12), pady=(0, 12)
         )
@@ -270,15 +258,43 @@ class YtDlpHelperApp:
         )
         language_combo.grid(row=0, column=1, sticky="ew", pady=(0, 12))
 
+        ttk.Label(frame, text=self._t("settings.downloads_folder")).grid(
+            row=1, column=0, sticky="w", padx=(0, 12), pady=(0, 12)
+        )
+        download_folder_row = ttk.Frame(frame)
+        download_folder_row.grid(row=1, column=1, sticky="ew", pady=(0, 12))
+        download_folder_row.columnconfigure(0, weight=1)
+        ttk.Entry(download_folder_row, textvariable=selected_download_folder, width=46).grid(
+            row=0, column=0, sticky="ew"
+        )
+        ttk.Button(
+            download_folder_row,
+            text=self._t("button.browse"),
+            command=lambda: self._choose_settings_download_folder(selected_download_folder, dialog),
+        ).grid(row=0, column=1, sticky="e", padx=(10, 0))
+
+        ttk.Label(frame, text=self._t("settings.filename_format")).grid(
+            row=2, column=0, sticky="w", padx=(0, 12), pady=(0, 12)
+        )
+        ttk.Entry(frame, textvariable=selected_filename_template, width=46).grid(
+            row=2, column=1, sticky="ew", pady=(0, 12)
+        )
+
         button_bar = ttk.Frame(frame)
-        button_bar.grid(row=1, column=0, columnspan=2, sticky="e")
+        button_bar.grid(row=3, column=0, columnspan=2, sticky="e")
         ttk.Button(button_bar, text=self._t("button.cancel"), command=dialog.destroy).pack(
             side="right", padx=(8, 0)
         )
         ttk.Button(
             button_bar,
             text=self._t("button.save"),
-            command=lambda: self._save_settings_dialog(dialog, selected_language.get(), language_pairs),
+            command=lambda: self._save_settings_dialog(
+                dialog,
+                selected_language.get(),
+                language_pairs,
+                selected_download_folder.get(),
+                selected_filename_template.get(),
+            ),
         ).pack(side="right")
 
         language_combo.focus_set()
@@ -289,12 +305,32 @@ class YtDlpHelperApp:
         dialog: tk.Toplevel,
         selected_label: str,
         language_pairs: list[tuple[str, str]],
+        download_folder: str | None = None,
+        filename_template: str | None = None,
     ) -> None:
         selected_language = self._language_code_for_label(language_pairs, selected_label)
-        if selected_language:
-            self.language = selected_language
-            self._persist_settings()
-            self._refresh_language()
+        if not selected_language:
+            return
+
+        download_dir = self._validate_download_folder(download_folder or self.download_folder_var.get(), dialog)
+        if not download_dir:
+            return
+
+        validated_template = self._validate_filename_template(
+            filename_template if filename_template is not None else self.filename_template_var.get(),
+            dialog,
+        )
+        if not validated_template:
+            return
+
+        self.language = selected_language
+        self.paths = replace(self.paths, download_dir=download_dir)
+        self.download_folder_var.set(str(download_dir))
+        self.filename_template_var.set(validated_template)
+        self.downloader = DownloadService(self.paths, validated_template)
+        self.update_service = UpdateService(self.paths)
+        self._persist_settings()
+        self._refresh_language()
         dialog.destroy()
 
     def _language_label_for_code(self, pairs: list[tuple[str, str]], code: str) -> str:
@@ -611,30 +647,46 @@ class YtDlpHelperApp:
             preset=self.preset_var.get(),
             download_dir=str(self.paths.download_dir),
             language=self.language,
+            filename_template=self.filename_template_var.get().strip() or DEFAULT_FILENAME_TEMPLATE,
         )
         save_settings(self.paths, self.settings)
 
-    def _choose_download_folder(self) -> None:
-        current_dir = self._download_folder_from_entry()
+    def _choose_settings_download_folder(self, folder_var: tk.StringVar, parent: tk.Toplevel) -> None:
+        current_dir = self._download_folder_from_value(folder_var.get())
         initial_dir = current_dir if current_dir and current_dir.exists() else Path.home()
         selected_dir = filedialog.askdirectory(
-            parent=self.root,
+            parent=parent,
             title=self._t("dialog.choose_downloads.title"),
             initialdir=str(initial_dir),
         )
         if selected_dir:
-            self.download_folder_var.set(selected_dir)
-            if self._apply_download_folder():
-                self._persist_settings()
+            folder_var.set(selected_dir)
 
     def _apply_download_folder(self) -> bool:
-        download_dir = self._download_folder_from_entry()
+        download_dir = self._validate_download_folder(self.download_folder_var.get(), self.root)
+        if not download_dir:
+            return False
+
+        self.paths = replace(self.paths, download_dir=download_dir)
+        self.downloader = DownloadService(self.paths, self.filename_template_var.get())
+        self.update_service = UpdateService(self.paths)
+        self.download_folder_var.set(str(download_dir))
+        return True
+
+    def _download_folder_from_value(self, value: str) -> Path | None:
+        raw_path = value.strip()
+        if not raw_path:
+            return None
+        return Path(raw_path).expanduser()
+
+    def _validate_download_folder(self, value: str, parent: tk.Misc) -> Path | None:
+        download_dir = self._download_folder_from_value(value)
         if not download_dir:
             message = self._t("dialog.downloads_required.message")
             self._set_status("failed", message)
             self._append_log(message)
-            messagebox.showerror(self._t("dialog.downloads_required.title"), message)
-            return False
+            messagebox.showerror(self._t("dialog.downloads_required.title"), message, parent=parent)
+            return None
 
         try:
             download_dir.mkdir(parents=True, exist_ok=True)
@@ -642,20 +694,26 @@ class YtDlpHelperApp:
             message = self._t("dialog.downloads_unavailable.message", error=exc)
             self._set_status("failed", message)
             self._append_log(message)
-            messagebox.showerror(self._t("dialog.downloads_unavailable.title"), message)
-            return False
-
-        self.paths = replace(self.paths, download_dir=download_dir)
-        self.downloader = DownloadService(self.paths)
-        self.update_service = UpdateService(self.paths)
-        self.download_folder_var.set(str(download_dir))
-        return True
-
-    def _download_folder_from_entry(self) -> Path | None:
-        raw_path = self.download_folder_var.get().strip()
-        if not raw_path:
+            messagebox.showerror(self._t("dialog.downloads_unavailable.title"), message, parent=parent)
             return None
-        return Path(raw_path).expanduser()
+
+        return download_dir
+
+    def _validate_filename_template(self, value: str, parent: tk.Misc) -> str | None:
+        filename_template = value.strip()
+        if not filename_template:
+            message = self._t("dialog.filename_format_required.message")
+            messagebox.showerror(self._t("dialog.filename_format_required.title"), message, parent=parent)
+            return None
+        if "%(ext)s" not in filename_template:
+            message = self._t("dialog.filename_format_ext_required.message")
+            messagebox.showerror(self._t("dialog.filename_format_ext_required.title"), message, parent=parent)
+            return None
+        if "/" in filename_template or "\\" in filename_template:
+            message = self._t("dialog.filename_format_no_folders.message")
+            messagebox.showerror(self._t("dialog.filename_format_no_folders.title"), message, parent=parent)
+            return None
+        return filename_template
 
     def _open_downloads(self) -> None:
         if self._apply_download_folder():

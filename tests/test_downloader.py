@@ -58,7 +58,7 @@ class DownloaderTests(unittest.TestCase):
         self.assertEqual(command[-1], "https://www.youtube.com/watch?v=abc123")
 
     def test_builds_playlist_command_when_requested(self) -> None:
-        service = DownloadService(_paths())
+        service = DownloadService(_paths(), "%(upload_date)s - %(title)s.%(ext)s")
 
         with (
             patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
@@ -74,6 +74,11 @@ class DownloaderTests(unittest.TestCase):
 
         self.assertIn("--yes-playlist", command)
         self.assertNotIn("--no-playlist", command)
+        self.assert_option(command, "--output", "default:%(upload_date)s - %(title)s.%(ext)s")
+        self.assertEqual(
+            command[command.index("--output", command.index("--output") + 1) + 1],
+            "pl_video:%(playlist)s/%(upload_date)s - %(title)s.%(ext)s",
+        )
         self.assert_option(command, "--format", "bv*+ba/b")
         self.assertEqual(command[-1], "https://www.youtube.com/playlist?list=abc123")
 

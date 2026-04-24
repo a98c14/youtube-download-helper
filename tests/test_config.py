@@ -10,7 +10,14 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from ytdlp_helper.config import AppPaths, Settings, find_ffmpeg_location, get_app_paths, load_settings
+from ytdlp_helper.config import (
+    DEFAULT_FILENAME_TEMPLATE,
+    AppPaths,
+    Settings,
+    find_ffmpeg_location,
+    get_app_paths,
+    load_settings,
+)
 
 
 class ConfigTests(unittest.TestCase):
@@ -47,6 +54,37 @@ class ConfigTests(unittest.TestCase):
         settings = Settings()
 
         self.assertEqual(settings.language, "tr")
+        self.assertEqual(settings.filename_template, DEFAULT_FILENAME_TEMPLATE)
+
+    def test_load_settings_uses_saved_filename_template(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        paths.settings_file.write_text(
+            json.dumps(
+                {
+                    "preset": "audio-mp3",
+                    "download_dir": "downloads",
+                    "filename_template": "%(upload_date)s - %(title)s.%(ext)s",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        settings = load_settings(paths)
+
+        self.assertEqual(settings.filename_template, "%(upload_date)s - %(title)s.%(ext)s")
+
+    def test_load_settings_falls_back_to_default_filename_template_when_blank(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        paths.settings_file.write_text(
+            json.dumps({"preset": "audio-mp3", "download_dir": "downloads", "filename_template": "  "}),
+            encoding="utf-8",
+        )
+
+        settings = load_settings(paths)
+
+        self.assertEqual(settings.filename_template, DEFAULT_FILENAME_TEMPLATE)
 
     def test_load_settings_uses_saved_valid_language(self) -> None:
         paths = _paths()

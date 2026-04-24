@@ -103,14 +103,26 @@ class AppStatusTests(unittest.TestCase):
     def test_settings_save_persists_language_and_refreshes_visible_ui(self) -> None:
         app = _app_with_localized_widgets()
         dialog = FakeDialog()
+        new_download_dir = app.paths.data_dir.parent / "new-downloads"
 
         with patch("ytdlp_helper.app.save_settings") as save_settings:
-            app._save_settings_dialog(dialog, "Turkish", [("Turkish", "tr"), ("English", "en")])  # noqa: SLF001
+            app._save_settings_dialog(  # noqa: SLF001
+                dialog,
+                "Turkish",
+                [("Turkish", "tr"), ("English", "en")],
+                str(new_download_dir),
+                "%(upload_date)s - %(title)s.%(ext)s",
+            )
 
         self.assertTrue(dialog.destroyed)
         self.assertEqual(app.language, "tr")
         saved_settings = save_settings.call_args.args[1]
         self.assertEqual(saved_settings.language, "tr")
+        self.assertEqual(saved_settings.download_dir, str(new_download_dir))
+        self.assertEqual(saved_settings.filename_template, "%(upload_date)s - %(title)s.%(ext)s")
+        self.assertEqual(app.paths.download_dir, new_download_dir)
+        self.assertEqual(app.download_folder_var.value, str(new_download_dir))
+        self.assertEqual(app.filename_template_var.value, "%(upload_date)s - %(title)s.%(ext)s")
         self.assertEqual(app.label_widgets["field.preset"].options["text"], "Ön Ayar")
         self.assertEqual(app.button_widgets["button.download"].options["text"], "İndir")
         self.assertEqual(app.button_widgets["button.download_playlist"].options["text"], "Oynatma Listesini İndir")
@@ -119,6 +131,66 @@ class AppStatusTests(unittest.TestCase):
         self.assertEqual(app.archive_status_var.value, "Kontrol edilmedi")
         self.assertEqual(app.status_var.value, "Hazır")
         self.assertEqual(app.help_menu.entries[1]["label"], "Hakkında")
+
+    def test_settings_save_rejects_blank_filename_template(self) -> None:
+        app = _app_with_localized_widgets()
+        dialog = FakeDialog()
+
+        with (
+            patch("ytdlp_helper.app.save_settings") as save_settings,
+            patch("ytdlp_helper.app.messagebox.showerror") as showerror,
+        ):
+            app._save_settings_dialog(  # noqa: SLF001
+                dialog,
+                "English",
+                [("Turkish", "tr"), ("English", "en")],
+                str(app.paths.download_dir),
+                "  ",
+            )
+
+        self.assertFalse(dialog.destroyed)
+        save_settings.assert_not_called()
+        self.assertIn("Filename format required", showerror.call_args.args[0])
+
+    def test_settings_save_rejects_filename_template_without_ext(self) -> None:
+        app = _app_with_localized_widgets()
+        dialog = FakeDialog()
+
+        with (
+            patch("ytdlp_helper.app.save_settings") as save_settings,
+            patch("ytdlp_helper.app.messagebox.showerror") as showerror,
+        ):
+            app._save_settings_dialog(  # noqa: SLF001
+                dialog,
+                "English",
+                [("Turkish", "tr"), ("English", "en")],
+                str(app.paths.download_dir),
+                "%(title)s",
+            )
+
+        self.assertFalse(dialog.destroyed)
+        save_settings.assert_not_called()
+        self.assertIn("Filename extension required", showerror.call_args.args[0])
+
+    def test_settings_save_rejects_filename_template_with_path_separators(self) -> None:
+        app = _app_with_localized_widgets()
+        dialog = FakeDialog()
+
+        with (
+            patch("ytdlp_helper.app.save_settings") as save_settings,
+            patch("ytdlp_helper.app.messagebox.showerror") as showerror,
+        ):
+            app._save_settings_dialog(  # noqa: SLF001
+                dialog,
+                "English",
+                [("Turkish", "tr"), ("English", "en")],
+                str(app.paths.download_dir),
+                "nested/%(title)s.%(ext)s",
+            )
+
+        self.assertFalse(dialog.destroyed)
+        save_settings.assert_not_called()
+        self.assertIn("Filename format cannot include folders", showerror.call_args.args[0])
 
     def test_action_state_disables_download_buttons_and_update_menu_only(self) -> None:
         app = YtDlpHelperApp.__new__(YtDlpHelperApp)
@@ -232,6 +304,8 @@ def _app_with_localized_widgets() -> YtDlpHelperApp:
     app.paths = _paths()
     app.preset_var = FakeVar("audio-m4a")
     app.preset_label_var = FakeVar("Audio M4A")
+    app.download_folder_var = FakeVar(str(app.paths.download_dir))
+    app.filename_template_var = FakeVar("%(title)s [%(id)s].%(ext)s")
     app.archive_status_key = "archive.not_checked"
     app.archive_status_var = FakeVar("Not checked")
     app.cookie_status_var = FakeVar("No cookies saved")

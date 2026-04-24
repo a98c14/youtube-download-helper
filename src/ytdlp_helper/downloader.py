@@ -5,7 +5,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import Callable
 
-from .config import AppPaths, find_ffmpeg_location, find_ytdlp_executable
+from .config import DEFAULT_FILENAME_TEMPLATE, AppPaths, find_ffmpeg_location, find_ytdlp_executable
 from .dependencies import ensure_runtime_tools
 
 
@@ -27,8 +27,9 @@ class DownloadRequest:
 
 
 class DownloadService:
-    def __init__(self, paths: AppPaths) -> None:
+    def __init__(self, paths: AppPaths, filename_template: str = DEFAULT_FILENAME_TEMPLATE) -> None:
         self._paths = paths
+        self._filename_template = filename_template.strip() or DEFAULT_FILENAME_TEMPLATE
 
     def get_ytdlp_version(self) -> str:
         executable = self._require_ytdlp_executable()
@@ -77,9 +78,9 @@ class DownloadService:
             "--paths",
             f"home:{self._paths.download_dir}",
             "--output",
-            "default:%(title)s [%(id)s].%(ext)s",
+            f"default:{self._filename_template}",
             "--output",
-            "pl_video:%(playlist)s/%(title)s [%(id)s].%(ext)s",
+            f"pl_video:%(playlist)s/{self._filename_template}",
             "--windows-filenames",
             "--yes-playlist" if request.playlist else "--no-playlist",
             "--no-warnings",

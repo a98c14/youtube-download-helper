@@ -17,6 +17,7 @@ ARCHIVE_FILE = "download-archive.txt"
 COOKIES_FILE = "cookies.txt"
 LOGS_FOLDER_NAME = "logs"
 ACTIVITY_LOG_FILE = "activity.log"
+DEFAULT_FILENAME_TEMPLATE = "%(title)s [%(id)s].%(ext)s"
 
 
 @dataclass
@@ -24,6 +25,7 @@ class Settings:
     preset: str = "best-video"
     download_dir: str = ""
     language: str = "tr"
+    filename_template: str = DEFAULT_FILENAME_TEMPLATE
 
 
 @dataclass(frozen=True)
@@ -85,9 +87,12 @@ def load_settings(paths: AppPaths) -> Settings:
         preset=str(data.get("preset", defaults.preset)),
         download_dir=str(data.get("download_dir", defaults.download_dir)),
         language=normalize_language(str(data.get("language", defaults.language))),
+        filename_template=str(data.get("filename_template", defaults.filename_template)),
     )
     if not settings.download_dir:
         settings.download_dir = str(paths.download_dir)
+    if not settings.filename_template.strip():
+        settings.filename_template = DEFAULT_FILENAME_TEMPLATE
     return settings
 
 
