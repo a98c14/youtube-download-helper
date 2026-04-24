@@ -27,10 +27,11 @@
 - Run `python -m unittest discover -s tests -v` before shipping changes.
 
 ## Commit & Pull Request Guidelines
-- No Git history is available in this workspace, so use concise imperative commit messages such as `Fix packaged launcher import` or `Add playlist archive coverage`.
+- Use concise imperative commit messages such as `Fix packaged launcher import` or `Add playlist archive coverage`.
 - Keep commits focused on one logical change.
 - PRs should include a short summary, test results, and screenshots for UI-visible changes.
 - Call out packaging changes explicitly when they affect `dist/`, `build/`, or bundled `ffmpeg`.
+- After completing work, update `todo.md` so it reflects the current state before handing off.
 
 ## Security & Configuration Tips
 - Do not commit exported cookies, local browser data, or `%LOCALAPPDATA%` app-state files.
