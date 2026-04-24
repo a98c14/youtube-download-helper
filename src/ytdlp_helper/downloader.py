@@ -23,6 +23,7 @@ VIDEO_PRESET_FORMATS = {
 class DownloadRequest:
     url: str
     preset: str
+    playlist: bool = False
 
 
 class DownloadService:
@@ -80,7 +81,7 @@ class DownloadService:
             "--output",
             "pl_video:%(playlist)s/%(title)s [%(id)s].%(ext)s",
             "--windows-filenames",
-            "--yes-playlist",
+            "--yes-playlist" if request.playlist else "--no-playlist",
             "--no-warnings",
             "--newline",
             "--no-color",
@@ -201,4 +202,3 @@ def _hidden_subprocess_kwargs() -> dict[str, int]:
     if creationflags:
         return {"creationflags": creationflags}
     return {}
-

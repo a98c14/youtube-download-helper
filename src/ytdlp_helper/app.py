@@ -192,7 +192,14 @@ class YtDlpHelperApp:
 
         self.download_button = ttk.Button(button_bar, text=self._t("button.download"), command=self._start_download)
         self.button_widgets["button.download"] = self.download_button
-        self.download_button.pack(side="left")
+        self.download_button.pack(side="left", padx=(0, 10))
+        self.download_playlist_button = ttk.Button(
+            button_bar,
+            text=self._t("button.download_playlist"),
+            command=self._start_playlist_download,
+        )
+        self.button_widgets["button.download_playlist"] = self.download_playlist_button
+        self.download_playlist_button.pack(side="left")
 
         progress_frame = ttk.Frame(container)
         progress_frame.grid(row=4, column=0, sticky="ew", pady=(0, 12))
@@ -402,6 +409,12 @@ class YtDlpHelperApp:
         self._append_log(message)
 
     def _start_download(self) -> None:
+        self._start_download_request(playlist=False)
+
+    def _start_playlist_download(self) -> None:
+        self._start_download_request(playlist=True)
+
+    def _start_download_request(self, playlist: bool) -> None:
         if self.worker_thread and self.worker_thread.is_alive():
             messagebox.showinfo(self._t("dialog.task_in_progress.title"), self._t("dialog.task_in_progress.message"))
             return
@@ -409,6 +422,7 @@ class YtDlpHelperApp:
         request = DownloadRequest(
             url=self.url_var.get().strip(),
             preset=self.preset_var.get(),
+            playlist=playlist,
         )
 
         if not self._apply_download_folder():
@@ -637,6 +651,7 @@ class YtDlpHelperApp:
     def _set_action_buttons_state(self, state: str) -> None:
         self.actions_enabled = state == "normal"
         self.download_button.configure(state=state)
+        self.download_playlist_button.configure(state=state)
         self.help_menu.entryconfigure(0, state=state)
         self._update_archive_buttons_state()
 

@@ -112,10 +112,32 @@ class AppStatusTests(unittest.TestCase):
         self.assertEqual(saved_settings.language, "tr")
         self.assertEqual(app.label_widgets["field.preset"].options["text"], "Ön Ayar")
         self.assertEqual(app.button_widgets["button.download"].options["text"], "İndir")
+        self.assertEqual(app.button_widgets["button.download_playlist"].options["text"], "Oynatma Listesini İndir")
         self.assertEqual(app.preset_combo.options["values"][0], "En İyi Video")
         self.assertEqual(app.preset_label_var.value, "Ses M4A")
         self.assertEqual(app.archive_status_var.value, "Kontrol edilmedi")
         self.assertEqual(app.status_var.value, "Hazır")
+
+    def test_action_state_applies_to_both_download_buttons(self) -> None:
+        app = YtDlpHelperApp.__new__(YtDlpHelperApp)
+        app.download_button = FakeWidget()
+        app.download_playlist_button = FakeWidget()
+        app.archive_check_button = FakeWidget()
+        app.archive_clear_button = FakeWidget()
+        app.archive_is_archived = True
+        app.help_menu = FakeMenu()
+
+        app._set_action_buttons_state("disabled")  # noqa: SLF001
+
+        self.assertFalse(app.actions_enabled)
+        self.assertEqual(app.download_button.options["state"], "disabled")
+        self.assertEqual(app.download_playlist_button.options["state"], "disabled")
+
+        app._set_action_buttons_state("normal")  # noqa: SLF001
+
+        self.assertTrue(app.actions_enabled)
+        self.assertEqual(app.download_button.options["state"], "normal")
+        self.assertEqual(app.download_playlist_button.options["state"], "normal")
 
 
 def _app_with_status_vars() -> YtDlpHelperApp:
@@ -143,7 +165,7 @@ def _app_with_localized_widgets() -> YtDlpHelperApp:
     app.header_label = FakeWidget()
     app.subtitle_label = FakeWidget()
     app.label_widgets = {"field.preset": FakeWidget()}
-    app.button_widgets = {"button.download": FakeWidget()}
+    app.button_widgets = {"button.download": FakeWidget(), "button.download_playlist": FakeWidget()}
     app.menu_bar = FakeMenu()
     app.file_menu = FakeMenu()
     app.help_menu = FakeMenu()

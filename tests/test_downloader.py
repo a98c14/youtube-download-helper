@@ -46,8 +46,8 @@ class DownloaderTests(unittest.TestCase):
             )
 
         self.assertEqual(command[0], "C:/tools/yt-dlp.exe")
-        self.assertIn("--yes-playlist", command)
-        self.assertNotIn("--no-playlist", command)
+        self.assertIn("--no-playlist", command)
+        self.assertNotIn("--yes-playlist", command)
         self.assertIn(f"home:{service._paths.download_dir}", command)  # noqa: SLF001
         self.assert_option(command, "--download-archive", str(service._paths.archive_file))  # noqa: SLF001
         self.assert_option(command, "--cookies", str(service._paths.cookies_file))  # noqa: SLF001
@@ -56,6 +56,26 @@ class DownloaderTests(unittest.TestCase):
         self.assert_option(command, "--format", "bv*+ba/b")
         self.assert_option(command, "--merge-output-format", "mp4")
         self.assertEqual(command[-1], "https://www.youtube.com/watch?v=abc123")
+
+    def test_builds_playlist_command_when_requested(self) -> None:
+        service = DownloadService(_paths())
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
+            patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
+        ):
+            command = service._build_command(  # noqa: SLF001
+                DownloadRequest(
+                    url="https://www.youtube.com/playlist?list=abc123",
+                    preset="best-video",
+                    playlist=True,
+                )
+            )
+
+        self.assertIn("--yes-playlist", command)
+        self.assertNotIn("--no-playlist", command)
+        self.assert_option(command, "--format", "bv*+ba/b")
+        self.assertEqual(command[-1], "https://www.youtube.com/playlist?list=abc123")
 
     def test_builds_audio_mp3_command(self) -> None:
         service = DownloadService(_paths())
