@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from ytdlp_helper.config import AppPaths, find_ffmpeg_location, get_app_paths, load_settings
+from ytdlp_helper.config import AppPaths, Settings, find_ffmpeg_location, get_app_paths, load_settings
 
 
 class ConfigTests(unittest.TestCase):
@@ -41,6 +41,36 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(settings.preset, "audio-mp3")
         self.assertEqual(settings.download_dir, str(saved_download_dir))
+        self.assertEqual(settings.language, "tr")
+
+    def test_default_settings_use_turkish_language(self) -> None:
+        settings = Settings()
+
+        self.assertEqual(settings.language, "tr")
+
+    def test_load_settings_uses_saved_valid_language(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        paths.settings_file.write_text(
+            json.dumps({"preset": "audio-mp3", "download_dir": "downloads", "language": "en"}),
+            encoding="utf-8",
+        )
+
+        settings = load_settings(paths)
+
+        self.assertEqual(settings.language, "en")
+
+    def test_load_settings_falls_back_to_turkish_for_invalid_language(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        paths.settings_file.write_text(
+            json.dumps({"preset": "audio-mp3", "download_dir": "downloads", "language": "de"}),
+            encoding="utf-8",
+        )
+
+        settings = load_settings(paths)
+
+        self.assertEqual(settings.language, "tr")
 
     def test_find_ffmpeg_location_falls_back_to_path_when_ffmpeg_and_ffprobe_exist(self) -> None:
         paths = _paths()

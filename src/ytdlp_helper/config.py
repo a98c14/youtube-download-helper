@@ -7,6 +7,8 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .i18n import normalize_language
+
 
 APP_NAME = "YT-DLP Helper"
 DEFAULT_DOWNLOAD_FOLDER_NAME = "youtube-download-helper"
@@ -21,6 +23,7 @@ ACTIVITY_LOG_FILE = "activity.log"
 class Settings:
     preset: str = "best-video"
     download_dir: str = ""
+    language: str = "tr"
 
 
 @dataclass(frozen=True)
@@ -81,6 +84,7 @@ def load_settings(paths: AppPaths) -> Settings:
     settings = Settings(
         preset=str(data.get("preset", defaults.preset)),
         download_dir=str(data.get("download_dir", defaults.download_dir)),
+        language=normalize_language(str(data.get("language", defaults.language))),
     )
     if not settings.download_dir:
         settings.download_dir = str(paths.download_dir)
