@@ -15,6 +15,8 @@ from .archive import (
 )
 from .config import (
     DEFAULT_FILENAME_TEMPLATE,
+    MAX_QUEUE_CONCURRENCY,
+    MIN_QUEUE_CONCURRENCY,
     Settings,
     ensure_app_dirs,
     find_ytdlp_executable,
@@ -24,6 +26,7 @@ from .config import (
 )
 from .cookies import get_cookie_status, save_cookie_text
 from .dependencies import read_tool_version
+from .download_queue import QueueItem, QueueRunner, QueueStore
 from .downloader import DownloadRequest, DownloadService
 from .app_update import AppUpdateResult, start_restart_script
 from .i18n import language_options, normalize_language, translate
@@ -44,8 +47,8 @@ class YtDlpHelperApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("YouTube Download Helper")
-        self.root.geometry("760x430")
-        self.root.minsize(700, 400)
+        self.root.geometry("920x620")
+        self.root.minsize(820, 560)
 
         self.paths = get_app_paths()
         self.settings = load_settings(self.paths)
@@ -56,6 +59,9 @@ class YtDlpHelperApp:
         self.update_service = UpdateService(self.paths)
         self.activity_log = ActivityLogStore(self.paths)
         self.worker_pipeline = WorkerStatusPipeline(self, self._t, self.root.after)
+        self.queue_store = QueueStore.for_paths(self.paths)
+        self.queue_store.load()
+        self.queue_runner = QueueRunner(self.queue_store, self.paths, self._append_log)
         self.ytdlp_version_cache: str | None = None
         self.ytdlp_version_cache_ready = False
         self.log_window: tk.Toplevel | None = None
@@ -77,11 +83,17 @@ class YtDlpHelperApp:
         self.speed_var = tk.StringVar(value=self._t("status.speed_empty"))
         self.download_folder_var = tk.StringVar(value=str(self.paths.download_dir))
         self.filename_template_var = tk.StringVar(value=self.settings.filename_template)
+        self.queue_concurrency_var = tk.IntVar(value=self.settings.queue_concurrency)
+        self.queue_filter_var = tk.StringVar(value="all")
+        self.queue_summary_var = tk.StringVar()
         self.progress_var = tk.IntVar(value=0)
+        self.queue_item_ids: dict[str, str] = {}
 
         self._build_ui()
         self.url_var.trace_add("write", self._on_url_changed)
         self.root.after(150, self.worker_pipeline.poll)
+        self.root.after(150, self._poll_queue_runner)
+        self._refresh_queue_table()
 
     def _build_ui(self) -> None:
         self._build_menu()
@@ -159,12 +171,12 @@ class YtDlpHelperApp:
         button_bar = ttk.Frame(container)
         button_bar.grid(row=3, column=0, sticky="ew", pady=(16, 12))
 
-        self.download_button = ttk.Button(button_bar, text=self._t("button.download"), command=self._start_download)
+        self.download_button = ttk.Button(button_bar, text=self._t("button.add"), command=self._start_download)
         self.button_widgets["button.download"] = self.download_button
         self.download_button.pack(side="left", padx=(0, 10))
         self.download_playlist_button = ttk.Button(
             button_bar,
-            text=self._t("button.download_playlist"),
+            text=self._t("button.add_playlist"),
             command=self._start_playlist_download,
         )
         self.button_widgets["button.download_playlist"] = self.download_playlist_button
@@ -177,16 +189,74 @@ class YtDlpHelperApp:
             width=3,
         ).pack(side="left", padx=(10, 0))
 
-        progress_frame = ttk.Frame(container)
-        progress_frame.grid(row=4, column=0, sticky="ew", pady=(0, 12))
-        progress_frame.columnconfigure(0, weight=1)
-
-        ttk.Label(progress_frame, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
-        ttk.Label(progress_frame, textvariable=self.speed_var).grid(
-            row=0, column=1, sticky="e", padx=(12, 0)
+        queue_bar = ttk.Frame(container)
+        queue_bar.grid(row=4, column=0, sticky="ew", pady=(0, 8))
+        self.resume_button = ttk.Button(queue_bar, text=self._t("button.resume"), command=self._resume_queue)
+        self.resume_button.pack(side="left", padx=(0, 8))
+        self.pause_button = ttk.Button(queue_bar, text=self._t("button.pause"), command=self._pause_queue)
+        self.pause_button.pack(side="left", padx=(0, 8))
+        ttk.Label(queue_bar, text=self._t("field.concurrency")).pack(side="left", padx=(8, 4))
+        ttk.Spinbox(
+            queue_bar,
+            from_=MIN_QUEUE_CONCURRENCY,
+            to=MAX_QUEUE_CONCURRENCY,
+            textvariable=self.queue_concurrency_var,
+            width=4,
+            command=self._persist_settings,
+        ).pack(side="left", padx=(0, 12))
+        filter_combo = ttk.Combobox(
+            queue_bar,
+            textvariable=self.queue_filter_var,
+            values=["all", "ongoing", "queued", "completed", "failed"],
+            state="readonly",
+            width=12,
         )
-        self.progress = ttk.Progressbar(progress_frame, maximum=100, variable=self.progress_var)
-        self.progress.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        filter_combo.pack(side="left")
+        filter_combo.bind("<<ComboboxSelected>>", lambda _event: self._refresh_queue_table())
+        ttk.Label(queue_bar, textvariable=self.queue_summary_var).pack(side="right")
+
+        columns = ("name", "progress", "speed", "added", "status")
+        self.queue_table = ttk.Treeview(container, columns=columns, show="headings", height=8, selectmode="browse")
+        self.queue_table.grid(row=5, column=0, sticky="nsew", pady=(0, 8))
+        container.rowconfigure(5, weight=1)
+        self.queue_table.heading("name", text=self._t("queue.column.name"))
+        self.queue_table.heading("progress", text=self._t("queue.column.progress"))
+        self.queue_table.heading("speed", text=self._t("queue.column.speed"))
+        self.queue_table.heading("added", text=self._t("queue.column.added"))
+        self.queue_table.heading("status", text=self._t("queue.column.status"))
+        self.queue_table.column("name", width=330, anchor="w")
+        self.queue_table.column("progress", width=80, anchor="center")
+        self.queue_table.column("speed", width=100, anchor="center")
+        self.queue_table.column("added", width=150, anchor="center")
+        self.queue_table.column("status", width=90, anchor="center")
+        self.queue_table.bind("<<TreeviewSelect>>", lambda _event: self._update_queue_action_state())
+        self.queue_table.bind("<Button-3>", self._show_queue_context_menu)
+
+        self.queue_context_menu = tk.Menu(self.root, tearoff=False)
+        self.queue_context_menu.add_command(label=self._t("button.retry"), command=self._retry_selected_queue_item)
+        self.queue_context_menu.add_command(label=self._t("button.remove"), command=self._remove_selected_queue_item)
+        self.queue_context_menu.add_separator()
+        self.queue_context_menu.add_command(label=self._t("button.move_up"), command=lambda: self._move_selected_queue_item(-1))
+        self.queue_context_menu.add_command(label=self._t("button.move_down"), command=lambda: self._move_selected_queue_item(1))
+        self.queue_context_menu.add_separator()
+        self.queue_context_menu.add_command(label=self._t("button.open_folder"), command=self._open_selected_queue_folder)
+        self.queue_context_menu.add_command(label=self._t("button.error_details"), command=self._show_selected_queue_error)
+
+        queue_actions = ttk.Frame(container)
+        queue_actions.grid(row=6, column=0, sticky="ew")
+        self.retry_button = ttk.Button(queue_actions, text=self._t("button.retry"), command=self._retry_selected_queue_item)
+        self.retry_button.pack(side="left", padx=(0, 8))
+        self.remove_button = ttk.Button(queue_actions, text=self._t("button.remove"), command=self._remove_selected_queue_item)
+        self.remove_button.pack(side="left", padx=(0, 8))
+        self.move_up_button = ttk.Button(queue_actions, text=self._t("button.move_up"), command=lambda: self._move_selected_queue_item(-1))
+        self.move_up_button.pack(side="left", padx=(0, 8))
+        self.move_down_button = ttk.Button(queue_actions, text=self._t("button.move_down"), command=lambda: self._move_selected_queue_item(1))
+        self.move_down_button.pack(side="left", padx=(0, 8))
+        self.open_item_folder_button = ttk.Button(queue_actions, text=self._t("button.open_folder"), command=self._open_selected_queue_folder)
+        self.open_item_folder_button.pack(side="left", padx=(0, 8))
+        self.error_button = ttk.Button(queue_actions, text=self._t("button.error_details"), command=self._show_selected_queue_error)
+        self.error_button.pack(side="left", padx=(0, 8))
+        ttk.Button(queue_actions, text=self._t("button.clear_completed"), command=self._clear_completed_queue_items).pack(side="right")
 
     def _form_label(self, parent: ttk.Frame, key: str) -> ttk.Label:
         label = ttk.Label(parent, text=self._t(key))
@@ -222,6 +292,7 @@ class YtDlpHelperApp:
         selected_language.set(self._language_label_for_code(language_pairs, self.language))
         selected_download_folder = tk.StringVar(value=str(self.paths.download_dir))
         selected_filename_template = tk.StringVar(value=self.filename_template_var.get())
+        selected_queue_concurrency = tk.IntVar(value=int(self.queue_concurrency_var.get()))
 
         frame = ttk.Frame(dialog, padding=16)
         frame.grid(row=0, column=0, sticky="nsew")
@@ -260,8 +331,19 @@ class YtDlpHelperApp:
             row=2, column=1, sticky="ew", pady=(0, 12)
         )
 
+        ttk.Label(frame, text=self._t("field.concurrency")).grid(
+            row=3, column=0, sticky="w", padx=(0, 12), pady=(0, 12)
+        )
+        ttk.Spinbox(
+            frame,
+            from_=MIN_QUEUE_CONCURRENCY,
+            to=MAX_QUEUE_CONCURRENCY,
+            textvariable=selected_queue_concurrency,
+            width=6,
+        ).grid(row=3, column=1, sticky="w", pady=(0, 12))
+
         button_bar = ttk.Frame(frame)
-        button_bar.grid(row=3, column=0, columnspan=2, sticky="e")
+        button_bar.grid(row=4, column=0, columnspan=2, sticky="e")
         ttk.Button(button_bar, text=self._t("button.cancel"), command=dialog.destroy).pack(
             side="right", padx=(8, 0)
         )
@@ -274,6 +356,7 @@ class YtDlpHelperApp:
                 language_pairs,
                 selected_download_folder.get(),
                 selected_filename_template.get(),
+                selected_queue_concurrency.get(),
             ),
         ).pack(side="right")
 
@@ -287,6 +370,7 @@ class YtDlpHelperApp:
         language_pairs: list[tuple[str, str]],
         download_folder: str | None = None,
         filename_template: str | None = None,
+        queue_concurrency: int | None = None,
     ) -> None:
         selected_language = self._language_code_for_label(language_pairs, selected_label)
         if not selected_language:
@@ -307,8 +391,11 @@ class YtDlpHelperApp:
         self.paths = replace(self.paths, download_dir=download_dir)
         self.download_folder_var.set(str(download_dir))
         self.filename_template_var.set(validated_template)
+        self.queue_concurrency_var.set(self._validate_queue_concurrency(queue_concurrency))
         self.downloader = DownloadService(self.paths, validated_template)
         self.update_service = UpdateService(self.paths)
+        if not self.queue_runner.is_running:
+            self.queue_runner = QueueRunner(self.queue_store, self.paths, self._append_log)
         self._persist_settings()
         self._refresh_language()
         dialog.destroy()
@@ -464,37 +551,188 @@ class YtDlpHelperApp:
         self._start_download_request(playlist=True)
 
     def _start_download_request(self, playlist: bool) -> None:
-        if self.worker_pipeline.is_busy:
-            messagebox.showinfo(self._t("dialog.task_in_progress.title"), self._t("dialog.task_in_progress.message"))
+        url = self.url_var.get().strip()
+        if not url:
+            self._set_status("failed", "Enter a YouTube video or playlist URL.")
             return
-
-        request = DownloadRequest(
-            url=self.url_var.get().strip(),
-            preset=self.preset_var.get(),
-            playlist=playlist,
-        )
+        if not url.lower().startswith(("http://", "https://")):
+            self._set_status("failed", "Enter a valid URL starting with http:// or https://.")
+            return
 
         if not self._apply_download_folder():
             return
 
+        if self.queue_store.has_duplicate_url(url):
+            confirmed = messagebox.askyesno(
+                self._t("dialog.duplicate_url.title"),
+                self._t("dialog.duplicate_url.message"),
+                parent=self.root,
+            )
+            if not confirmed:
+                return
+
         self._persist_settings()
-        self.worker_pipeline.start(
-            WorkerTask[None](
-                kind="download",
-                initial_status_key=None,
-                initial_log=f"Starting download for {request.url}",
-                run=lambda reporter: self.downloader.download(
-                    request,
-                    reporter.status_callback,
-                    reporter.log_callback,
+        try:
+            item = self.queue_store.add(
+                url,
+                self.preset_var.get(),
+                playlist,
+                str(self.paths.download_dir),
+                self.filename_template_var.get().strip() or DEFAULT_FILENAME_TEMPLATE,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._set_status("failed", str(exc))
+            self._append_log(str(exc))
+            return
+
+        self._set_status("queued", self._t("status.queue_item_added"))
+        self._append_log(f"Queued download for {item.url}")
+        self.url_var.set("")
+        self.queue_runner.notify_queue_changed()
+        self._refresh_queue_table()
+
+    def _resume_queue(self) -> None:
+        self._persist_settings()
+        self.queue_runner.resume(int(self.queue_concurrency_var.get()))
+        self._refresh_queue_table()
+
+    def _pause_queue(self) -> None:
+        self.queue_runner.pause()
+        self._refresh_queue_table()
+
+    def _poll_queue_runner(self) -> None:
+        events = self.queue_runner.poll_events()
+        if events:
+            self._refresh_queue_table()
+        self.root.after(150, self._poll_queue_runner)
+
+    def _selected_queue_item(self) -> QueueItem | None:
+        selection = self.queue_table.selection()
+        if not selection:
+            return None
+        item_id = self.queue_item_ids.get(selection[0])
+        return self.queue_store.get(item_id) if item_id else None
+
+    def _retry_selected_queue_item(self) -> None:
+        item = self._selected_queue_item()
+        if item and self.queue_store.retry(item.id):
+            self.queue_runner.notify_queue_changed()
+            self._refresh_queue_table()
+
+    def _remove_selected_queue_item(self) -> None:
+        item = self._selected_queue_item()
+        if item and self.queue_store.remove(item.id):
+            self._refresh_queue_table()
+
+    def _move_selected_queue_item(self, direction: int) -> None:
+        item = self._selected_queue_item()
+        if item and self.queue_store.move(item.id, direction):
+            self._refresh_queue_table(selected_id=item.id)
+
+    def _clear_completed_queue_items(self) -> None:
+        self.queue_store.clear_completed()
+        self._refresh_queue_table()
+
+    def _open_selected_queue_folder(self) -> None:
+        item = self._selected_queue_item()
+        if item:
+            subprocess.Popen(["explorer.exe", item.download_dir])
+
+    def _show_selected_queue_error(self) -> None:
+        item = self._selected_queue_item()
+        if item and item.error:
+            messagebox.showerror(self._t("dialog.queue_error.title"), item.error, parent=self.root)
+
+    def _show_queue_context_menu(self, event: tk.Event) -> None:
+        row_id = self.queue_table.identify_row(event.y)
+        if row_id:
+            self.queue_table.selection_set(row_id)
+            self._update_queue_action_state()
+            self.queue_context_menu.tk_popup(event.x_root, event.y_root)
+
+    def _refresh_queue_table(self, selected_id: str | None = None) -> None:
+        if not hasattr(self, "queue_table"):
+            return
+
+        if selected_id is None:
+            selected = self._selected_queue_item()
+            selected_id = selected.id if selected else None
+
+        for row_id in self.queue_table.get_children():
+            self.queue_table.delete(row_id)
+        self.queue_item_ids.clear()
+
+        filter_key = self.queue_filter_var.get()
+        selected_row = ""
+        for item in self.queue_store.items():
+            if not self._queue_item_matches_filter(item, filter_key):
+                continue
+            row_id = self.queue_table.insert(
+                "",
+                "end",
+                values=(
+                    item.name or item.url,
+                    f"{item.progress}%" if item.progress is not None else "",
+                    item.speed if item.status == "running" else "",
+                    item.added_at[:19].replace("T", " "),
+                    self._t(f"queue.status.{item.status}"),
                 ),
-                success=self._download_succeeded,
-                error_title_key="dialog.download_failed.title",
+            )
+            self.queue_item_ids[row_id] = item.id
+            if item.id == selected_id:
+                selected_row = row_id
+
+        if selected_row:
+            self.queue_table.selection_set(selected_row)
+        self._update_queue_summary()
+        self._update_queue_action_state()
+
+    def _queue_item_matches_filter(self, item: QueueItem, filter_key: str) -> bool:
+        if filter_key == "ongoing":
+            return item.status in {"queued", "running"}
+        if filter_key in {"queued", "completed", "failed"}:
+            return item.status == filter_key
+        return True
+
+    def _update_queue_summary(self) -> None:
+        counts = {status: 0 for status in ("queued", "running", "completed", "failed", "skipped")}
+        for item in self.queue_store.items():
+            counts[item.status] += 1
+        self.queue_summary_var.set(
+            self._t(
+                "queue.summary",
+                queued=counts["queued"],
+                running=counts["running"],
+                completed=counts["completed"],
+                failed=counts["failed"],
+                skipped=counts["skipped"],
             )
         )
 
+    def _update_queue_action_state(self) -> None:
+        if not hasattr(self, "retry_button"):
+            return
+        item = self._selected_queue_item()
+        has_item = item is not None
+        is_running = bool(item and item.status == "running")
+        is_failed_or_skipped = bool(item and item.status in {"failed", "skipped"})
+        has_error = bool(item and item.error)
+        self.retry_button.configure(state="normal" if is_failed_or_skipped else "disabled")
+        self.remove_button.configure(state="normal" if has_item and not is_running else "disabled")
+        self.move_up_button.configure(state="normal" if has_item and not is_running else "disabled")
+        self.move_down_button.configure(state="normal" if has_item and not is_running else "disabled")
+        self.open_item_folder_button.configure(state="normal" if has_item else "disabled")
+        self.error_button.configure(state="normal" if has_error else "disabled")
+        if hasattr(self, "queue_context_menu"):
+            self.queue_context_menu.entryconfigure(0, state="normal" if is_failed_or_skipped else "disabled")
+            self.queue_context_menu.entryconfigure(1, state="normal" if has_item and not is_running else "disabled")
+            self.queue_context_menu.entryconfigure(3, state="normal" if has_item and not is_running else "disabled")
+            self.queue_context_menu.entryconfigure(4, state="normal" if has_item and not is_running else "disabled")
+            self.queue_context_menu.entryconfigure(6, state="normal" if has_item else "disabled")
+            self.queue_context_menu.entryconfigure(7, state="normal" if has_error else "disabled")
+
     def _start_update(self) -> None:
-        if self.worker_pipeline.is_busy:
+        if self.worker_pipeline.is_busy or self.queue_runner.is_running:
             messagebox.showinfo(self._t("dialog.task_in_progress.title"), self._t("dialog.task_in_progress.message"))
             return
 
@@ -613,6 +851,7 @@ class YtDlpHelperApp:
             download_dir=str(self.paths.download_dir),
             language=self.language,
             filename_template=self.filename_template_var.get().strip() or DEFAULT_FILENAME_TEMPLATE,
+            queue_concurrency=self._validate_queue_concurrency(self.queue_concurrency_var.get()),
         )
         save_settings(self.paths, self.settings)
 
@@ -635,6 +874,8 @@ class YtDlpHelperApp:
         self.paths = replace(self.paths, download_dir=download_dir)
         self.downloader = DownloadService(self.paths, self.filename_template_var.get())
         self.update_service = UpdateService(self.paths)
+        if not self.queue_runner.is_running:
+            self.queue_runner = QueueRunner(self.queue_store, self.paths, self._append_log)
         self.download_folder_var.set(str(download_dir))
         return True
 
@@ -679,6 +920,13 @@ class YtDlpHelperApp:
             messagebox.showerror(self._t("dialog.filename_format_no_folders.title"), message, parent=parent)
             return None
         return filename_template
+
+    def _validate_queue_concurrency(self, value: object) -> int:
+        try:
+            concurrency = int(value)
+        except (TypeError, ValueError):
+            return 1
+        return max(MIN_QUEUE_CONCURRENCY, min(MAX_QUEUE_CONCURRENCY, concurrency))
 
     def _open_downloads(self) -> None:
         if self._apply_download_folder():
@@ -742,6 +990,20 @@ class YtDlpHelperApp:
         self.cookie_status_var.set(self._localized_cookie_status())
         if getattr(self, "status_key", None):
             self.status_var.set(self._t(self.status_key, **getattr(self, "status_params", {})))
+        if hasattr(self, "queue_table"):
+            self.queue_table.heading("name", text=self._t("queue.column.name"))
+            self.queue_table.heading("progress", text=self._t("queue.column.progress"))
+            self.queue_table.heading("speed", text=self._t("queue.column.speed"))
+            self.queue_table.heading("added", text=self._t("queue.column.added"))
+            self.queue_table.heading("status", text=self._t("queue.column.status"))
+            if hasattr(self, "queue_context_menu"):
+                self.queue_context_menu.entryconfigure(0, label=self._t("button.retry"))
+                self.queue_context_menu.entryconfigure(1, label=self._t("button.remove"))
+                self.queue_context_menu.entryconfigure(3, label=self._t("button.move_up"))
+                self.queue_context_menu.entryconfigure(4, label=self._t("button.move_down"))
+                self.queue_context_menu.entryconfigure(6, label=self._t("button.open_folder"))
+                self.queue_context_menu.entryconfigure(7, label=self._t("button.error_details"))
+            self._refresh_queue_table()
         if self.log_window and self.log_window.winfo_exists():
             self.log_window.title(self._t("menu.activity_log"))
 

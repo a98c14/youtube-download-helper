@@ -55,6 +55,7 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(settings.language, "tr")
         self.assertEqual(settings.filename_template, DEFAULT_FILENAME_TEMPLATE)
+        self.assertEqual(settings.queue_concurrency, 1)
 
     def test_load_settings_uses_saved_filename_template(self) -> None:
         paths = _paths()
@@ -109,6 +110,32 @@ class ConfigTests(unittest.TestCase):
         settings = load_settings(paths)
 
         self.assertEqual(settings.language, "tr")
+
+    def test_load_settings_uses_saved_valid_queue_concurrency(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        paths.settings_file.write_text(
+            json.dumps({"download_dir": "downloads", "queue_concurrency": 4}),
+            encoding="utf-8",
+        )
+
+        settings = load_settings(paths)
+
+        self.assertEqual(settings.queue_concurrency, 4)
+
+    def test_load_settings_falls_back_for_invalid_queue_concurrency(self) -> None:
+        for value in (0, 5, "bad"):
+            with self.subTest(value=value):
+                paths = _paths()
+                paths.data_dir.mkdir(parents=True)
+                paths.settings_file.write_text(
+                    json.dumps({"download_dir": "downloads", "queue_concurrency": value}),
+                    encoding="utf-8",
+                )
+
+                settings = load_settings(paths)
+
+                self.assertEqual(settings.queue_concurrency, 1)
 
     def test_find_ffmpeg_location_falls_back_to_path_when_ffmpeg_and_ffprobe_exist(self) -> None:
         paths = _paths()

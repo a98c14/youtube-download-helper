@@ -18,6 +18,9 @@ COOKIES_FILE = "cookies.txt"
 LOGS_FOLDER_NAME = "logs"
 ACTIVITY_LOG_FILE = "activity.log"
 DEFAULT_FILENAME_TEMPLATE = "%(title)s [%(id)s].%(ext)s"
+DEFAULT_QUEUE_CONCURRENCY = 1
+MIN_QUEUE_CONCURRENCY = 1
+MAX_QUEUE_CONCURRENCY = 4
 
 
 @dataclass
@@ -26,6 +29,7 @@ class Settings:
     download_dir: str = ""
     language: str = "tr"
     filename_template: str = DEFAULT_FILENAME_TEMPLATE
+    queue_concurrency: int = DEFAULT_QUEUE_CONCURRENCY
 
 
 @dataclass(frozen=True)
@@ -88,6 +92,7 @@ def load_settings(paths: AppPaths) -> Settings:
         download_dir=str(data.get("download_dir", defaults.download_dir)),
         language=normalize_language(str(data.get("language", defaults.language))),
         filename_template=str(data.get("filename_template", defaults.filename_template)),
+        queue_concurrency=_normalize_queue_concurrency(data.get("queue_concurrency", defaults.queue_concurrency)),
     )
     if not settings.download_dir:
         settings.download_dir = str(paths.download_dir)
@@ -102,6 +107,16 @@ def save_settings(paths: AppPaths, settings: Settings) -> None:
         json.dumps(asdict(settings), indent=2),
         encoding="utf-8",
     )
+
+
+def _normalize_queue_concurrency(value: object) -> int:
+    try:
+        concurrency = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_QUEUE_CONCURRENCY
+    if MIN_QUEUE_CONCURRENCY <= concurrency <= MAX_QUEUE_CONCURRENCY:
+        return concurrency
+    return DEFAULT_QUEUE_CONCURRENCY
 
 
 def find_ffmpeg_location(paths: AppPaths | None = None) -> str | None:

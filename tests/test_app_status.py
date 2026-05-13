@@ -91,12 +91,13 @@ class AppStatusTests(unittest.TestCase):
         self.assertEqual(saved_settings.language, "tr")
         self.assertEqual(saved_settings.download_dir, str(new_download_dir))
         self.assertEqual(saved_settings.filename_template, "%(upload_date)s - %(title)s.%(ext)s")
+        self.assertEqual(saved_settings.queue_concurrency, 1)
         self.assertEqual(app.paths.download_dir, new_download_dir)
         self.assertEqual(app.download_folder_var.value, str(new_download_dir))
         self.assertEqual(app.filename_template_var.value, "%(upload_date)s - %(title)s.%(ext)s")
         self.assertEqual(app.label_widgets["field.preset"].options["text"], "Ön Ayar")
-        self.assertEqual(app.button_widgets["button.download"].options["text"], "İndir")
-        self.assertEqual(app.button_widgets["button.download_playlist"].options["text"], "Oynatma Listesini İndir")
+        self.assertEqual(app.button_widgets["button.download"].options["text"], "Ekle")
+        self.assertEqual(app.button_widgets["button.download_playlist"].options["text"], "Oynatma Listesi Ekle")
         self.assertEqual(app.preset_combo.options["values"][0], "En İyi Video")
         self.assertEqual(app.preset_label_var.value, "Ses M4A")
         self.assertEqual(app.archive_status_var.value, "Kontrol edilmedi")
@@ -268,6 +269,7 @@ def _app_with_localized_widgets() -> YtDlpHelperApp:
     app.preset_label_var = FakeVar("Audio M4A")
     app.download_folder_var = FakeVar(str(app.paths.download_dir))
     app.filename_template_var = FakeVar("%(title)s [%(id)s].%(ext)s")
+    app.queue_concurrency_var = FakeVar(1)
     app.archive_status_key = "archive.not_checked"
     app.archive_status_var = FakeVar("Not checked")
     app.cookie_status_var = FakeVar("No cookies saved")
@@ -283,6 +285,8 @@ def _app_with_localized_widgets() -> YtDlpHelperApp:
     app.help_menu = FakeMenu()
     app.preset_combo = FakeWidget()
     app.log_window = None
+    app.queue_runner = type("FakeQueueRunner", (), {"is_running": False})()
+    app.queue_store = object()
     return app
 
 
