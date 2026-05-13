@@ -66,6 +66,7 @@ class YtDlpHelperApp:
         self.ytdlp_version_cache_ready = False
         self.log_window: tk.Toplevel | None = None
         self.log_text: tk.Text | None = None
+        self.copy_logs_button: ttk.Button | None = None
         self.label_widgets: dict[str, ttk.Label] = {}
         self.button_widgets: dict[str, ttk.Button] = {}
 
@@ -435,8 +436,18 @@ class YtDlpHelperApp:
         text.grid(row=0, column=0, sticky="nsew")
         scrollbar.grid(row=0, column=1, sticky="ns")
 
+        button_bar = ttk.Frame(frame)
+        button_bar.grid(row=1, column=0, columnspan=2, sticky="e", pady=(10, 0))
+        copy_button = ttk.Button(
+            button_bar,
+            text=self._t("button.copy_logs"),
+            command=self._copy_activity_log_to_clipboard,
+        )
+        copy_button.pack(side="right")
+
         self.log_window = log_window
         self.log_text = text
+        self.copy_logs_button = copy_button
         self._reload_activity_log_window()
 
     def _show_about(self) -> None:
@@ -465,18 +476,27 @@ class YtDlpHelperApp:
             self.log_window.destroy()
         self.log_window = None
         self.log_text = None
+        self.copy_logs_button = None
 
     def _reload_activity_log_window(self) -> None:
         if not self.log_text:
             return
 
-        lines = self.activity_log.read_all_lines()
+        lines = self.activity_log.read_current_session_lines()
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", "end")
         if lines:
             self.log_text.insert("end", "\n".join(lines) + "\n")
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
+
+    def _copy_activity_log_to_clipboard(self) -> None:
+        if not self.log_text:
+            return
+
+        contents = self.log_text.get("1.0", "end-1c")
+        self.root.clipboard_clear()
+        self.root.clipboard_append(contents)
 
     def _create_open_folder_icon(self) -> tk.PhotoImage:
         icon = tk.PhotoImage(width=16, height=16)
@@ -1006,6 +1026,8 @@ class YtDlpHelperApp:
             self._refresh_queue_table()
         if self.log_window and self.log_window.winfo_exists():
             self.log_window.title(self._t("menu.activity_log"))
+            if self.copy_logs_button:
+                self.copy_logs_button.configure(text=self._t("button.copy_logs"))
 
     def _set_archive_status(self, key: str) -> None:
         self.archive_status_key = key

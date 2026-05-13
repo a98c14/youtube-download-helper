@@ -36,6 +36,28 @@ class FakeWidget:
         return self.value
 
 
+class FakeText:
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def get(self, start: str, end: str) -> str:
+        self.start = start
+        self.end = end
+        return self.value
+
+
+class FakeWindow:
+    def __init__(self, exists: bool = True) -> None:
+        self.exists = exists
+        self.title_text = ""
+
+    def winfo_exists(self) -> bool:
+        return self.exists
+
+    def title(self, text: str) -> None:
+        self.title_text = text
+
+
 class FakeMenu:
     def __init__(self) -> None:
         self.entries: dict[int, dict[str, object]] = {}
@@ -47,9 +69,16 @@ class FakeMenu:
 class FakeRoot:
     def __init__(self) -> None:
         self.title_text = ""
+        self.clipboard = "existing"
 
     def title(self, text: str) -> None:
         self.title_text = text
+
+    def clipboard_clear(self) -> None:
+        self.clipboard = ""
+
+    def clipboard_append(self, text: str) -> None:
+        self.clipboard += text
 
 
 class FakeDialog:
@@ -103,6 +132,28 @@ class AppStatusTests(unittest.TestCase):
         self.assertEqual(app.archive_status_var.value, "Kontrol edilmedi")
         self.assertEqual(app.status_var.value, "Hazır")
         self.assertEqual(app.help_menu.entries[1]["label"], "Hakkında")
+
+    def test_refresh_language_updates_open_activity_log_copy_button(self) -> None:
+        app = _app_with_localized_widgets()
+        app.log_window = FakeWindow()
+        app.copy_logs_button = FakeWidget()
+        app.language = "tr"
+
+        app._refresh_language()  # noqa: SLF001
+
+        self.assertEqual(app.log_window.title_text, "Logs")
+        self.assertEqual(app.copy_logs_button.options["text"], "Logları Kopyala")
+
+    def test_copy_activity_log_copies_visible_log_contents(self) -> None:
+        app = YtDlpHelperApp.__new__(YtDlpHelperApp)
+        app.root = FakeRoot()
+        app.log_text = FakeText("line one\nline two")
+
+        app._copy_activity_log_to_clipboard()  # noqa: SLF001
+
+        self.assertEqual(app.root.clipboard, "line one\nline two")
+        self.assertEqual(app.log_text.start, "1.0")
+        self.assertEqual(app.log_text.end, "end-1c")
 
     def test_settings_save_rejects_blank_filename_template(self) -> None:
         app = _app_with_localized_widgets()

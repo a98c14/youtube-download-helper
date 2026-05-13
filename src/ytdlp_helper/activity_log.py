@@ -48,6 +48,9 @@ class ActivityLogStore:
                 continue
         return lines
 
+    def read_current_session_lines(self) -> list[str]:
+        return list(self.current_session_lines)
+
     def iter_log_files(self) -> list[Path]:
         if not self._paths.logs_dir.exists():
             return []

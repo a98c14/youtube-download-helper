@@ -57,6 +57,16 @@ class ActivityLogTests(unittest.TestCase):
 
         self.assertEqual(store.read_all_lines(), ["older", "newer", "active"])
 
+    def test_read_current_session_lines_ignores_existing_log_file(self) -> None:
+        paths = _paths()
+        paths.logs_dir.mkdir(parents=True)
+        paths.activity_log_file.write_text("previous session\n", encoding="utf-8")
+        store = ActivityLogStore(paths, now=lambda: datetime(2026, 4, 24, 14, 5, 12))
+
+        store.append("current session")
+
+        self.assertEqual(store.read_current_session_lines(), ["[2026-04-24 14:05:12] current session"])
+
 
 def _paths() -> AppPaths:
     root = Path(tempfile.mkdtemp())
