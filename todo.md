@@ -10,6 +10,9 @@
 - [x] Editable video file name format. This should be located in settings screen. Also move the download folder to the settings screen. We can remove the download folder from the main view. Just keep 'Go to download folder' button but move it next to download buttons. 
 - [x] Refactor worker status pipeline into a deeper module so background tasks report through a testable boundary instead of raw English status strings. https://github.com/a98c14/youtube-download-helper/issues/1
 - [x] Multiple file download support. We should have a table view like in torrent clients with columns like video name, progress percentages (no bar), speed, video add date instead of the current progress bar, status. Download button should instead add to queue. Initially only one file will be downloaded at a time but this will be configurable. There should be right click context menu for retrying failed download attempts. There should be an option to move up or down inside the queue. https://github.com/a98c14/youtube-download-helper/issues/3
+- [ ] Add a copy logs button to our activity log viewer. It copies the contents to clipboard.
+- [ ] Double clicking a file on file progress viewer should launch the file if its completed
+- [ ] Add missing translations for file progress filter (all, ongoing etc.).
 - [] Activity Log should only show the current session's log. Not the whole log file.
 - [] Contact support button under 'Help' menu. It should mail the latest activity log and have a little message box for custom message by the user. Mail should be sent to 'selimyesilkaya@gmail.com'. It can use the user's own mail account or maybe it can send it via an online service I am not sure.
 
