@@ -86,10 +86,6 @@ class DownloadService:
             executable,
             "--paths",
             f"home:{self._paths.download_dir}",
-            "--output",
-            f"default:{self._filename_template}",
-            "--output",
-            f"pl_video:%(playlist)s/{self._filename_template}",
             "--windows-filenames",
             "--yes-playlist" if request.playlist else "--no-playlist",
             "--no-warnings",
@@ -98,6 +94,17 @@ class DownloadService:
             "--download-archive",
             str(self._paths.archive_file),
         ]
+        if request.playlist:
+            command.extend(
+                [
+                    "--output",
+                    f"default:{self._filename_template}",
+                    "--output",
+                    f"pl_video:%(playlist)s/{self._filename_template}",
+                ]
+            )
+        else:
+            command.extend(["--output", self._filename_template])
 
         if self._paths.cookies_file.exists():
             command.extend(["--cookies", str(self._paths.cookies_file)])

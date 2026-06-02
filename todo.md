@@ -19,5 +19,5 @@
 
 ## minor issues
 - [x] Update yt-dlp success message should not say ".. restart ..", app doesn't have to be restarted since it's side car program.
-- [] We shouldn't prefix single videos with 'default#' by default.
+- [x] We shouldn't prefix single videos with 'default#' by default.
 - 

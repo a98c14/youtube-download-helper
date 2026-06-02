@@ -49,6 +49,9 @@ class DownloaderTests(unittest.TestCase):
         self.assertEqual(command[0], "C:/tools/yt-dlp.exe")
         self.assertIn("--no-playlist", command)
         self.assertNotIn("--yes-playlist", command)
+        self.assert_option(command, "--output", "%(title)s [%(id)s].%(ext)s")
+        self.assertNotIn("default:%(title)s [%(id)s].%(ext)s", command)
+        self.assertNotIn("pl_video:%(playlist)s/%(title)s [%(id)s].%(ext)s", command)
         self.assertIn(f"home:{service._paths.download_dir}", command)  # noqa: SLF001
         self.assert_option(command, "--download-archive", str(service._paths.archive_file))  # noqa: SLF001
         self.assert_option(command, "--cookies", str(service._paths.cookies_file))  # noqa: SLF001
