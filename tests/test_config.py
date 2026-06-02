@@ -34,6 +34,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(paths.ffmpeg_dir, paths.tools_dir / "ffmpeg")
         self.assertEqual(paths.ffmpeg_executable, paths.ffmpeg_dir / "ffmpeg.exe")
         self.assertEqual(paths.ffprobe_executable, paths.ffmpeg_dir / "ffprobe.exe")
+        self.assertEqual(paths.deno_dir, paths.tools_dir / "deno")
+        self.assertEqual(paths.deno_executable, paths.deno_dir / "deno.exe")
 
     def test_load_settings_uses_saved_download_dir(self) -> None:
         paths = _paths()
@@ -182,6 +184,8 @@ def _paths() -> AppPaths:
         ffmpeg_dir=root / "data" / "tools" / "ffmpeg",
         ffmpeg_executable=root / "data" / "tools" / "ffmpeg" / "ffmpeg.exe",
         ffprobe_executable=root / "data" / "tools" / "ffmpeg" / "ffprobe.exe",
+        deno_dir=root / "data" / "tools" / "deno",
+        deno_executable=root / "data" / "tools" / "deno" / "deno.exe",
         download_dir=root / "downloads" / "youtube-download-helper",
     )
 

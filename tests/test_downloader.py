@@ -13,6 +13,7 @@ from ytdlp_helper.config import AppPaths
 from ytdlp_helper.downloader import (
     DownloadRequest,
     DownloadService,
+    _humanize_error,
     _hidden_subprocess_kwargs,
     _update_status_from_output,
 )
@@ -128,6 +129,26 @@ class DownloaderTests(unittest.TestCase):
 
                 self.assert_option(command, "--format", expected_format)
                 self.assert_option(command, "--merge-output-format", "mp4")
+
+    def test_builds_video_command_with_managed_deno_ejs_support(self) -> None:
+        paths = _paths()
+        paths.deno_dir.mkdir(parents=True)
+        paths.deno_executable.write_bytes(b"deno")
+        service = DownloadService(paths)
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
+            patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
+        ):
+            command = service._build_command(  # noqa: SLF001
+                DownloadRequest(
+                    url="https://www.youtube.com/watch?v=abc123",
+                    preset="best-video",
+                )
+            )
+
+        self.assert_option(command, "--js-runtimes", f"deno:{paths.deno_executable}")
+        self.assert_option(command, "--remote-components", "ejs:github")
 
     def test_rejects_invalid_url(self) -> None:
         service = DownloadService(_paths())
@@ -250,6 +271,15 @@ class DownloaderTests(unittest.TestCase):
                     lambda *_args: None,
                 )
 
+    def test_youtube_format_token_error_points_to_runtime_update_and_logs(self) -> None:
+        message = _humanize_error(
+            "ERROR: [youtube] abc: Requested format is not available. "
+            "Some formats were skipped because a GVS PO Token was not provided."
+        )
+
+        self.assertIn("Help > Update", message)
+        self.assertIn("activity log", message)
+
     def test_missing_ytdlp_executable_is_actionable(self) -> None:
         service = DownloadService(_paths())
 
@@ -309,6 +339,8 @@ def _paths() -> AppPaths:
         ffmpeg_dir=root / "data" / "tools" / "ffmpeg",
         ffmpeg_executable=root / "data" / "tools" / "ffmpeg" / "ffmpeg.exe",
         ffprobe_executable=root / "data" / "tools" / "ffmpeg" / "ffprobe.exe",
+        deno_dir=root / "data" / "tools" / "deno",
+        deno_executable=root / "data" / "tools" / "deno" / "deno.exe",
         download_dir=root / "downloads",
     )
 

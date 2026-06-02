@@ -45,6 +45,8 @@ class AppPaths:
     ffmpeg_dir: Path
     ffmpeg_executable: Path
     ffprobe_executable: Path
+    deno_dir: Path
+    deno_executable: Path
     download_dir: Path
 
 
@@ -65,6 +67,8 @@ def get_app_paths() -> AppPaths:
         ffmpeg_dir=data_dir / "tools" / "ffmpeg",
         ffmpeg_executable=data_dir / "tools" / "ffmpeg" / "ffmpeg.exe",
         ffprobe_executable=data_dir / "tools" / "ffmpeg" / "ffprobe.exe",
+        deno_dir=data_dir / "tools" / "deno",
+        deno_executable=data_dir / "tools" / "deno" / "deno.exe",
         download_dir=download_dir,
     )
 
@@ -185,6 +189,35 @@ def find_ytdlp_executable(paths: AppPaths | None = None) -> str | None:
             return str(candidate)
 
     return shutil.which("yt-dlp.exe") or shutil.which("yt-dlp")
+
+
+def find_deno_executable(paths: AppPaths | None = None) -> str | None:
+    candidates: list[Path] = []
+
+    if paths and paths.deno_executable.exists():
+        return str(paths.deno_executable)
+
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        candidates.extend(
+            [
+                exe_dir / "deno" / "deno.exe",
+                exe_dir / "_internal" / "deno" / "deno.exe",
+            ]
+        )
+    else:
+        project_root = Path(__file__).resolve().parents[2]
+        candidates.extend(
+            [
+                project_root / "vendor" / "deno" / "deno.exe",
+            ]
+        )
+
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+
+    return None
 
 
 def _has_ffmpeg_pair(directory: Path) -> bool:

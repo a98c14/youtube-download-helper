@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable
 
-from .config import AppPaths, find_ffmpeg_location, find_ytdlp_executable
+from .config import AppPaths, find_deno_executable, find_ffmpeg_location, find_ytdlp_executable
 
 
 LogCallback = Callable[[str], None]
@@ -23,6 +23,8 @@ YTDLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.ex
 FFMPEG_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 YTDLP_RELEASE_API_URL = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
 FFMPEG_RELEASE_VERSION_URL = "https://www.gyan.dev/ffmpeg/builds/release-version"
+DENO_RELEASE_API_URL = "https://api.github.com/repos/denoland/deno/releases/latest"
+DENO_WINDOWS_ASSET_NAME = "deno-x86_64-pc-windows-msvc.zip"
 DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 UNKNOWN_TOTAL_LOG_BYTES = 5 * 1024 * 1024
 
@@ -38,6 +40,7 @@ def ensure_runtime_tools(
 ) -> None:
     ensure_ytdlp(paths, log_callback, status_callback)
     ensure_ffmpeg(paths, log_callback, status_callback)
+    ensure_deno(paths, log_callback, status_callback)
 
 
 def refresh_runtime_tools(
@@ -49,6 +52,7 @@ def refresh_runtime_tools(
     log_callback("Checking app-managed runtime tools")
     refresh_ytdlp(paths, log_callback, status_callback)
     refresh_ffmpeg(paths, log_callback, status_callback)
+    refresh_deno(paths, log_callback, status_callback)
 
 
 def refresh_ytdlp(
@@ -98,6 +102,26 @@ def refresh_ffmpeg(
 
     log_callback(f"ffmpeg update available: {installed_version or 'unknown'} -> {latest_version}")
     install_ffmpeg(paths, log_callback, status_callback, source_identity=latest_source)
+
+
+def refresh_deno(
+    paths: AppPaths,
+    log_callback: LogCallback,
+    status_callback: StatusCallback,
+) -> None:
+    if not paths.deno_executable.exists():
+        install_deno(paths, log_callback, status_callback)
+        return
+
+    status_callback("installing", "Checking Deno")
+    latest_version, asset_url = _fetch_latest_deno_release()
+    installed_version = _read_tool_version(paths.deno_executable)
+    if installed_version and _deno_version_matches(installed_version, latest_version):
+        log_callback(f"Deno is already current at {installed_version}.")
+        return
+
+    log_callback(f"Deno update available: {installed_version or 'unknown'} -> {latest_version}")
+    install_deno(paths, log_callback, status_callback, asset_url=asset_url)
 
 
 def ensure_ytdlp(
@@ -151,6 +175,17 @@ def ensure_ffmpeg(
     install_ffmpeg(paths, log_callback, status_callback)
 
 
+def ensure_deno(
+    paths: AppPaths,
+    log_callback: LogCallback,
+    status_callback: StatusCallback,
+) -> None:
+    if find_deno_executable(paths):
+        return
+
+    install_deno(paths, log_callback, status_callback)
+
+
 def install_ffmpeg(
     paths: AppPaths,
     log_callback: LogCallback,
@@ -198,6 +233,54 @@ def install_ffmpeg(
             ) from exc
 
     log_callback(f"Installed ffmpeg to {paths.ffmpeg_dir}")
+
+
+def install_deno(
+    paths: AppPaths,
+    log_callback: LogCallback,
+    status_callback: StatusCallback,
+    asset_url: str | None = None,
+) -> None:
+
+    status_callback("installing", "Installing Deno")
+    version: str | None = None
+    if asset_url is None:
+        version, asset_url = _fetch_latest_deno_release()
+    log_callback(f"Downloading fresh Deno from {asset_url}")
+    paths.tools_dir.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory(prefix="ytdlp-helper-") as temp_dir:
+        temp_path = Path(temp_dir)
+        archive_path = temp_path / "deno.zip"
+        extract_dir = temp_path / "extract"
+        stage_dir = temp_path / "deno"
+        try:
+            _download_file(asset_url, archive_path, "Deno", log_callback, status_callback)
+            with zipfile.ZipFile(archive_path) as archive:
+                archive.extractall(extract_dir)
+            deno_exe = _find_extracted_executable(extract_dir, "deno.exe")
+            if not deno_exe:
+                raise DependencyInstallError("The Deno ZIP did not contain deno.exe.")
+
+            stage_dir.mkdir(parents=True)
+            shutil.copy2(deno_exe, stage_dir / "deno.exe")
+            if not (stage_dir / "deno.exe").exists():
+                raise DependencyInstallError("Staged Deno install is incomplete.")
+
+            if paths.deno_dir.exists():
+                shutil.rmtree(paths.deno_dir)
+            shutil.move(str(stage_dir), str(paths.deno_dir))
+            installed_version = _read_tool_version(paths.deno_executable)
+            _write_metadata(paths, "deno", asset_url, paths.deno_dir, installed_version or version, {})
+        except (OSError, urllib.error.URLError, zipfile.BadZipFile, DependencyInstallError) as exc:
+            if paths.deno_dir.exists() and not paths.deno_executable.exists():
+                shutil.rmtree(paths.deno_dir, ignore_errors=True)
+            log_callback(f"Deno install failed from {asset_url}: {exc}")
+            raise DependencyInstallError(
+                "Could not install Deno. Check your internet connection and click Download again."
+            ) from exc
+
+    log_callback(f"Installed Deno to {paths.deno_dir}")
 
 
 def _download_file(
@@ -329,6 +412,37 @@ def _fetch_latest_ffmpeg_version() -> str:
     return version
 
 
+def _fetch_latest_deno_release() -> tuple[str, str]:
+    request = urllib.request.Request(DENO_RELEASE_API_URL, headers={"User-Agent": "YT-DLP Helper"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = response.read()
+    except (OSError, urllib.error.URLError) as exc:
+        raise DependencyInstallError("Could not check the latest Deno version. Check your internet connection.") from exc
+
+    try:
+        data = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DependencyInstallError("GitHub returned an invalid Deno release response.") from exc
+    if not isinstance(data, dict):
+        raise DependencyInstallError("GitHub returned an invalid Deno release response.")
+
+    tag_name = str(data.get("tag_name", "")).strip()
+    assets = data.get("assets")
+    if not tag_name or not isinstance(assets, list):
+        raise DependencyInstallError("GitHub did not return a usable Deno release.")
+
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        if asset.get("name") == DENO_WINDOWS_ASSET_NAME:
+            download_url = str(asset.get("browser_download_url", "")).strip()
+            if download_url:
+                return tag_name, download_url
+
+    raise DependencyInstallError("GitHub did not return the Windows Deno package.")
+
+
 def _read_source_identity(url: str) -> dict[str, str]:
     request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "YT-DLP Helper"})
     try:
@@ -362,6 +476,10 @@ def _normalize_version(version: str) -> str:
 
 def _ffmpeg_version_matches(installed_version: str, latest_version: str) -> bool:
     return re.search(rf"\b{re.escape(latest_version)}\b", installed_version) is not None
+
+
+def _deno_version_matches(installed_version: str, latest_version: str) -> bool:
+    return _normalize_version(latest_version) in _normalize_version(installed_version)
 
 
 def read_tool_version(executable: Path) -> str | None:

@@ -3,10 +3,17 @@ from __future__ import annotations
 import re
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
-from .config import DEFAULT_FILENAME_TEMPLATE, AppPaths, find_ffmpeg_location, find_ytdlp_executable
-from .dependencies import ensure_runtime_tools
+from .config import (
+    DEFAULT_FILENAME_TEMPLATE,
+    AppPaths,
+    find_deno_executable,
+    find_ffmpeg_location,
+    find_ytdlp_executable,
+)
+from .dependencies import ensure_runtime_tools, read_tool_version
 
 
 StatusCallback = Callable[[str, str], None]
@@ -58,6 +65,7 @@ class DownloadService:
 
         status_callback("queued", "Preparing download")
         ensure_runtime_tools(self._paths, log_callback, status_callback)
+        self._log_runtime_context(request, log_callback)
         command = self._build_command(request)
         if not self._paths.cookies_file.exists():
             log_callback("No saved cookies; downloading as public session.")
@@ -73,6 +81,7 @@ class DownloadService:
     def _build_command(self, request: DownloadRequest) -> list[str]:
         executable = self._require_ytdlp_executable()
         ffmpeg_location = find_ffmpeg_location(self._paths)
+        deno_executable = find_deno_executable(self._paths)
         command = [
             executable,
             "--paths",
@@ -95,6 +104,9 @@ class DownloadService:
 
         if ffmpeg_location:
             command.extend(["--ffmpeg-location", ffmpeg_location])
+
+        if deno_executable:
+            command.extend(["--js-runtimes", f"deno:{deno_executable}", "--remote-components", "ejs:github"])
 
         if request.preset == "best-video":
             command.extend(["--format", "bv*+ba/b", "--merge-output-format", "mp4"])
@@ -129,6 +141,24 @@ class DownloadService:
         raise RuntimeError(
             "yt-dlp.exe was not found and could not be installed. Check your internet connection and try again."
         )
+
+    def _log_runtime_context(self, request: DownloadRequest, log_callback: LogCallback) -> None:
+        executable = find_ytdlp_executable(self._paths)
+        ffmpeg_location = find_ffmpeg_location(self._paths)
+        deno_executable = find_deno_executable(self._paths)
+
+        if executable:
+            log_callback(f"yt-dlp: {executable}{_version_suffix(executable)}")
+        if ffmpeg_location:
+            log_callback(f"ffmpeg: {ffmpeg_location}")
+        else:
+            log_callback("ffmpeg: not found")
+        if deno_executable:
+            log_callback(f"Deno: {deno_executable}{_version_suffix(deno_executable)}")
+            log_callback("YouTube JavaScript challenge support enabled with remote EJS components.")
+        else:
+            log_callback("Deno: not found; YouTube JavaScript challenge support disabled.")
+        log_callback(f"Preset: {request.preset}")
 
     def _run_process(
         self,
@@ -191,6 +221,18 @@ def _process_failed(output: list[str]) -> bool:
 
 def _humanize_error(message: str) -> str:
     lowered = message.lower()
+    if (
+        "requested format is not available" in lowered
+        or "gvs po token" in lowered
+        or "po token" in lowered
+        or "sabr" in lowered
+        or "only images are available" in lowered
+    ):
+        return (
+            "YouTube did not provide playable video formats for this request. "
+            "Click Help > Update to refresh runtime tools, paste fresh cookies, and try again. "
+            "If it still fails, send the activity log with the error report."
+        )
     if "sign in" in lowered or "cookie" in lowered or "members-only" in lowered or "premium" in lowered:
         return "This video needs fresh cookies from a logged-in browser. Paste updated cookies.txt text and try again."
     if "unsupported url" in lowered or "unable to extract" in lowered:
@@ -203,3 +245,14 @@ def _hidden_subprocess_kwargs() -> dict[str, int]:
     if creationflags:
         return {"creationflags": creationflags}
     return {}
+
+
+def _version_suffix(executable: str) -> str:
+    path = Path(executable)
+    if not path.exists():
+        return ""
+    try:
+        version = read_tool_version(path)
+    except Exception:
+        return ""
+    return f" ({version})" if version else ""

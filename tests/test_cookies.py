@@ -64,6 +64,8 @@ def _paths() -> AppPaths:
         ffmpeg_dir=root / "data" / "tools" / "ffmpeg",
         ffmpeg_executable=root / "data" / "tools" / "ffmpeg" / "ffmpeg.exe",
         ffprobe_executable=root / "data" / "tools" / "ffmpeg" / "ffprobe.exe",
+        deno_dir=root / "data" / "tools" / "deno",
+        deno_executable=root / "data" / "tools" / "deno" / "deno.exe",
         download_dir=root / "downloads",
     )
 

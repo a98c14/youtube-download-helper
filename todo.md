@@ -1,17 +1,18 @@
 # to-do
 
+## bugs
+- [x] When installed on another computer, yt-dlp sometimes gives the following error when downloading videos (tested with members only video with a correct cookie). Error doesn't occur on the development machine. Fix.
+```
+[2026-05-24 22:01:37] [youtube] iLE6zsfH07o: Downloading webpage
+[2026-05-24 22:01:38] [youtube] iLE6zsfH07o: Downloading tv downgraded player API JSON
+[2026-05-24 22:01:38] [youtube] iLE6zsfH07o: Downloading web creator client config
+[2026-05-24 22:01:39] [youtube] iLE6zsfH07o: Downloading player c2f7551f-main
+[2026-05-24 22:01:39] [youtube] iLE6zsfH07o: Downloading web creator player API JSON
+[2026-05-24 22:01:39] ERROR: [youtube] iLE6zsfH07o: Requested format is not available. Use --list-formats for a list of available formats
+```
+
 ## features
-- [x] Instead of bundling ffmpeg, yt-dlp etc. Program should be able to download them if necessary.
-- [x] Github action for automated releases.
-- [x] Instead of 'Update yt-dlp' we should just have a single update button and it should update all the dependencies and the app itself. We should also be able to update the app itself update should use the latest github release we have on the repo.
-- [x] Turkish language translations. Also a settings button under 'File' menu that opens a settings panel. Language selection should be in there. It should use 'Turkish' by default but also remember the settings selections by the user.
-- [x] Ability to download playlist urls as single video (ignoring the playlist). We should have separate button for downloading as playlist.
-- [x] About screen that tells us about the app and yt-dlp versions.
-- [x] Editable video file name format. This should be located in settings screen. Also move the download folder to the settings screen. We can remove the download folder from the main view. Just keep 'Go to download folder' button but move it next to download buttons. 
-- [x] Refactor worker status pipeline into a deeper module so background tasks report through a testable boundary instead of raw English status strings. https://github.com/a98c14/youtube-download-helper/issues/1
-- [x] Multiple file download support. We should have a table view like in torrent clients with columns like video name, progress percentages (no bar), speed, video add date instead of the current progress bar, status. Download button should instead add to queue. Initially only one file will be downloaded at a time but this will be configurable. There should be right click context menu for retrying failed download attempts. There should be an option to move up or down inside the queue. https://github.com/a98c14/youtube-download-helper/issues/3
-- [x] Add a copy logs button to our activity log viewer. It copies the contents to clipboard.
-- [x] Activity Log should only show the current session's log. Not the whole log file.
+- [ ] Create an issue button. Users should be able to create bug reports when they encounter an error. The button could either be on context menu at the top and also on error popups. Issue should be created on github with activity logs and relevant context attached.
 - [ ] Double clicking a file on file progress viewer should launch the file if its completed
 - [ ] Add missing translations for file progress filter (all, ongoing etc.).
 - [] Contact support button under 'Help' menu. It should mail the latest activity log and have a little message box for custom message by the user. Mail should be sent to 'selimyesilkaya@gmail.com'. It can use the user's own mail account or maybe it can send it via an online service I am not sure.
@@ -19,3 +20,4 @@
 ## minor issues
 - [x] Update yt-dlp success message should not say ".. restart ..", app doesn't have to be restarted since it's side car program.
 - [] We shouldn't prefix single videos with 'default#' by default.
+- 
