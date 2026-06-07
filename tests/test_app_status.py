@@ -192,6 +192,35 @@ class AppStatusTests(unittest.TestCase):
         self.assertEqual(app.log_window.title_text, "Logs")
         self.assertEqual(app.copy_logs_button.options["text"], "Logları Kopyala")
 
+    def test_refresh_language_updates_queue_filter_labels_without_changing_filter(self) -> None:
+        app = _app_with_localized_widgets()
+        app.queue_filter_var = FakeVar("ongoing")
+        app.queue_filter_label_var = FakeVar("Ongoing")
+        app.queue_filter_combo = FakeWidget("Ongoing")
+        app.language = "tr"
+
+        app._refresh_language()  # noqa: SLF001
+
+        self.assertEqual(
+            app.queue_filter_combo.options["values"],
+            ["Tümü", "Devam Eden", "Kuyrukta", "Tamamlandı", "Başarısız"],
+        )
+        self.assertEqual(app.queue_filter_label_var.value, "Devam Eden")
+        self.assertEqual(app.queue_filter_var.value, "ongoing")
+
+    def test_queue_filter_selection_uses_internal_filter_key(self) -> None:
+        app = _app_with_localized_widgets()
+        app.language = "tr"
+        app.queue_filter_var = FakeVar("all")
+        app.queue_filter_combo = FakeWidget("Tamamlandı")
+        refresh_calls = []
+        app._refresh_queue_table = lambda: refresh_calls.append(True)  # type: ignore[method-assign]
+
+        app._on_queue_filter_changed(None)  # noqa: SLF001
+
+        self.assertEqual(app.queue_filter_var.value, "completed")
+        self.assertEqual(refresh_calls, [True])
+
     def test_copy_activity_log_copies_visible_log_contents(self) -> None:
         app = YtDlpHelperApp.__new__(YtDlpHelperApp)
         app.root = FakeRoot()

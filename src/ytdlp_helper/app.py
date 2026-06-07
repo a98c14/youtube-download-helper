@@ -43,6 +43,14 @@ PRESET_KEYS = [
     "audio-m4a",
 ]
 
+QUEUE_FILTER_KEYS = [
+    "all",
+    "ongoing",
+    "queued",
+    "completed",
+    "failed",
+]
+
 
 class YtDlpHelperApp:
     def __init__(self, root: tk.Tk) -> None:
@@ -95,6 +103,7 @@ class YtDlpHelperApp:
         self.queue_concurrency_var = tk.IntVar(value=self.settings.queue_concurrency)
         self.organize_by_channel_var = tk.BooleanVar(value=self.settings.organize_by_channel)
         self.queue_filter_var = tk.StringVar(value="all")
+        self.queue_filter_label_var = tk.StringVar(value=self._queue_filter_label("all"))
         self.queue_summary_var = tk.StringVar()
         self.progress_var = tk.IntVar(value=0)
         self.queue_item_ids: dict[str, str] = {}
@@ -216,13 +225,14 @@ class YtDlpHelperApp:
         ).pack(side="left", padx=(0, 12))
         filter_combo = ttk.Combobox(
             queue_bar,
-            textvariable=self.queue_filter_var,
-            values=["all", "ongoing", "queued", "completed", "failed"],
+            textvariable=self.queue_filter_label_var,
+            values=self._queue_filter_labels(),
             state="readonly",
             width=12,
         )
         filter_combo.pack(side="left")
-        filter_combo.bind("<<ComboboxSelected>>", lambda _event: self._refresh_queue_table())
+        filter_combo.bind("<<ComboboxSelected>>", self._on_queue_filter_changed)
+        self.queue_filter_combo = filter_combo
         ttk.Label(queue_bar, textvariable=self.queue_summary_var).pack(side="right")
 
         columns = ("name", "progress", "speed", "added", "status")
@@ -544,6 +554,10 @@ class YtDlpHelperApp:
             if self._preset_label(key) == selected_label:
                 self.preset_var.set(key)
                 return
+
+    def _on_queue_filter_changed(self, _event: object) -> None:
+        self.queue_filter_var.set(self._queue_filter_key_for_label(self.queue_filter_combo.get()))
+        self._refresh_queue_table()
 
     def _on_url_changed(self, *_args: object) -> None:
         self.archive_checked_video_id = None
@@ -1095,6 +1109,9 @@ class YtDlpHelperApp:
 
         self.preset_combo.configure(values=self._preset_labels())
         self.preset_label_var.set(self._preset_label(self.preset_var.get()))
+        if hasattr(self, "queue_filter_combo"):
+            self.queue_filter_combo.configure(values=self._queue_filter_labels())
+            self.queue_filter_label_var.set(self._queue_filter_label(str(self.queue_filter_var.get())))
         self.archive_status_var.set(self._t(self.archive_status_key))
         self.cookie_status_var.set(self._localized_cookie_status())
         if getattr(self, "status_key", None):
@@ -1133,6 +1150,18 @@ class YtDlpHelperApp:
 
     def _preset_label(self, key: str) -> str:
         return self._t(f"preset.{key}")
+
+    def _queue_filter_labels(self) -> list[str]:
+        return [self._queue_filter_label(key) for key in QUEUE_FILTER_KEYS]
+
+    def _queue_filter_label(self, key: str) -> str:
+        return self._t(f"queue.filter.{key}")
+
+    def _queue_filter_key_for_label(self, label: str) -> str:
+        for key in QUEUE_FILTER_KEYS:
+            if self._queue_filter_label(key) == label:
+                return key
+        return "all"
 
     def _localized_cookie_status(self) -> str:
         status = get_cookie_status(self.paths)

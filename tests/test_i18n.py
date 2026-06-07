@@ -41,6 +41,18 @@ class I18nTests(unittest.TestCase):
         self.assertEqual(translate("tr", "button.download"), "İndir")
         self.assertEqual(translate("tr", "button.download_playlist"), "Oynatma Listesi İndir")
 
+    def test_queue_filter_labels_are_translated(self) -> None:
+        self.assertEqual(translate("en", "queue.filter.all"), "All")
+        self.assertEqual(translate("en", "queue.filter.ongoing"), "Ongoing")
+        self.assertEqual(translate("en", "queue.filter.queued"), "Queued")
+        self.assertEqual(translate("en", "queue.filter.completed"), "Completed")
+        self.assertEqual(translate("en", "queue.filter.failed"), "Failed")
+        self.assertEqual(translate("tr", "queue.filter.all"), "Tümü")
+        self.assertEqual(translate("tr", "queue.filter.ongoing"), "Devam Eden")
+        self.assertEqual(translate("tr", "queue.filter.queued"), "Kuyrukta")
+        self.assertEqual(translate("tr", "queue.filter.completed"), "Tamamlandı")
+        self.assertEqual(translate("tr", "queue.filter.failed"), "Başarısız")
+
 
 if __name__ == "__main__":
     unittest.main()

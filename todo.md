@@ -7,8 +7,8 @@
 - [x] Clicking "Add" should automatically start the download process. It shouldn't sit idle on queue. And it shouldn't be named "Add" it should be named "Download" instead.
 
 ## minor issues
-- [] Clicking "Save" on settings should close the settings screen.
-- [] Add missing translations for file progress filter (all, ongoing etc.).
+- [x] Clicking "Save" on settings should close the settings screen.
+- [x] Add missing translations for file progress filter (all, ongoing etc.).
 - [x] Update yt-dlp success message should not say ".. restart ..", app doesn't have to be restarted since it's side car program.
 - [x] We shouldn't prefix single videos with 'default#' by default.
 
