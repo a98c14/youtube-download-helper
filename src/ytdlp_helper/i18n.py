@@ -132,6 +132,10 @@ TRANSLATIONS = {
         "dialog.duplicate_url.title": "Duplicate URL",
         "dialog.duplicate_url.message": "This URL is already in the queue. Add it again?",
         "dialog.queue_error.title": "Queue Item Error",
+        "dialog.open_file_failed.title": "Could not open file",
+        "dialog.open_file_failed.message": "Could not open downloaded file: {error}",
+        "dialog.open_file_missing.message": "Downloaded file was not found: {path}",
+        "dialog.open_file_missing_path.message": "This completed item does not have a saved file path. Open the downloads folder instead.",
         "message.clipboard_no_cookies": "Clipboard does not contain cookies.txt text.",
     },
     "tr": {
@@ -248,6 +252,10 @@ TRANSLATIONS = {
         "dialog.duplicate_url.title": "Tekrarlanan URL",
         "dialog.duplicate_url.message": "Bu URL zaten kuyrukta. Tekrar eklensin mi?",
         "dialog.queue_error.title": "Kuyruk Öğesi Hatası",
+        "dialog.open_file_failed.title": "Dosya açılamadı",
+        "dialog.open_file_failed.message": "İndirilen dosya açılamadı: {error}",
+        "dialog.open_file_missing.message": "İndirilen dosya bulunamadı: {path}",
+        "dialog.open_file_missing_path.message": "Bu tamamlanmış öğe için kayıtlı dosya yolu yok. Bunun yerine indirme klasörünü açın.",
         "message.clipboard_no_cookies": "Panoda cookies.txt metni yok.",
     },
 }

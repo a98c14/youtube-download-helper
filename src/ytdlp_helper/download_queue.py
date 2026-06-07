@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import queue
+import re
 import threading
 from typing import Callable, Literal
 from uuid import uuid4
@@ -34,6 +35,7 @@ class QueueItem:
     progress: int | None = None
     speed: str = ""
     error: str = ""
+    output_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -126,7 +128,7 @@ class QueueStore:
             item = self.get(item_id)
             if not item or item.status not in {"failed", "skipped"}:
                 return False
-            self.replace(replace(item, status="queued", progress=None, speed="", error=""))
+            self.replace(replace(item, status="queued", progress=None, speed="", error="", output_path=""))
             return True
 
     def move(self, item_id: str, direction: int) -> bool:
@@ -292,11 +294,22 @@ class QueueRunner:
     def _handle_log(self, item_id: str, message: str) -> None:
         self._log_callback(message)
         name = _name_from_output(message)
+        output_path = _output_path_from_output(message)
+        if not name and not output_path:
+            return
+        item = self._store.get(item_id)
+        if not item:
+            return
+        updated = item
         if name:
-            item = self._store.get(item_id)
-            if item:
-                self._store.replace(replace(item, name=name))
-                self._events.put(QueueEvent("item", item_id))
+            updated = replace(updated, name=name)
+        if output_path:
+            path = Path(output_path)
+            if not path.is_absolute():
+                path = Path(item.download_dir).expanduser() / path
+            updated = replace(updated, output_path=str(path))
+        self._store.replace(updated)
+        self._events.put(QueueEvent("item", item_id))
 
 
 def _parse_item(raw_item: object) -> QueueItem | None:
@@ -319,6 +332,7 @@ def _parse_item(raw_item: object) -> QueueItem | None:
             progress=_optional_int(raw_item.get("progress")),
             speed=str(raw_item.get("speed", "")),
             error=str(raw_item.get("error", "")),
+            output_path=str(raw_item.get("output_path", "")),
         )
     except KeyError:
         return None
@@ -341,8 +355,16 @@ def _fallback_name(url: str) -> str:
 
 
 def _name_from_output(line: str) -> str:
+    output_path = _output_path_from_output(line)
+    return Path(output_path).name if output_path else ""
+
+
+def _output_path_from_output(line: str) -> str:
     markers = ("[download] Destination: ", "[ExtractAudio] Destination: ")
     for marker in markers:
         if marker in line:
-            return Path(line.split(marker, 1)[1]).name
+            return line.split(marker, 1)[1].strip().strip('"')
+    merger_match = re.search(r'\[Merger\]\s+Merging formats into\s+"(.+)"', line)
+    if merger_match:
+        return merger_match.group(1)
     return ""

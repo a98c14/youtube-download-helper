@@ -47,6 +47,7 @@ class QueueStoreTests(unittest.TestCase):
         )
 
         self.assertEqual([item.id for item in store.load()], ["ok"])
+        self.assertEqual(store.get("ok").output_path, "")  # type: ignore[union-attr]
 
         store.path.write_text("{", encoding="utf-8")
         self.assertEqual(store.load(), [])
@@ -64,6 +65,10 @@ class QueueStoreTests(unittest.TestCase):
         self.assertTrue(store.retry(first.id))
         self.assertEqual(store.get(first.id).status, "queued")  # type: ignore[union-attr]
         self.assertEqual(store.get(first.id).error, "")  # type: ignore[union-attr]
+
+        store.replace(replace(first, status="failed", output_path=str(Path("downloads") / "old.mp4")))
+        self.assertTrue(store.retry(first.id))
+        self.assertEqual(store.get(first.id).output_path, "")  # type: ignore[union-attr]
 
         store.replace(replace(second, status="completed"))
         store.clear_completed()
@@ -141,18 +146,41 @@ class QueueRunnerTests(unittest.TestCase):
 
         self.assertEqual(store.get(item.id).progress, None)  # type: ignore[union-attr]
 
+    def test_output_path_is_captured_from_download_logs(self) -> None:
+        paths = _paths()
+        store = QueueStore.for_paths(paths)
+        item = store.add("https://example.test/ok", "best-video", False, str(paths.download_dir), "%(title)s.%(ext)s")
+        service = ControlledService(final_path=paths.download_dir / "ok.mp4")
+        runner = QueueRunner(store, paths, lambda *_args: None, lambda *_args: service)
+
+        runner.resume(1)
+        service.release_one()
+        _wait_for(lambda: store.get(item.id).status == "completed")  # type: ignore[union-attr]
+
+        self.assertEqual(store.get(item.id).name, "ok.mp4")  # type: ignore[union-attr]
+        self.assertEqual(store.get(item.id).output_path, str(paths.download_dir / "ok.mp4"))  # type: ignore[union-attr]
+
 
 class ControlledService:
-    def __init__(self, fail_urls: set[str] | None = None, skip_urls: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        fail_urls: set[str] | None = None,
+        skip_urls: set[str] | None = None,
+        final_path: Path | None = None,
+    ) -> None:
         self.started: list[str] = []
         self._releases: list[bool] = []
         self._fail_urls = fail_urls or set()
         self._skip_urls = skip_urls or set()
+        self._final_path = final_path
 
     def download(self, request: object, status_callback: object, log_callback: object) -> None:
         url = request.url  # type: ignore[attr-defined]
         self.started.append(url)
-        log_callback(f"[download] Destination: {url.rsplit('/', 1)[-1]}.mp4")
+        if self._final_path:
+            log_callback(f'[Merger] Merging formats into "{self._final_path}"')
+        else:
+            log_callback(f"[download] Destination: {url.rsplit('/', 1)[-1]}.mp4")
         status_callback("downloading", "Downloading 50%")
         while len(self._releases) < len(self.started):
             time.sleep(0.01)

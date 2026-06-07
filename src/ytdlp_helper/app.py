@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import os
 from pathlib import Path
 import subprocess
 import tkinter as tk
@@ -231,6 +232,7 @@ class YtDlpHelperApp:
         self.queue_table.column("added", width=150, anchor="center")
         self.queue_table.column("status", width=90, anchor="center")
         self.queue_table.bind("<<TreeviewSelect>>", lambda _event: self._update_queue_action_state())
+        self.queue_table.bind("<Double-1>", self._open_queue_item_file_from_event)
         self.queue_table.bind("<Button-3>", self._show_queue_context_menu)
 
         self.queue_context_menu = tk.Menu(self.root, tearoff=False)
@@ -657,6 +659,40 @@ class YtDlpHelperApp:
         item = self._selected_queue_item()
         if item:
             subprocess.Popen(["explorer.exe", item.download_dir])
+
+    def _open_queue_item_file_from_event(self, event: tk.Event) -> None:
+        row_id = self.queue_table.identify_row(event.y)
+        if not row_id:
+            return
+        self.queue_table.selection_set(row_id)
+        self._update_queue_action_state()
+        item_id = self.queue_item_ids.get(row_id)
+        item = self.queue_store.get(item_id) if item_id else None
+        if item:
+            self._open_queue_item_file(item)
+
+    def _open_queue_item_file(self, item: QueueItem) -> None:
+        if item.status != "completed":
+            return
+        if not item.output_path:
+            self._show_open_file_error(self._t("dialog.open_file_missing_path.message"))
+            return
+        output_path = Path(item.output_path).expanduser()
+        if not output_path.exists():
+            self._show_open_file_error(self._t("dialog.open_file_missing.message", path=output_path))
+            return
+        try:
+            if hasattr(os, "startfile"):
+                os.startfile(output_path)  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(["open", str(output_path)])
+        except OSError as exc:
+            self._show_open_file_error(self._t("dialog.open_file_failed.message", error=exc))
+
+    def _show_open_file_error(self, message: str) -> None:
+        self._set_status("failed", message)
+        self._append_log(message)
+        messagebox.showerror(self._t("dialog.open_file_failed.title"), message, parent=self.root)
 
     def _show_selected_queue_error(self) -> None:
         item = self._selected_queue_item()

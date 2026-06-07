@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from ytdlp_helper import __version__
 from ytdlp_helper.app import YtDlpHelperApp
 from ytdlp_helper.config import AppPaths
+from ytdlp_helper.download_queue import QueueItem
 
 
 class FakeVar:
@@ -310,6 +311,40 @@ class AppStatusTests(unittest.TestCase):
         self.assertEqual(app.ytdlp_version_cache, "new")
         self.assertTrue(app.ytdlp_version_cache_ready)
 
+    def test_open_queue_item_file_launches_completed_output(self) -> None:
+        app = _app_for_open_file()
+        output_path = app.paths.download_dir / "video.mp4"
+        output_path.parent.mkdir(parents=True)
+        output_path.write_text("media", encoding="utf-8")
+        item = _queue_item(status="completed", output_path=str(output_path))
+
+        with patch("ytdlp_helper.app.os.startfile", create=True) as startfile:
+            app._open_queue_item_file(item)  # noqa: SLF001
+
+        startfile.assert_called_once_with(output_path)
+
+    def test_open_queue_item_file_ignores_incomplete_item(self) -> None:
+        app = _app_for_open_file()
+        output_path = app.paths.download_dir / "video.mp4"
+        output_path.parent.mkdir(parents=True)
+        output_path.write_text("media", encoding="utf-8")
+        item = _queue_item(status="running", output_path=str(output_path))
+
+        with patch("ytdlp_helper.app.os.startfile", create=True) as startfile:
+            app._open_queue_item_file(item)  # noqa: SLF001
+
+        startfile.assert_not_called()
+
+    def test_open_queue_item_file_reports_missing_path(self) -> None:
+        app = _app_for_open_file()
+        item = _queue_item(status="completed", output_path="")
+
+        with patch("ytdlp_helper.app.messagebox.showerror") as showerror:
+            app._open_queue_item_file(item)  # noqa: SLF001
+
+        self.assertIn("does not have a saved file path", showerror.call_args.args[1])
+        self.assertIn("does not have a saved file path", app.logs[0])
+
 
 def _app_with_localized_widgets() -> YtDlpHelperApp:
     app = YtDlpHelperApp.__new__(YtDlpHelperApp)
@@ -339,6 +374,33 @@ def _app_with_localized_widgets() -> YtDlpHelperApp:
     app.queue_runner = type("FakeQueueRunner", (), {"is_running": False})()
     app.queue_store = object()
     return app
+
+
+def _app_for_open_file() -> YtDlpHelperApp:
+    app = YtDlpHelperApp.__new__(YtDlpHelperApp)
+    app.language = "en"
+    app.root = FakeRoot()
+    app.paths = _paths()
+    app.status_var = FakeVar()
+    app.speed_var = FakeVar()
+    app.progress_var = FakeVar()
+    app.logs = []
+    app._append_log = app.logs.append  # type: ignore[method-assign]
+    return app
+
+
+def _queue_item(status: str, output_path: str) -> QueueItem:
+    return QueueItem(
+        id="item",
+        url="https://example.test/video",
+        preset="best-video",
+        playlist=False,
+        download_dir="downloads",
+        filename_template="%(title)s.%(ext)s",
+        added_at="2026-04-24T00:00:00+00:00",
+        status=status,  # type: ignore[arg-type]
+        output_path=output_path,
+    )
 
 
 def _paths() -> AppPaths:
