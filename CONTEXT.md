@@ -6,3 +6,4 @@
 - `Playlist Context`: Playlist metadata attached to a single video URL; distinct from downloading an entire playlist.
 - `Download Organization`: Folder policy controlled by settings, separate from filename format.
 - `Runtime Tools`: App-managed executables required for downloads: `yt-dlp`, `ffmpeg`/`ffprobe`, and Deno.
+- `Queue Item`: A user-created download entry shown in the queue table; it may be queued, running, completed, failed, or skipped.

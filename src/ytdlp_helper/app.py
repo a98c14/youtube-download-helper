@@ -69,6 +69,7 @@ class YtDlpHelperApp:
         self.queue_store = QueueStore.for_paths(self.paths)
         self.queue_store.load()
         self.queue_runner = self._create_queue_runner()
+        self.queue_user_paused = False
         self.ytdlp_version_cache: str | None = None
         self.ytdlp_version_cache_ready = False
         self.log_window: tk.Toplevel | None = None
@@ -180,12 +181,12 @@ class YtDlpHelperApp:
         button_bar = ttk.Frame(container)
         button_bar.grid(row=3, column=0, sticky="ew", pady=(16, 12))
 
-        self.download_button = ttk.Button(button_bar, text=self._t("button.add"), command=self._start_download)
+        self.download_button = ttk.Button(button_bar, text=self._t("button.download"), command=self._start_download)
         self.button_widgets["button.download"] = self.download_button
         self.download_button.pack(side="left", padx=(0, 10))
         self.download_playlist_button = ttk.Button(
             button_bar,
-            text=self._t("button.add_playlist"),
+            text=self._t("button.download_playlist"),
             command=self._start_playlist_download,
         )
         self.button_widgets["button.download_playlist"] = self.download_playlist_button
@@ -631,18 +632,24 @@ class YtDlpHelperApp:
             self._append_log(str(exc))
             return
 
-        self._set_status("queued", self._t("status.queue_item_added"))
+        status_key = "status.queue_item_added_paused" if self.queue_user_paused else "status.queue_item_added"
+        self._set_status_key("queued", status_key)
         self._append_log(f"Queued download for {item.url}")
         self.url_var.set("")
-        self.queue_runner.notify_queue_changed()
+        if self.queue_user_paused:
+            self.queue_runner.notify_queue_changed()
+        else:
+            self.queue_runner.resume(self._validate_queue_concurrency(self.queue_concurrency_var.get()))
         self._refresh_queue_table()
 
     def _resume_queue(self) -> None:
         self._persist_settings()
-        self.queue_runner.resume(int(self.queue_concurrency_var.get()))
+        self.queue_user_paused = False
+        self.queue_runner.resume(self._validate_queue_concurrency(self.queue_concurrency_var.get()))
         self._refresh_queue_table()
 
     def _pause_queue(self) -> None:
+        self.queue_user_paused = True
         self.queue_runner.pause()
         self._refresh_queue_table()
 

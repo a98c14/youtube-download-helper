@@ -90,6 +90,50 @@ class FakeDialog:
         self.destroyed = True
 
 
+class FakeQueueRunner:
+    def __init__(self) -> None:
+        self.resumed_with: list[int] = []
+        self.notify_count = 0
+        self.pause_count = 0
+
+    def resume(self, concurrency: int) -> None:
+        self.resumed_with.append(concurrency)
+
+    def notify_queue_changed(self) -> None:
+        self.notify_count += 1
+
+    def pause(self) -> None:
+        self.pause_count += 1
+
+
+class FakeQueueStore:
+    def __init__(self) -> None:
+        self.items: list[QueueItem] = []
+
+    def has_duplicate_url(self, _url: str) -> bool:
+        return False
+
+    def add(
+        self,
+        url: str,
+        preset: str,
+        playlist: bool,
+        download_dir: str,
+        filename_template: str,
+    ) -> QueueItem:
+        item = QueueItem(
+            id=f"item-{len(self.items) + 1}",
+            url=url,
+            preset=preset,
+            playlist=playlist,
+            download_dir=download_dir,
+            filename_template=filename_template,
+            added_at="2026-04-24T00:00:00+00:00",
+        )
+        self.items.append(item)
+        return item
+
+
 class AppStatusTests(unittest.TestCase):
     def test_preset_mapping_uses_current_language_labels(self) -> None:
         app = YtDlpHelperApp.__new__(YtDlpHelperApp)
@@ -129,8 +173,8 @@ class AppStatusTests(unittest.TestCase):
         self.assertEqual(app.filename_template_var.value, "%(upload_date)s - %(title)s.%(ext)s")
         self.assertFalse(app.organize_by_channel_var.value)
         self.assertEqual(app.label_widgets["field.preset"].options["text"], "Ön Ayar")
-        self.assertEqual(app.button_widgets["button.download"].options["text"], "Ekle")
-        self.assertEqual(app.button_widgets["button.download_playlist"].options["text"], "Oynatma Listesi Ekle")
+        self.assertEqual(app.button_widgets["button.download"].options["text"], "İndir")
+        self.assertEqual(app.button_widgets["button.download_playlist"].options["text"], "Oynatma Listesi İndir")
         self.assertEqual(app.preset_combo.options["values"][0], "En İyi Video")
         self.assertEqual(app.preset_label_var.value, "Ses M4A")
         self.assertEqual(app.archive_status_var.value, "Kontrol edilmedi")
@@ -243,6 +287,58 @@ class AppStatusTests(unittest.TestCase):
         self.assertEqual(app.download_playlist_button.options["state"], "normal")
         self.assertEqual(app.help_menu.entries[0]["state"], "normal")
         self.assertNotIn(1, app.help_menu.entries)
+
+    def test_start_download_request_auto_resumes_initial_idle_queue(self) -> None:
+        app = _app_for_start_download()
+
+        app._start_download_request(playlist=False)  # noqa: SLF001
+
+        self.assertEqual(len(app.queue_store.items), 1)
+        self.assertFalse(app.queue_store.items[0].playlist)
+        self.assertEqual(app.queue_runner.resumed_with, [2])
+        self.assertEqual(app.queue_runner.notify_count, 0)
+
+    def test_start_download_request_keeps_explicitly_paused_queue_paused(self) -> None:
+        app = _app_for_start_download()
+        app.queue_user_paused = True
+
+        app._start_download_request(playlist=True)  # noqa: SLF001
+
+        self.assertEqual(len(app.queue_store.items), 1)
+        self.assertTrue(app.queue_store.items[0].playlist)
+        self.assertEqual(app.queue_runner.resumed_with, [])
+        self.assertEqual(app.queue_runner.notify_count, 1)
+
+    def test_start_download_request_reports_normal_queued_message(self) -> None:
+        app = _app_for_start_download()
+
+        app._start_download_request(playlist=False)  # noqa: SLF001
+
+        self.assertEqual(app.status_var.value, "Queued, starting when possible")
+        self.assertEqual(app.status_key, "status.queue_item_added")
+
+    def test_start_download_request_reports_paused_queued_message(self) -> None:
+        app = _app_for_start_download()
+        app.queue_user_paused = True
+
+        app._start_download_request(playlist=False)  # noqa: SLF001
+
+        self.assertEqual(app.status_var.value, "Queued; resume to start")
+        self.assertEqual(app.status_key, "status.queue_item_added_paused")
+
+    def test_pause_and_resume_track_explicit_session_pause(self) -> None:
+        app = _app_for_start_download()
+        app.queue_user_paused = False
+
+        app._pause_queue()  # noqa: SLF001
+
+        self.assertTrue(app.queue_user_paused)
+        self.assertEqual(app.queue_runner.pause_count, 1)
+
+        app._resume_queue()  # noqa: SLF001
+
+        self.assertFalse(app.queue_user_paused)
+        self.assertEqual(app.queue_runner.resumed_with, [2])
 
     def test_about_message_includes_app_and_ytdlp_versions(self) -> None:
         app = YtDlpHelperApp.__new__(YtDlpHelperApp)
@@ -377,6 +473,32 @@ def _app_with_localized_widgets() -> YtDlpHelperApp:
     app.log_window = None
     app.queue_runner = type("FakeQueueRunner", (), {"is_running": False})()
     app.queue_store = object()
+    return app
+
+
+def _app_for_start_download() -> YtDlpHelperApp:
+    app = YtDlpHelperApp.__new__(YtDlpHelperApp)
+    app.language = "en"
+    app.root = FakeRoot()
+    app.paths = _paths()
+    app.url_var = FakeVar("https://www.youtube.com/watch?v=abc123")
+    app.preset_var = FakeVar("best-video")
+    app.filename_template_var = FakeVar("%(title)s [%(id)s].%(ext)s")
+    app.queue_concurrency_var = FakeVar(2)
+    app.organize_by_channel_var = FakeVar(True)
+    app.status_var = FakeVar()
+    app.speed_var = FakeVar()
+    app.progress_var = FakeVar()
+    app.status_key = "status.ready"
+    app.status_params = {}
+    app.queue_user_paused = False
+    app.queue_runner = FakeQueueRunner()
+    app.queue_store = FakeQueueStore()
+    app.logs = []
+    app._append_log = app.logs.append  # type: ignore[method-assign]
+    app._apply_download_folder = lambda: True  # type: ignore[method-assign]
+    app._persist_settings = lambda: None  # type: ignore[method-assign]
+    app._refresh_queue_table = lambda: None  # type: ignore[method-assign]
     return app
 
 

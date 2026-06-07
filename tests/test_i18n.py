@@ -35,6 +35,12 @@ class I18nTests(unittest.TestCase):
         self.assertEqual(translate("en", "settings.organize_by_channel"), "Organize by channel/playlist")
         self.assertEqual(translate("tr", "settings.organize_by_channel"), "Kanal/oynatma listesine göre düzenle")
 
+    def test_download_button_labels_are_translated(self) -> None:
+        self.assertEqual(translate("en", "button.download"), "Download")
+        self.assertEqual(translate("en", "button.download_playlist"), "Download Playlist")
+        self.assertEqual(translate("tr", "button.download"), "İndir")
+        self.assertEqual(translate("tr", "button.download_playlist"), "Oynatma Listesi İndir")
+
 
 if __name__ == "__main__":
     unittest.main()
