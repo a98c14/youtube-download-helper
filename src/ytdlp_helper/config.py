@@ -30,6 +30,7 @@ class Settings:
     language: str = "tr"
     filename_template: str = DEFAULT_FILENAME_TEMPLATE
     queue_concurrency: int = DEFAULT_QUEUE_CONCURRENCY
+    organize_by_channel: bool = True
 
 
 @dataclass(frozen=True)
@@ -97,6 +98,7 @@ def load_settings(paths: AppPaths) -> Settings:
         language=normalize_language(str(data.get("language", defaults.language))),
         filename_template=str(data.get("filename_template", defaults.filename_template)),
         queue_concurrency=_normalize_queue_concurrency(data.get("queue_concurrency", defaults.queue_concurrency)),
+        organize_by_channel=_normalize_bool(data.get("organize_by_channel", defaults.organize_by_channel), True),
     )
     if not settings.download_dir:
         settings.download_dir = str(paths.download_dir)
@@ -121,6 +123,12 @@ def _normalize_queue_concurrency(value: object) -> int:
     if MIN_QUEUE_CONCURRENCY <= concurrency <= MAX_QUEUE_CONCURRENCY:
         return concurrency
     return DEFAULT_QUEUE_CONCURRENCY
+
+
+def _normalize_bool(value: object, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    return default
 
 
 def find_ffmpeg_location(paths: AppPaths | None = None) -> str | None:

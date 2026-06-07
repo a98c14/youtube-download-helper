@@ -34,9 +34,15 @@ class DownloadRequest:
 
 
 class DownloadService:
-    def __init__(self, paths: AppPaths, filename_template: str = DEFAULT_FILENAME_TEMPLATE) -> None:
+    def __init__(
+        self,
+        paths: AppPaths,
+        filename_template: str = DEFAULT_FILENAME_TEMPLATE,
+        organize_by_channel: bool = True,
+    ) -> None:
         self._paths = paths
         self._filename_template = filename_template.strip() or DEFAULT_FILENAME_TEMPLATE
+        self._organize_by_channel = organize_by_channel
 
     def get_ytdlp_version(self) -> str:
         executable = self._require_ytdlp_executable()
@@ -95,16 +101,20 @@ class DownloadService:
             str(self._paths.archive_file),
         ]
         if request.playlist:
+            default_template = _output_template(self._filename_template, self._organize_by_channel, playlist=False)
+            playlist_template = _output_template(self._filename_template, self._organize_by_channel, playlist=True)
             command.extend(
                 [
                     "--output",
-                    f"default:{self._filename_template}",
+                    f"default:{default_template}",
                     "--output",
-                    f"pl_video:%(playlist)s/{self._filename_template}",
+                    f"pl_video:{playlist_template}",
                 ]
             )
         else:
-            command.extend(["--output", self._filename_template])
+            command.extend(
+                ["--output", _output_template(self._filename_template, self._organize_by_channel, playlist=True)]
+            )
 
         if self._paths.cookies_file.exists():
             command.extend(["--cookies", str(self._paths.cookies_file)])
@@ -220,6 +230,18 @@ def _update_status_from_output(line: str, status_callback: StatusCallback) -> No
         speed_match = re.search(r"\bat\s+([^\s]+/s)\b", line)
         if speed_match:
             status_callback("speed", speed_match.group(1))
+
+
+def _output_template(filename_template: str, organize_by_channel: bool, playlist: bool) -> str:
+    if not organize_by_channel:
+        return filename_template
+    creator_segment = "%(channel,uploader&{}|.)s"
+    playlist_segment = "%(playlist&{}|.)s" if playlist else ""
+    segments = [creator_segment]
+    if playlist_segment:
+        segments.append(playlist_segment)
+    segments.append(filename_template)
+    return "/".join(segments)
 
 
 def _process_failed(output: list[str]) -> bool:

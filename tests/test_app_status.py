@@ -113,6 +113,7 @@ class AppStatusTests(unittest.TestCase):
                 [("Turkish", "tr"), ("English", "en")],
                 str(new_download_dir),
                 "%(upload_date)s - %(title)s.%(ext)s",
+                organize_by_channel=False,
             )
 
         self.assertTrue(dialog.destroyed)
@@ -122,9 +123,11 @@ class AppStatusTests(unittest.TestCase):
         self.assertEqual(saved_settings.download_dir, str(new_download_dir))
         self.assertEqual(saved_settings.filename_template, "%(upload_date)s - %(title)s.%(ext)s")
         self.assertEqual(saved_settings.queue_concurrency, 1)
+        self.assertFalse(saved_settings.organize_by_channel)
         self.assertEqual(app.paths.download_dir, new_download_dir)
         self.assertEqual(app.download_folder_var.value, str(new_download_dir))
         self.assertEqual(app.filename_template_var.value, "%(upload_date)s - %(title)s.%(ext)s")
+        self.assertFalse(app.organize_by_channel_var.value)
         self.assertEqual(app.label_widgets["field.preset"].options["text"], "Ön Ayar")
         self.assertEqual(app.button_widgets["button.download"].options["text"], "Ekle")
         self.assertEqual(app.button_widgets["button.download_playlist"].options["text"], "Oynatma Listesi Ekle")
@@ -356,6 +359,7 @@ def _app_with_localized_widgets() -> YtDlpHelperApp:
     app.download_folder_var = FakeVar(str(app.paths.download_dir))
     app.filename_template_var = FakeVar("%(title)s [%(id)s].%(ext)s")
     app.queue_concurrency_var = FakeVar(1)
+    app.organize_by_channel_var = FakeVar(True)
     app.archive_status_key = "archive.not_checked"
     app.archive_status_var = FakeVar("Not checked")
     app.cookie_status_var = FakeVar("No cookies saved")

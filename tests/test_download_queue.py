@@ -115,6 +115,37 @@ class QueueRunnerTests(unittest.TestCase):
 
         self.assertEqual(store.get(second.id).status, "queued")  # type: ignore[union-attr]
 
+    def test_not_yet_started_items_use_latest_organization_setting(self) -> None:
+        paths = _paths()
+        store = QueueStore.for_paths(paths)
+        first = store.add("https://example.test/1", "best-video", False, str(paths.download_dir), "%(title)s.%(ext)s")
+        second = store.add("https://example.test/2", "best-video", False, str(paths.download_dir), "%(title)s.%(ext)s")
+        service = ControlledService()
+        organize_by_channel = True
+        starts: list[tuple[str, bool]] = []
+
+        def factory(_paths: object, _template: str, organize: bool) -> ControlledService:
+            starts.append((store.items()[len(starts)].url, organize))
+            return service
+
+        runner = QueueRunner(
+            store,
+            paths,
+            lambda *_args: None,
+            factory,
+            organize_by_channel_provider=lambda: organize_by_channel,
+        )
+
+        runner.resume(1)
+        _wait_for(lambda: service.started == [first.url])
+        organize_by_channel = False
+        service.release_one()
+        _wait_for(lambda: service.started == [first.url, second.url])
+        service.release_one()
+        _wait_for(lambda: store.get(second.id).status == "completed")  # type: ignore[union-attr]
+
+        self.assertEqual(starts, [(first.url, True), (second.url, False)])
+
     def test_failure_does_not_block_following_items(self) -> None:
         paths = _paths()
         store = QueueStore.for_paths(paths)

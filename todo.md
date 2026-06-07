@@ -2,7 +2,9 @@
 
 ## features
 - [x] Double clicking a file on file progress viewer should launch the file if its completed
-- [] We need to improve file naming and downloaded content organization. I want downloaded videos to be put inside a folder based on which channel was downloaded from. This feature should be enabled based on a setting in our configuration. For example, if the channel is "ChannelA" and our download folder is "Downloads", any video I download from that channel should be put inside "Downloads/ChannelA/". Also if that video is part of a playlist then that playlist should also be another folder inside the channel folder as such "Downloads/ChannelA/{PlaylistName}/". 
+- [x] We need to improve file naming and downloaded content organization. I want downloaded videos to be put inside a folder based on which channel was downloaded from. This feature should be enabled based on a setting in our configuration. For example, if the channel is "ChannelA" and our download folder is "Downloads", any video I download from that channel should be put inside "Downloads/ChannelA/". Also if that video is part of a playlist then that playlist should also be another folder inside the channel folder as such "Downloads/ChannelA/{PlaylistName}/". 
+- [] When you click "Continue" it should launch an external command line. Also we should cache the system settings for existing session and don't do the checks everytime user tries to download a video.
+- [] Clicking "Add" should automatically start the download process. It shouldn't sit idle on queue. And it shouldn't be named "Add" it should be named "Download" instead.
 
 ## minor issues
 - [] Clicking "Save" on settings should close the settings screen.

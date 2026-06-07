@@ -49,7 +49,11 @@ class DownloaderTests(unittest.TestCase):
         self.assertEqual(command[0], "C:/tools/yt-dlp.exe")
         self.assertIn("--no-playlist", command)
         self.assertNotIn("--yes-playlist", command)
-        self.assert_option(command, "--output", "%(title)s [%(id)s].%(ext)s")
+        self.assert_option(
+            command,
+            "--output",
+            "%(channel,uploader&{}|.)s/%(playlist&{}|.)s/%(title)s [%(id)s].%(ext)s",
+        )
         self.assertNotIn("default:%(title)s [%(id)s].%(ext)s", command)
         self.assertNotIn("pl_video:%(playlist)s/%(title)s [%(id)s].%(ext)s", command)
         self.assertIn(f"home:{service._paths.download_dir}", command)  # noqa: SLF001
@@ -78,13 +82,45 @@ class DownloaderTests(unittest.TestCase):
 
         self.assertIn("--yes-playlist", command)
         self.assertNotIn("--no-playlist", command)
-        self.assert_option(command, "--output", "default:%(upload_date)s - %(title)s.%(ext)s")
+        self.assert_option(
+            command,
+            "--output",
+            "default:%(channel,uploader&{}|.)s/%(upload_date)s - %(title)s.%(ext)s",
+        )
         self.assertEqual(
             command[command.index("--output", command.index("--output") + 1) + 1],
-            "pl_video:%(playlist)s/%(upload_date)s - %(title)s.%(ext)s",
+            "pl_video:%(channel,uploader&{}|.)s/%(playlist&{}|.)s/%(upload_date)s - %(title)s.%(ext)s",
         )
         self.assert_option(command, "--format", "bv*+ba/b")
         self.assertEqual(command[-1], "https://www.youtube.com/playlist?list=abc123")
+
+    def test_builds_flat_output_when_organization_is_disabled(self) -> None:
+        service = DownloadService(_paths(), "%(upload_date)s - %(title)s.%(ext)s", organize_by_channel=False)
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
+            patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
+        ):
+            single_command = service._build_command(  # noqa: SLF001
+                DownloadRequest(
+                    url="https://www.youtube.com/watch?v=abc123",
+                    preset="best-video",
+                )
+            )
+            playlist_command = service._build_command(  # noqa: SLF001
+                DownloadRequest(
+                    url="https://www.youtube.com/playlist?list=abc123",
+                    preset="best-video",
+                    playlist=True,
+                )
+            )
+
+        self.assert_option(single_command, "--output", "%(upload_date)s - %(title)s.%(ext)s")
+        self.assert_option(playlist_command, "--output", "default:%(upload_date)s - %(title)s.%(ext)s")
+        self.assertEqual(
+            playlist_command[playlist_command.index("--output", playlist_command.index("--output") + 1) + 1],
+            "pl_video:%(upload_date)s - %(title)s.%(ext)s",
+        )
 
     def test_builds_audio_mp3_command(self) -> None:
         service = DownloadService(_paths())

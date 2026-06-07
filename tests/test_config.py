@@ -56,8 +56,33 @@ class ConfigTests(unittest.TestCase):
         settings = Settings()
 
         self.assertEqual(settings.language, "tr")
+        self.assertTrue(settings.organize_by_channel)
         self.assertEqual(settings.filename_template, DEFAULT_FILENAME_TEMPLATE)
         self.assertEqual(settings.queue_concurrency, 1)
+        self.assertTrue(settings.organize_by_channel)
+
+    def test_load_settings_uses_saved_organize_by_channel(self) -> None:
+        for value in (True, False):
+            with self.subTest(value=value):
+                paths = _paths()
+                paths.data_dir.mkdir(parents=True)
+                paths.settings_file.write_text(
+                    json.dumps({"download_dir": "downloads", "organize_by_channel": value}),
+                    encoding="utf-8",
+                )
+
+                settings = load_settings(paths)
+
+                self.assertIs(settings.organize_by_channel, value)
+
+    def test_load_settings_defaults_legacy_organize_by_channel_to_true(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        paths.settings_file.write_text(json.dumps({"download_dir": "downloads"}), encoding="utf-8")
+
+        settings = load_settings(paths)
+
+        self.assertTrue(settings.organize_by_channel)
 
     def test_load_settings_uses_saved_filename_template(self) -> None:
         paths = _paths()

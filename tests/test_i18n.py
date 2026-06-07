@@ -31,6 +31,10 @@ class I18nTests(unittest.TestCase):
         self.assertEqual(language_label("en", "tr"), "Turkish")
         self.assertEqual(language_label("tr", "en"), "İngilizce")
 
+    def test_organization_setting_label_is_translated(self) -> None:
+        self.assertEqual(translate("en", "settings.organize_by_channel"), "Organize by channel/playlist")
+        self.assertEqual(translate("tr", "settings.organize_by_channel"), "Kanal/oynatma listesine göre düzenle")
+
 
 if __name__ == "__main__":
     unittest.main()

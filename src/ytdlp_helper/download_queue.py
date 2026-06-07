@@ -179,12 +179,14 @@ class QueueRunner:
         store: QueueStore,
         paths: AppPaths,
         log_callback: Callable[[str], None],
-        downloader_factory: Callable[[AppPaths, str], DownloadService] | None = None,
+        downloader_factory: Callable[[AppPaths, str, bool], DownloadService] | None = None,
+        organize_by_channel_provider: Callable[[], bool] | None = None,
     ) -> None:
         self._store = store
         self._paths = paths
         self._log_callback = log_callback
         self._downloader_factory = downloader_factory or DownloadService
+        self._organize_by_channel_provider = organize_by_channel_provider or (lambda: True)
         self._paused = True
         self._concurrency = 1
         self._running: set[str] = set()
@@ -251,7 +253,11 @@ class QueueRunner:
         error = ""
         try:
             paths = replace(self._paths, download_dir=Path(item.download_dir).expanduser())
-            service = self._downloader_factory(paths, item.filename_template)
+            service = self._downloader_factory(
+                paths,
+                item.filename_template,
+                self._organize_by_channel_provider(),
+            )
             service.download(
                 DownloadRequest(item.url, item.preset, item.playlist),
                 lambda status, message: self._handle_status(item.id, status, message),

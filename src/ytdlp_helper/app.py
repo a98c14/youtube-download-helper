@@ -56,13 +56,17 @@ class YtDlpHelperApp:
         self.language = normalize_language(self.settings.language)
         self.paths = replace(self.paths, download_dir=Path(self.settings.download_dir).expanduser())
         ensure_app_dirs(self.paths)
-        self.downloader = DownloadService(self.paths, self.settings.filename_template)
+        self.downloader = DownloadService(
+            self.paths,
+            self.settings.filename_template,
+            self.settings.organize_by_channel,
+        )
         self.update_service = UpdateService(self.paths)
         self.activity_log = ActivityLogStore(self.paths)
         self.worker_pipeline = WorkerStatusPipeline(self, self._t, self.root.after)
         self.queue_store = QueueStore.for_paths(self.paths)
         self.queue_store.load()
-        self.queue_runner = QueueRunner(self.queue_store, self.paths, self._append_log)
+        self.queue_runner = self._create_queue_runner()
         self.ytdlp_version_cache: str | None = None
         self.ytdlp_version_cache_ready = False
         self.log_window: tk.Toplevel | None = None
@@ -86,6 +90,7 @@ class YtDlpHelperApp:
         self.download_folder_var = tk.StringVar(value=str(self.paths.download_dir))
         self.filename_template_var = tk.StringVar(value=self.settings.filename_template)
         self.queue_concurrency_var = tk.IntVar(value=self.settings.queue_concurrency)
+        self.organize_by_channel_var = tk.BooleanVar(value=self.settings.organize_by_channel)
         self.queue_filter_var = tk.StringVar(value="all")
         self.queue_summary_var = tk.StringVar()
         self.progress_var = tk.IntVar(value=0)
@@ -296,6 +301,7 @@ class YtDlpHelperApp:
         selected_download_folder = tk.StringVar(value=str(self.paths.download_dir))
         selected_filename_template = tk.StringVar(value=self.filename_template_var.get())
         selected_queue_concurrency = tk.IntVar(value=int(self.queue_concurrency_var.get()))
+        selected_organize_by_channel = tk.BooleanVar(value=bool(self.organize_by_channel_var.get()))
 
         frame = ttk.Frame(dialog, padding=16)
         frame.grid(row=0, column=0, sticky="nsew")
@@ -345,8 +351,14 @@ class YtDlpHelperApp:
             width=6,
         ).grid(row=3, column=1, sticky="w", pady=(0, 12))
 
+        ttk.Checkbutton(
+            frame,
+            text=self._t("settings.organize_by_channel"),
+            variable=selected_organize_by_channel,
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(0, 12))
+
         button_bar = ttk.Frame(frame)
-        button_bar.grid(row=4, column=0, columnspan=2, sticky="e")
+        button_bar.grid(row=5, column=0, columnspan=2, sticky="e")
         ttk.Button(button_bar, text=self._t("button.cancel"), command=dialog.destroy).pack(
             side="right", padx=(8, 0)
         )
@@ -360,6 +372,7 @@ class YtDlpHelperApp:
                 selected_download_folder.get(),
                 selected_filename_template.get(),
                 selected_queue_concurrency.get(),
+                selected_organize_by_channel.get(),
             ),
         ).pack(side="right")
 
@@ -374,6 +387,7 @@ class YtDlpHelperApp:
         download_folder: str | None = None,
         filename_template: str | None = None,
         queue_concurrency: int | None = None,
+        organize_by_channel: bool | None = None,
     ) -> None:
         selected_language = self._language_code_for_label(language_pairs, selected_label)
         if not selected_language:
@@ -395,10 +409,13 @@ class YtDlpHelperApp:
         self.download_folder_var.set(str(download_dir))
         self.filename_template_var.set(validated_template)
         self.queue_concurrency_var.set(self._validate_queue_concurrency(queue_concurrency))
-        self.downloader = DownloadService(self.paths, validated_template)
+        self.organize_by_channel_var.set(
+            bool(self.organize_by_channel_var.get()) if organize_by_channel is None else bool(organize_by_channel)
+        )
+        self.downloader = DownloadService(self.paths, validated_template, bool(self.organize_by_channel_var.get()))
         self.update_service = UpdateService(self.paths)
         if not self.queue_runner.is_running:
-            self.queue_runner = QueueRunner(self.queue_store, self.paths, self._append_log)
+            self.queue_runner = self._create_queue_runner()
         self._persist_settings()
         self._refresh_language()
         dialog.destroy()
@@ -908,8 +925,17 @@ class YtDlpHelperApp:
             language=self.language,
             filename_template=self.filename_template_var.get().strip() or DEFAULT_FILENAME_TEMPLATE,
             queue_concurrency=self._validate_queue_concurrency(self.queue_concurrency_var.get()),
+            organize_by_channel=bool(self.organize_by_channel_var.get()),
         )
         save_settings(self.paths, self.settings)
+
+    def _create_queue_runner(self) -> QueueRunner:
+        return QueueRunner(
+            self.queue_store,
+            self.paths,
+            self._append_log,
+            organize_by_channel_provider=lambda: bool(self.settings.organize_by_channel),
+        )
 
     def _choose_settings_download_folder(self, folder_var: tk.StringVar, parent: tk.Toplevel) -> None:
         current_dir = self._download_folder_from_value(folder_var.get())
@@ -928,10 +954,14 @@ class YtDlpHelperApp:
             return False
 
         self.paths = replace(self.paths, download_dir=download_dir)
-        self.downloader = DownloadService(self.paths, self.filename_template_var.get())
+        self.downloader = DownloadService(
+            self.paths,
+            self.filename_template_var.get(),
+            bool(self.organize_by_channel_var.get()),
+        )
         self.update_service = UpdateService(self.paths)
         if not self.queue_runner.is_running:
-            self.queue_runner = QueueRunner(self.queue_store, self.paths, self._append_log)
+            self.queue_runner = self._create_queue_runner()
         self.download_folder_var.set(str(download_dir))
         return True
 
