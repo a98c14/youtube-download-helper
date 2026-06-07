@@ -7,6 +7,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -191,6 +192,32 @@ class QueueRunnerTests(unittest.TestCase):
         self.assertEqual(store.get(item.id).name, "ok.mp4")  # type: ignore[union-attr]
         self.assertEqual(store.get(item.id).output_path, str(paths.download_dir / "ok.mp4"))  # type: ignore[union-attr]
 
+    def test_resumed_concurrent_items_share_runtime_tool_resolution(self) -> None:
+        paths = _paths()
+        _write_runtime_tools(paths)
+        store = QueueStore.for_paths(paths)
+        first = store.add("https://example.test/1", "best-video", False, str(paths.download_dir), "%(title)s.%(ext)s")
+        second = store.add("https://example.test/2", "best-video", False, str(paths.download_dir), "%(title)s.%(ext)s")
+        calls = 0
+
+        def fake_ensure(*_args: object) -> None:
+            nonlocal calls
+            calls += 1
+            time.sleep(0.05)
+
+        runner = QueueRunner(store, paths, lambda *_args: None)
+
+        with (
+            patch("ytdlp_helper.dependencies.ensure_runtime_tools", side_effect=fake_ensure),
+            patch("ytdlp_helper.dependencies._read_tool_version", return_value=None),
+            patch("ytdlp_helper.downloader.subprocess.Popen", return_value=FakeProcess([])),
+        ):
+            runner.resume(2)
+            _wait_for(lambda: store.get(first.id).status == "completed")  # type: ignore[union-attr]
+            _wait_for(lambda: store.get(second.id).status == "completed")  # type: ignore[union-attr]
+
+        self.assertEqual(calls, 1)
+
 
 class ControlledService:
     def __init__(
@@ -225,6 +252,15 @@ class ControlledService:
         self._releases.append(True)
 
 
+class FakeProcess:
+    def __init__(self, lines: list[str], return_code: int = 0) -> None:
+        self.stdout = lines
+        self._return_code = return_code
+
+    def wait(self) -> int:
+        return self._return_code
+
+
 def _wait_for(predicate: object) -> None:
     for _ in range(200):
         if predicate():
@@ -246,6 +282,16 @@ def _raw_item(item_id: str, status: str) -> dict[str, object]:
     }
 
 
+def _write_runtime_tools(paths: AppPaths) -> None:
+    paths.ytdlp_executable.parent.mkdir(parents=True)
+    paths.ytdlp_executable.write_bytes(b"yt-dlp")
+    paths.ffmpeg_dir.mkdir(parents=True)
+    paths.ffmpeg_executable.write_bytes(b"ffmpeg")
+    paths.ffprobe_executable.write_bytes(b"ffprobe")
+    paths.deno_dir.mkdir(parents=True)
+    paths.deno_executable.write_bytes(b"deno")
+
+
 def _paths() -> AppPaths:
     root = Path(tempfile.mkdtemp())
     return AppPaths(
@@ -259,7 +305,7 @@ def _paths() -> AppPaths:
         ytdlp_executable=root / "data" / "tools" / "yt-dlp.exe",
         ffmpeg_dir=root / "data" / "tools" / "ffmpeg",
         ffmpeg_executable=root / "data" / "tools" / "ffmpeg" / "ffmpeg.exe",
-        ffprobe_executable=root / "data" / "tools" / "ffprobe.exe",
+        ffprobe_executable=root / "data" / "tools" / "ffmpeg" / "ffprobe.exe",
         deno_dir=root / "data" / "tools" / "deno",
         deno_executable=root / "data" / "tools" / "deno" / "deno.exe",
         download_dir=root / "downloads",

@@ -13,7 +13,7 @@ from .config import (
     find_ffmpeg_location,
     find_ytdlp_executable,
 )
-from .dependencies import ensure_runtime_tools, read_tool_version
+from .dependencies import RuntimeToolContext, RuntimeToolResolver, ensure_runtime_tools, log_runtime_tool_context
 
 
 StatusCallback = Callable[[str, str], None]
@@ -39,13 +39,16 @@ class DownloadService:
         paths: AppPaths,
         filename_template: str = DEFAULT_FILENAME_TEMPLATE,
         organize_by_channel: bool = True,
+        runtime_tools: RuntimeToolResolver | None = None,
     ) -> None:
         self._paths = paths
         self._filename_template = filename_template.strip() or DEFAULT_FILENAME_TEMPLATE
         self._organize_by_channel = organize_by_channel
+        self._runtime_tools = runtime_tools
+        self._runtime_context: RuntimeToolContext | None = None
 
     def get_ytdlp_version(self) -> str:
-        executable = self._require_ytdlp_executable()
+        executable = self._require_ytdlp_executable(None)
         result = subprocess.run(
             [executable, "--version"],
             capture_output=True,
@@ -70,9 +73,9 @@ class DownloadService:
             raise ValueError("Enter a valid URL starting with http:// or https://.")
 
         status_callback("queued", "Preparing download")
-        ensure_runtime_tools(self._paths, log_callback, status_callback)
-        self._log_runtime_context(request, log_callback)
-        command = self._build_command(request)
+        context = self._resolve_runtime_context(log_callback, status_callback)
+        log_callback(f"Preset: {request.preset}")
+        command = self._build_command(request, context)
         if not self._paths.cookies_file.exists():
             log_callback("No saved cookies; downloading as public session.")
         log_callback(f"Running: {command[0]} ...")
@@ -84,10 +87,11 @@ class DownloadService:
             status_callback("failed", message)
             raise RuntimeError(message)
 
-    def _build_command(self, request: DownloadRequest) -> list[str]:
-        executable = self._require_ytdlp_executable()
-        ffmpeg_location = find_ffmpeg_location(self._paths)
-        deno_executable = find_deno_executable(self._paths)
+    def _build_command(self, request: DownloadRequest, context: RuntimeToolContext | None = None) -> list[str]:
+        context = context or self._runtime_context or self._discover_runtime_context()
+        executable = self._require_ytdlp_executable(context)
+        ffmpeg_location = context.ffmpeg_location
+        deno_executable = context.deno_executable
         command = [
             executable,
             "--paths",
@@ -151,31 +155,37 @@ class DownloadService:
         command.append(request.url.strip())
         return command
 
-    def _require_ytdlp_executable(self) -> str:
-        executable = find_ytdlp_executable(self._paths)
+    def _require_ytdlp_executable(self, context: RuntimeToolContext | None) -> str:
+        executable = context.ytdlp_executable if context else find_ytdlp_executable(self._paths)
         if executable:
             return executable
         raise RuntimeError(
             "yt-dlp.exe was not found and could not be installed. Check your internet connection and try again."
         )
 
-    def _log_runtime_context(self, request: DownloadRequest, log_callback: LogCallback) -> None:
-        executable = find_ytdlp_executable(self._paths)
-        ffmpeg_location = find_ffmpeg_location(self._paths)
-        deno_executable = find_deno_executable(self._paths)
+    def _resolve_runtime_context(
+        self,
+        log_callback: LogCallback,
+        status_callback: StatusCallback,
+    ) -> RuntimeToolContext:
+        if self._runtime_tools:
+            context = self._runtime_tools.resolve(log_callback, status_callback)
+        else:
+            if self._runtime_context is None or not _context_paths_exist(self._runtime_context):
+                ensure_runtime_tools(self._paths, log_callback, status_callback)
+                self._runtime_context = self._discover_runtime_context()
+                log_runtime_tool_context(self._runtime_context, log_callback)
+            context = self._runtime_context
+        self._runtime_context = context
+        return context
 
-        if executable:
-            log_callback(f"yt-dlp: {executable}{_version_suffix(executable)}")
-        if ffmpeg_location:
-            log_callback(f"ffmpeg: {ffmpeg_location}")
-        else:
-            log_callback("ffmpeg: not found")
-        if deno_executable:
-            log_callback(f"Deno: {deno_executable}{_version_suffix(deno_executable)}")
-            log_callback("YouTube JavaScript challenge support enabled with remote EJS components.")
-        else:
-            log_callback("Deno: not found; YouTube JavaScript challenge support disabled.")
-        log_callback(f"Preset: {request.preset}")
+    def _discover_runtime_context(self) -> RuntimeToolContext:
+        executable = self._require_ytdlp_executable(None)
+        return RuntimeToolContext(
+            ytdlp_executable=executable,
+            ffmpeg_location=find_ffmpeg_location(self._paths),
+            deno_executable=find_deno_executable(self._paths),
+        )
 
     def _run_process(
         self,
@@ -276,12 +286,14 @@ def _hidden_subprocess_kwargs() -> dict[str, int]:
     return {}
 
 
-def _version_suffix(executable: str) -> str:
-    path = Path(executable)
-    if not path.exists():
-        return ""
-    try:
-        version = read_tool_version(path)
-    except Exception:
-        return ""
-    return f" ({version})" if version else ""
+def _context_paths_exist(context: RuntimeToolContext) -> bool:
+    if not Path(context.ytdlp_executable).exists():
+        return False
+    if context.ffmpeg_location and not (
+        (Path(context.ffmpeg_location) / "ffmpeg.exe").exists()
+        and (Path(context.ffmpeg_location) / "ffprobe.exe").exists()
+    ):
+        return False
+    if context.deno_executable and not Path(context.deno_executable).exists():
+        return False
+    return True

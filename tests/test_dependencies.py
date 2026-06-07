@@ -4,6 +4,8 @@ import io
 import json
 import sys
 import tempfile
+import threading
+import time
 import unittest
 import zipfile
 from pathlib import Path
@@ -14,10 +16,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from ytdlp_helper.config import AppPaths, find_deno_executable, find_ffmpeg_location, find_ytdlp_executable
 from ytdlp_helper.dependencies import (
     DependencyInstallError,
+    RuntimeToolResolver,
     _download_file,
+    _hidden_subprocess_kwargs,
     ensure_deno,
     ensure_ffmpeg,
     ensure_ytdlp,
+    read_tool_version,
     refresh_runtime_tools,
 )
 
@@ -280,6 +285,58 @@ class DependencyTests(unittest.TestCase):
         self.assertIn(("installing", "Downloading ffmpeg 5.0 MB"), statuses)
         self.assertIn("Downloading ffmpeg 5.0 MB", logs)
 
+    def test_version_check_hides_subprocess_window_when_available(self) -> None:
+        completed = subprocess_completed("tool.exe --version", "tool 1.0\n")
+
+        with (
+            patch("ytdlp_helper.dependencies.subprocess.CREATE_NO_WINDOW", 134217728, create=True),
+            patch("ytdlp_helper.dependencies.subprocess.run", return_value=completed) as run,
+        ):
+            self.assertEqual(read_tool_version(Path("tool.exe")), "tool 1.0")
+
+        run.assert_called_once_with(
+            ["tool.exe", "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+            **_hidden_subprocess_kwargs(),
+        )
+
+    def test_runtime_tool_resolver_single_flights_concurrent_success(self) -> None:
+        paths = _paths()
+        _write_runtime_tools(paths)
+        resolver = RuntimeToolResolver(paths)
+        calls = 0
+        lock = threading.Lock()
+        start = threading.Barrier(2)
+
+        def fake_ensure(*_args: object) -> None:
+            nonlocal calls
+            with lock:
+                calls += 1
+            time.sleep(0.05)
+
+        results: list[str] = []
+
+        def resolve() -> None:
+            start.wait()
+            context = resolver.resolve(lambda *_args: None, lambda *_args: None)
+            results.append(context.ytdlp_executable)
+
+        with (
+            patch("ytdlp_helper.dependencies.ensure_runtime_tools", side_effect=fake_ensure),
+            patch("ytdlp_helper.dependencies._read_tool_version", return_value=None),
+        ):
+            threads = [threading.Thread(target=resolve), threading.Thread(target=resolve)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        self.assertEqual(calls, 1)
+        self.assertEqual(results, [str(paths.ytdlp_executable), str(paths.ytdlp_executable)])
+
 
 def _ffmpeg_zip(files: dict[str, bytes]) -> bytes:
     output = io.BytesIO()
@@ -308,6 +365,22 @@ def _deno_release_payload() -> bytes:
             ],
         }
     ).encode("utf-8")
+
+
+def subprocess_completed(args: str, stdout: str) -> object:
+    import subprocess
+
+    return subprocess.CompletedProcess(args=args, returncode=0, stdout=stdout, stderr="")
+
+
+def _write_runtime_tools(paths: AppPaths) -> None:
+    paths.ytdlp_executable.parent.mkdir(parents=True)
+    paths.ytdlp_executable.write_bytes(b"yt-dlp")
+    paths.ffmpeg_dir.mkdir(parents=True)
+    paths.ffmpeg_executable.write_bytes(b"ffmpeg")
+    paths.ffprobe_executable.write_bytes(b"ffprobe")
+    paths.deno_dir.mkdir(parents=True)
+    paths.deno_executable.write_bytes(b"deno")
 
 
 def _paths() -> AppPaths:

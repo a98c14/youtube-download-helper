@@ -6,9 +6,11 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import urllib.error
 import urllib.request
 import zipfile
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable
@@ -31,6 +33,89 @@ UNKNOWN_TOTAL_LOG_BYTES = 5 * 1024 * 1024
 
 class DependencyInstallError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class RuntimeToolContext:
+    ytdlp_executable: str
+    ffmpeg_location: str | None
+    deno_executable: str | None
+    ytdlp_version: str | None = None
+    ffmpeg_version: str | None = None
+    deno_version: str | None = None
+
+
+class RuntimeToolResolver:
+    def __init__(self, paths: AppPaths) -> None:
+        self._paths = paths
+        self._context: RuntimeToolContext | None = None
+        self._resolving = False
+        self._condition = threading.Condition(threading.RLock())
+
+    def resolve(self, log_callback: LogCallback, status_callback: StatusCallback) -> RuntimeToolContext:
+        context = self._cached_context()
+        if context:
+            return context
+        return self._resolve_single_flight(log_callback, status_callback, refresh=False)
+
+    def refresh(self, log_callback: LogCallback, status_callback: StatusCallback) -> RuntimeToolContext:
+        return self._resolve_single_flight(log_callback, status_callback, refresh=True)
+
+    def _cached_context(self) -> RuntimeToolContext | None:
+        with self._condition:
+            context = self._context
+            if context and _context_paths_exist(context):
+                return context
+            if context:
+                self._context = None
+            return None
+
+    def _resolve_single_flight(
+        self,
+        log_callback: LogCallback,
+        status_callback: StatusCallback,
+        *,
+        refresh: bool,
+    ) -> RuntimeToolContext:
+        with self._condition:
+            while self._resolving:
+                self._condition.wait()
+                if not refresh and self._context and _context_paths_exist(self._context):
+                    return self._context
+            if not refresh and self._context and _context_paths_exist(self._context):
+                return self._context
+            self._resolving = True
+
+        try:
+            context = self._resolve_fresh(log_callback, status_callback, refresh=refresh)
+        except Exception:
+            with self._condition:
+                self._resolving = False
+                if refresh:
+                    self._context = None
+                self._condition.notify_all()
+            raise
+
+        with self._condition:
+            self._context = context
+            self._resolving = False
+            self._condition.notify_all()
+        return context
+
+    def _resolve_fresh(
+        self,
+        log_callback: LogCallback,
+        status_callback: StatusCallback,
+        *,
+        refresh: bool,
+    ) -> RuntimeToolContext:
+        if refresh:
+            refresh_runtime_tools(self._paths, log_callback, status_callback)
+        else:
+            ensure_runtime_tools(self._paths, log_callback, status_callback)
+        context = resolve_runtime_tool_context(self._paths)
+        log_runtime_tool_context(context, log_callback)
+        return context
 
 
 def ensure_runtime_tools(
@@ -486,6 +571,37 @@ def read_tool_version(executable: Path) -> str | None:
     return _read_tool_version(executable)
 
 
+def resolve_runtime_tool_context(paths: AppPaths) -> RuntimeToolContext:
+    ytdlp_executable = find_ytdlp_executable(paths)
+    if not ytdlp_executable:
+        raise RuntimeError(
+            "yt-dlp.exe was not found and could not be installed. Check your internet connection and try again."
+        )
+    ffmpeg_location = find_ffmpeg_location(paths)
+    deno_executable = find_deno_executable(paths)
+    return RuntimeToolContext(
+        ytdlp_executable=ytdlp_executable,
+        ffmpeg_location=ffmpeg_location,
+        deno_executable=deno_executable,
+        ytdlp_version=_read_tool_version(Path(ytdlp_executable)),
+        ffmpeg_version=_read_tool_version(Path(ffmpeg_location) / "ffmpeg.exe") if ffmpeg_location else None,
+        deno_version=_read_tool_version(Path(deno_executable)) if deno_executable else None,
+    )
+
+
+def log_runtime_tool_context(context: RuntimeToolContext, log_callback: LogCallback) -> None:
+    log_callback(f"yt-dlp: {context.ytdlp_executable}{_version_suffix(context.ytdlp_version)}")
+    if context.ffmpeg_location:
+        log_callback(f"ffmpeg: {context.ffmpeg_location}{_version_suffix(context.ffmpeg_version)}")
+    else:
+        log_callback("ffmpeg: not found")
+    if context.deno_executable:
+        log_callback(f"Deno: {context.deno_executable}{_version_suffix(context.deno_version)}")
+        log_callback("YouTube JavaScript challenge support enabled with remote EJS components.")
+    else:
+        log_callback("Deno: not found; YouTube JavaScript challenge support disabled.")
+
+
 def _read_tool_version(executable: Path) -> str | None:
     try:
         result = subprocess.run(
@@ -494,6 +610,7 @@ def _read_tool_version(executable: Path) -> str | None:
             text=True,
             check=False,
             timeout=10,
+            **_hidden_subprocess_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -501,3 +618,27 @@ def _read_tool_version(executable: Path) -> str | None:
         return None
     first_line = (result.stdout or result.stderr).splitlines()
     return first_line[0].strip() if first_line else None
+
+
+def _hidden_subprocess_kwargs() -> dict[str, int]:
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if creationflags:
+        return {"creationflags": creationflags}
+    return {}
+
+
+def _context_paths_exist(context: RuntimeToolContext) -> bool:
+    if not Path(context.ytdlp_executable).exists():
+        return False
+    if context.ffmpeg_location and not (
+        (Path(context.ffmpeg_location) / "ffmpeg.exe").exists()
+        and (Path(context.ffmpeg_location) / "ffprobe.exe").exists()
+    ):
+        return False
+    if context.deno_executable and not Path(context.deno_executable).exists():
+        return False
+    return True
+
+
+def _version_suffix(version: str | None) -> str:
+    return f" ({version})" if version else ""

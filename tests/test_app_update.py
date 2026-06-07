@@ -23,6 +23,7 @@ from ytdlp_helper.app_update import (
     check_and_stage_app_update,
     select_portable_assets,
 )
+from ytdlp_helper.update_service import UpdateService
 
 
 class FakeResponse(io.BytesIO):
@@ -147,6 +148,16 @@ class AppUpdateTests(unittest.TestCase):
         self.assertIn("Move-Item", text)
         self.assertIn("Start-Process", text)
 
+    def test_update_service_refreshes_runtime_tool_resolver_cache(self) -> None:
+        paths = _paths()
+        resolver = FakeRuntimeToolResolver()
+
+        with patch("ytdlp_helper.update_service.check_and_stage_app_update", return_value=_update_result()):
+            result = UpdateService(paths, resolver).update(lambda *_args: None, lambda *_args: None)
+
+        self.assertEqual(result.message, "done")
+        self.assertEqual(resolver.refresh_calls, 1)
+
 
 def _release(tag_name: str, asset_names: list[str]) -> dict[str, object]:
     return {
@@ -160,6 +171,43 @@ def _app_zip() -> bytes:
     with zipfile.ZipFile(output, "w") as archive:
         archive.writestr(APP_EXE_NAME, b"exe")
     return output.getvalue()
+
+
+class FakeRuntimeToolResolver:
+    def __init__(self) -> None:
+        self.refresh_calls = 0
+
+    def refresh(self, *_args: object) -> object:
+        self.refresh_calls += 1
+        return object()
+
+
+def _update_result() -> object:
+    from ytdlp_helper.app_update import AppUpdateResult
+
+    return AppUpdateResult(message="done")
+
+
+def _paths() -> object:
+    from ytdlp_helper.config import AppPaths
+
+    root = Path(tempfile.mkdtemp())
+    return AppPaths(
+        data_dir=root / "data",
+        settings_file=root / "data" / "settings.json",
+        archive_file=root / "data" / "download-archive.txt",
+        cookies_file=root / "data" / "cookies.txt",
+        logs_dir=root / "data" / "logs",
+        activity_log_file=root / "data" / "logs" / "activity.log",
+        tools_dir=root / "data" / "tools",
+        ytdlp_executable=root / "data" / "tools" / "yt-dlp.exe",
+        ffmpeg_dir=root / "data" / "tools" / "ffmpeg",
+        ffmpeg_executable=root / "data" / "tools" / "ffmpeg" / "ffmpeg.exe",
+        ffprobe_executable=root / "data" / "tools" / "ffmpeg" / "ffprobe.exe",
+        deno_dir=root / "data" / "tools" / "deno",
+        deno_executable=root / "data" / "tools" / "deno" / "deno.exe",
+        download_dir=root / "downloads",
+    )
 
 
 if __name__ == "__main__":

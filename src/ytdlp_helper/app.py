@@ -26,7 +26,7 @@ from .config import (
     save_settings,
 )
 from .cookies import get_cookie_status, save_cookie_text
-from .dependencies import read_tool_version
+from .dependencies import RuntimeToolResolver, read_tool_version
 from .download_queue import QueueItem, QueueRunner, QueueStore
 from .downloader import DownloadRequest, DownloadService
 from .app_update import AppUpdateResult, start_restart_script
@@ -56,12 +56,14 @@ class YtDlpHelperApp:
         self.language = normalize_language(self.settings.language)
         self.paths = replace(self.paths, download_dir=Path(self.settings.download_dir).expanduser())
         ensure_app_dirs(self.paths)
+        self.runtime_tools = RuntimeToolResolver(self.paths)
         self.downloader = DownloadService(
             self.paths,
             self.settings.filename_template,
             self.settings.organize_by_channel,
+            self._runtime_tool_resolver(),
         )
-        self.update_service = UpdateService(self.paths)
+        self.update_service = UpdateService(self.paths, self._runtime_tool_resolver())
         self.activity_log = ActivityLogStore(self.paths)
         self.worker_pipeline = WorkerStatusPipeline(self, self._t, self.root.after)
         self.queue_store = QueueStore.for_paths(self.paths)
@@ -412,8 +414,13 @@ class YtDlpHelperApp:
         self.organize_by_channel_var.set(
             bool(self.organize_by_channel_var.get()) if organize_by_channel is None else bool(organize_by_channel)
         )
-        self.downloader = DownloadService(self.paths, validated_template, bool(self.organize_by_channel_var.get()))
-        self.update_service = UpdateService(self.paths)
+        self.downloader = DownloadService(
+            self.paths,
+            validated_template,
+            bool(self.organize_by_channel_var.get()),
+            self._runtime_tool_resolver(),
+        )
+        self.update_service = UpdateService(self.paths, self._runtime_tool_resolver())
         if not self.queue_runner.is_running:
             self.queue_runner = self._create_queue_runner()
         self._persist_settings()
@@ -935,6 +942,7 @@ class YtDlpHelperApp:
             self.paths,
             self._append_log,
             organize_by_channel_provider=lambda: bool(self.settings.organize_by_channel),
+            runtime_tools=self._runtime_tool_resolver(),
         )
 
     def _choose_settings_download_folder(self, folder_var: tk.StringVar, parent: tk.Toplevel) -> None:
@@ -958,8 +966,9 @@ class YtDlpHelperApp:
             self.paths,
             self.filename_template_var.get(),
             bool(self.organize_by_channel_var.get()),
+            self._runtime_tool_resolver(),
         )
-        self.update_service = UpdateService(self.paths)
+        self.update_service = UpdateService(self.paths, self._runtime_tool_resolver())
         if not self.queue_runner.is_running:
             self.queue_runner = self._create_queue_runner()
         self.download_folder_var.set(str(download_dir))
@@ -970,6 +979,13 @@ class YtDlpHelperApp:
         if not raw_path:
             return None
         return Path(raw_path).expanduser()
+
+    def _runtime_tool_resolver(self) -> RuntimeToolResolver:
+        resolver = getattr(self, "runtime_tools", None)
+        if resolver is None:
+            resolver = RuntimeToolResolver(self.paths)
+            self.runtime_tools = resolver
+        return resolver
 
     def _validate_download_folder(self, value: str, parent: tk.Misc) -> Path | None:
         download_dir = self._download_folder_from_value(value)

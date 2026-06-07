@@ -10,6 +10,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ytdlp_helper.config import AppPaths
+from ytdlp_helper.dependencies import RuntimeToolContext
 from ytdlp_helper.downloader import (
     DownloadRequest,
     DownloadService,
@@ -26,6 +27,16 @@ class FakeProcess:
 
     def wait(self) -> int:
         return self._return_code
+
+
+class FakeResolver:
+    def __init__(self, context: RuntimeToolContext) -> None:
+        self.context = context
+        self.calls = 0
+
+    def resolve(self, *_args: object) -> RuntimeToolContext:
+        self.calls += 1
+        return self.context
 
 
 class DownloaderTests(unittest.TestCase):
@@ -250,6 +261,34 @@ class DownloaderTests(unittest.TestCase):
         self.assertIn(("speed", "1.23MiB/s"), statuses)
         self.assertIn(("postprocessing", "Finalizing file"), statuses)
         self.assertIn("[Merger] Merging formats", logs)
+
+    def test_download_uses_cached_runtime_context_without_rediscovery(self) -> None:
+        paths = _paths()
+        context = RuntimeToolContext(
+            ytdlp_executable="C:/tools/yt-dlp.exe",
+            ffmpeg_location="C:/tools/ffmpeg",
+            deno_executable="C:/tools/deno/deno.exe",
+        )
+        resolver = FakeResolver(context)
+        service = DownloadService(paths, runtime_tools=resolver)  # type: ignore[arg-type]
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", side_effect=AssertionError("rediscovered yt-dlp")),
+            patch("ytdlp_helper.downloader.find_ffmpeg_location", side_effect=AssertionError("rediscovered ffmpeg")),
+            patch("ytdlp_helper.downloader.find_deno_executable", side_effect=AssertionError("rediscovered deno")),
+            patch("ytdlp_helper.downloader.subprocess.Popen", return_value=FakeProcess([])) as popen,
+        ):
+            service.download(
+                DownloadRequest(url="https://www.youtube.com/watch?v=abc123", preset="best-video"),
+                lambda *_args: None,
+                lambda *_args: None,
+            )
+
+        command = popen.call_args.args[0]
+        self.assertEqual(resolver.calls, 1)
+        self.assertEqual(command[0], "C:/tools/yt-dlp.exe")
+        self.assert_option(command, "--ffmpeg-location", "C:/tools/ffmpeg")
+        self.assert_option(command, "--js-runtimes", "deno:C:/tools/deno/deno.exe")
 
     def test_download_reports_archive_skip(self) -> None:
         service = DownloadService(_paths())

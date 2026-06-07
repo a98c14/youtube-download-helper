@@ -11,6 +11,7 @@ from typing import Callable, Literal
 from uuid import uuid4
 
 from .config import AppPaths
+from .dependencies import RuntimeToolResolver
 from .downloader import DownloadRequest, DownloadService
 from .worker_status import percent_from_message
 
@@ -181,11 +182,14 @@ class QueueRunner:
         log_callback: Callable[[str], None],
         downloader_factory: Callable[[AppPaths, str, bool], DownloadService] | None = None,
         organize_by_channel_provider: Callable[[], bool] | None = None,
+        runtime_tools: RuntimeToolResolver | None = None,
     ) -> None:
         self._store = store
         self._paths = paths
         self._log_callback = log_callback
+        self._uses_default_downloader_factory = downloader_factory is None
         self._downloader_factory = downloader_factory or DownloadService
+        self._runtime_tools = runtime_tools or RuntimeToolResolver(paths)
         self._organize_by_channel_provider = organize_by_channel_provider or (lambda: True)
         self._paused = True
         self._concurrency = 1
@@ -253,11 +257,19 @@ class QueueRunner:
         error = ""
         try:
             paths = replace(self._paths, download_dir=Path(item.download_dir).expanduser())
-            service = self._downloader_factory(
-                paths,
-                item.filename_template,
-                self._organize_by_channel_provider(),
-            )
+            if self._uses_default_downloader_factory:
+                service = DownloadService(
+                    paths,
+                    item.filename_template,
+                    self._organize_by_channel_provider(),
+                    self._runtime_tools,
+                )
+            else:
+                service = self._downloader_factory(
+                    paths,
+                    item.filename_template,
+                    self._organize_by_channel_provider(),
+                )
             service.download(
                 DownloadRequest(item.url, item.preset, item.playlist),
                 lambda status, message: self._handle_status(item.id, status, message),
