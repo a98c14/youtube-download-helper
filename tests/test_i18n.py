@@ -10,6 +10,9 @@ from ytdlp_helper.i18n import TRANSLATIONS, language_label, normalize_language, 
 
 
 class I18nTests(unittest.TestCase):
+    def test_translation_keys_match_between_languages(self) -> None:
+        self.assertEqual(set(TRANSLATIONS["en"]), set(TRANSLATIONS["tr"]))
+
     def test_normalizes_supported_language(self) -> None:
         self.assertEqual(normalize_language("en"), "en")
         self.assertEqual(normalize_language("tr"), "tr")
@@ -58,6 +61,14 @@ class I18nTests(unittest.TestCase):
         self.assertEqual(translate("tr", "field.category"), "Kategori")
         self.assertEqual(translate("en", "queue.column.category"), "Category")
         self.assertEqual(translate("tr", "queue.column.category"), "Kategori")
+
+    def test_tracker_messages_are_translated_and_formatted(self) -> None:
+        self.assertEqual(translate("en", "tracker.check.current", name="Mix", count=3), "Mix: 3 current")
+        self.assertEqual(translate("tr", "tracker.check.current", name="Mix", count=3), "Mix: 3 mevcut")
+        self.assertEqual(
+            translate("tr", "tracker.error.update", error="disk full"),
+            "Takip ayarları güncellenemedi: disk full",
+        )
 
 
 if __name__ == "__main__":

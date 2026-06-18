@@ -32,7 +32,7 @@ from .config import (
 from .cookies import get_cookie_status, save_cookie_text
 from .dependencies import RuntimeToolResolver, read_tool_version
 from .download_queue import QueueItem, QueueRunner, QueueStore
-from .database import Database
+from .database import Database, PlaylistCandidate, TrackedPlaylist
 from .downloader import DownloadRequest, DownloadService
 from .playlist_tracker import PlaylistChecker, canonical_playlist_url, parse_youtube_playlist_id
 from .app_update import AppUpdateResult, start_restart_script
@@ -358,12 +358,17 @@ class YtDlpHelperApp:
                                              record.preset, record.output_path))
 
     def _show_playlist_tracker(self) -> None:
+        tracker_language = self.language
+        tracker_t = lambda key, **params: translate(tracker_language, key, **params)
         dialog = tk.Toplevel(self.root)
-        dialog.title(self._t("menu.playlist_tracker"))
-        dialog.geometry("860x430")
+        dialog.title(tracker_t("menu.playlist_tracker"))
+        dialog.geometry("900x500")
         columns = ("title", "state", "category", "preset", "attempt", "result")
         table = ttk.Treeview(dialog, columns=columns, show="headings", selectmode="browse")
-        for column, label in zip(columns, ("Playlist", "State", "Category", "Preset", "Latest Check", "Result")):
+        heading_keys = ("tracker.column.playlist", "tracker.column.state", "field.category",
+                        "field.preset", "tracker.column.latest_check", "tracker.column.result")
+        for column, key in zip(columns, heading_keys):
+            label = tracker_t(key)
             table.heading(column, text=label)
         table.column("title", width=220)
         table.column("state", width=80)
@@ -373,63 +378,121 @@ class YtDlpHelperApp:
         table.column("result", width=110)
         table.pack(fill="both", expand=True, padx=12, pady=(12, 6))
 
-        def refresh() -> None:
+        editor = ttk.Frame(dialog)
+        editor.pack(fill="x", padx=12, pady=(0, 6))
+        ttk.Label(editor, text=tracker_t("field.preset")).pack(side="left")
+        tracker_preset_var = tk.StringVar()
+        preset_combo = ttk.Combobox(editor, textvariable=tracker_preset_var, state="disabled",
+                                    values=self._preset_labels_for_language(tracker_language), width=18)
+        preset_combo.pack(side="left", padx=(6, 16))
+        ttk.Label(editor, text=tracker_t("field.category")).pack(side="left")
+        tracker_category_var = tk.StringVar()
+        category_combo = ttk.Combobox(editor, textvariable=tracker_category_var, state="disabled", width=22)
+        category_combo.pack(side="left", padx=(6, 0))
+        displayed_trackers: dict[int, TrackedPlaylist] = {}
+        displayed_categories: list[Category] = []
+
+        def refresh(select_tracker_id: int | None = None) -> None:
+            selected = table.selection()
+            preserved_id = select_tracker_id if select_tracker_id is not None else (int(selected[0]) if selected else None)
             table.delete(*table.get_children())
-            categories = {category.id: category.name for category in self.database.categories()}
-            for tracker in self.database.trackers():
+            displayed_categories[:] = self.database.categories()
+            category_names = {category.id: category.name for category in displayed_categories}
+            category_combo.configure(values=[category.name for category in displayed_categories])
+            trackers = self.database.trackers()
+            displayed_trackers.clear()
+            displayed_trackers.update((tracker.id, tracker) for tracker in trackers)
+            for tracker in trackers:
                 table.insert("", "end", iid=str(tracker.id), values=(tracker.title or tracker.playlist_id,
-                    "Active" if tracker.active else "Stopped", categories.get(tracker.category_id, "Default"),
-                    tracker.preset, tracker.last_attempt_at, tracker.last_outcome.title()))
+                    self._tracker_state_label(tracker_language, tracker.active),
+                    category_names.get(tracker.category_id, "Default"),
+                    self._preset_label_for_language(tracker_language, tracker.preset), tracker.last_attempt_at,
+                    self._tracker_outcome_label(tracker_language, tracker.last_outcome)))
+            if preserved_id in displayed_trackers:
+                table.selection_set(str(preserved_id))
+                table.focus(str(preserved_id))
+                table.see(str(preserved_id))
+            sync_editor()
 
         def selected_id() -> int | None:
             selected = table.selection()
             return int(selected[0]) if selected else None
 
+        def sync_editor(_event: object = None) -> None:
+            tracker_id = selected_id()
+            tracker = displayed_trackers.get(tracker_id) if tracker_id is not None else None
+            if tracker is None:
+                tracker_preset_var.set("")
+                tracker_category_var.set("")
+                preset_combo.configure(state="disabled")
+                category_combo.configure(state="disabled")
+                return
+            preset_combo.configure(state="readonly")
+            category_combo.configure(state="readonly")
+            tracker_preset_var.set(self._preset_label_for_language(tracker_language, tracker.preset))
+            category = next((item for item in displayed_categories if item.id == tracker.category_id), None)
+            tracker_category_var.set(category.name if category else "")
+
+        def persist_editor(_event: object = None) -> None:
+            tracker_id = selected_id()
+            if tracker_id is None:
+                return
+            preset = self._preset_key_for_label(tracker_language, tracker_preset_var.get())
+            category_index = category_combo.current()
+            if preset is None or not 0 <= category_index < len(displayed_categories):
+                sync_editor()
+                return
+            category_id = displayed_categories[category_index].id
+            if self._update_tracker_settings(tracker_id, preset, category_id, tracker_language, dialog):
+                refresh(tracker_id)
+            else:
+                sync_editor()
+
         def add() -> None:
-            url = simpledialog.askstring(self._t("menu.playlist_tracker"), "YouTube playlist URL:", parent=dialog)
+            url = simpledialog.askstring(tracker_t("menu.playlist_tracker"), tracker_t("tracker.prompt.url"), parent=dialog)
             if not url:
                 return
             playlist_id = parse_youtube_playlist_id(url)
             if not playlist_id:
-                messagebox.showerror(self._t("menu.playlist_tracker"), "Enter a YouTube URL containing a stable list ID.", parent=dialog)
+                messagebox.showerror(tracker_t("menu.playlist_tracker"), tracker_t("tracker.error.invalid_url"), parent=dialog)
                 return
             try:
-                self.database.add_tracker(playlist_id, canonical_playlist_url(playlist_id), playlist_id,
-                                          self.preset_var.get(), self._selected_category().id)
+                tracker_id = self.database.add_tracker(playlist_id, canonical_playlist_url(playlist_id), playlist_id,
+                                                       self.preset_var.get(), self._selected_category().id)
             except Exception as exc:  # noqa: BLE001
-                messagebox.showerror(self._t("menu.playlist_tracker"), str(exc), parent=dialog)
-            refresh()
-
-        def edit() -> None:
-            tracker_id = selected_id()
-            if tracker_id is not None:
-                self.database.update_tracker(tracker_id, preset=self.preset_var.get(), category_id=self._selected_category().id)
-                refresh()
+                messagebox.showerror(tracker_t("menu.playlist_tracker"), str(exc), parent=dialog)
+                return
+            refresh(tracker_id)
 
         def toggle(active: bool) -> None:
             tracker_id = selected_id()
             if tracker_id is not None:
                 self.database.set_tracker_active(tracker_id, active)
-                refresh()
+                refresh(tracker_id)
 
         def reset() -> None:
             tracker_id = selected_id()
-            if tracker_id is not None and messagebox.askyesno("Reset Tracking State", "Offer all current entries again?", parent=dialog):
+            if tracker_id is not None and messagebox.askyesno(tracker_t("tracker.reset.title"), tracker_t("tracker.reset.message"), parent=dialog):
                 self.database.reset_tracker(tracker_id)
 
         actions = ttk.Frame(dialog)
         actions.pack(fill="x", padx=12, pady=(0, 12))
-        ttk.Button(actions, text="Add", command=add).pack(side="left")
-        ttk.Button(actions, text="Edit Settings", command=edit).pack(side="left", padx=4)
-        ttk.Button(actions, text="Stop Tracking", command=lambda: toggle(False)).pack(side="left", padx=4)
-        ttk.Button(actions, text="Reactivate", command=lambda: toggle(True)).pack(side="left", padx=4)
-        ttk.Button(actions, text="Reset Tracking State", command=reset).pack(side="left", padx=4)
-        ttk.Button(actions, text="Check All", command=lambda: self._check_all_trackers(dialog, refresh)).pack(side="right")
+        ttk.Button(actions, text=tracker_t("button.add"), command=add).pack(side="left")
+        ttk.Button(actions, text=tracker_t("tracker.action.stop"), command=lambda: toggle(False)).pack(side="left", padx=4)
+        ttk.Button(actions, text=tracker_t("tracker.action.reactivate"), command=lambda: toggle(True)).pack(side="left", padx=4)
+        ttk.Button(actions, text=tracker_t("tracker.action.reset"), command=reset).pack(side="left", padx=4)
+        ttk.Button(actions, text=tracker_t("tracker.action.check_all"),
+                   command=lambda: self._check_all_trackers(dialog, refresh, tracker_language)).pack(side="right")
+        table.bind("<<TreeviewSelect>>", sync_editor)
+        preset_combo.bind("<<ComboboxSelected>>", persist_editor)
+        category_combo.bind("<<ComboboxSelected>>", persist_editor)
         refresh()
 
-    def _check_all_trackers(self, parent: tk.Misc, refresh: object) -> None:
+    def _check_all_trackers(self, parent: tk.Misc, refresh: object, language: str | None = None) -> None:
+        tracker_language = language or self.language
+        tracker_t = lambda key, **params: translate(tracker_language, key, **params)
         if self.tracker_check_running:
-            messagebox.showinfo("Playlist Tracker", "A tracker check is already running.", parent=parent)
+            messagebox.showinfo(tracker_t("menu.playlist_tracker"), tracker_t("tracker.check.running"), parent=parent)
             return
         self.tracker_check_running = True
 
@@ -452,25 +515,16 @@ class YtDlpHelperApp:
             self.tracker_check_running = False
             refresh()  # type: ignore[operator]
             candidates = self.database.pending_candidates()
-            summary = "\n".join(f"{name}: {'Failed - ' + error if error else str(count) + ' current'}" for name, count, error in counts)
+            summary = self._tracker_check_summary(tracker_language, counts)
             if not candidates:
-                messagebox.showinfo("Playlist Tracker", summary + "\n\nNo pending entries.", parent=parent)
+                messagebox.showinfo(tracker_t("menu.playlist_tracker"),
+                                    summary + "\n\n" + tracker_t("tracker.check.no_pending"), parent=parent)
                 return
-            accepted = messagebox.askyesno("Playlist Tracker", summary + f"\n\nAdd {len(candidates)} pending entries to the queue?", parent=parent)
+            accepted = messagebox.askyesno(tracker_t("menu.playlist_tracker"),
+                                           summary + "\n\n" + tracker_t("tracker.check.queue_prompt", count=len(candidates)),
+                                           parent=parent)
             if accepted:
-                trackers = {tracker.id: tracker for tracker in self.database.trackers()}
-                categories = {category.id: category for category in self.database.categories()}
-                rows = []
-                for candidate in candidates:
-                    tracker = trackers[candidate.playlist_id]
-                    category = categories[tracker.category_id]
-                    template = self.filename_template_var.get().strip() or DEFAULT_FILENAME_TEMPLATE
-                    if candidate.position is not None:
-                        template = f"{candidate.position} - {template}"
-                    rows.append({"url": f"https://www.youtube.com/watch?v={candidate.video_id}", "preset": tracker.preset,
-                                 "download_dir": category.download_dir, "filename_template": template,
-                                 "category_id": category.id, "category_name": category.name, "source_type": "tracker",
-                                 "playlist_id": tracker.playlist_id, "playlist_position": candidate.position})
+                rows = self._tracker_queue_rows(candidates)
                 self.queue_store.add_many(rows, [candidate.entry_id for candidate in candidates])
                 self.queue_runner.notify_queue_changed()
                 self._refresh_queue_table()
@@ -478,6 +532,66 @@ class YtDlpHelperApp:
                 self.database.decide_entries((candidate.entry_id for candidate in candidates), "dismissed")
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _tracker_state_label(self, language: str, active: bool) -> str:
+        return translate(language, "tracker.state.active" if active else "tracker.state.stopped")
+
+    def _tracker_outcome_label(self, language: str, outcome: str) -> str:
+        key = outcome if outcome in {"success", "failed"} else "not_checked"
+        return translate(language, f"tracker.outcome.{key}")
+
+    def _tracker_check_summary(self, language: str, counts: list[tuple[str, int, str]]) -> str:
+        lines = []
+        for name, count, error in counts:
+            key = "tracker.check.failed" if error else "tracker.check.current"
+            lines.append(translate(language, key, name=name, count=count, error=error))
+        return "\n".join(lines)
+
+    def _preset_labels_for_language(self, language: str) -> list[str]:
+        return [self._preset_label_for_language(language, key) for key in PRESET_KEYS]
+
+    def _preset_label_for_language(self, language: str, key: str) -> str:
+        return translate(language, f"preset.{key}")
+
+    def _preset_key_for_label(self, language: str, label: str) -> str | None:
+        return next((key for key in PRESET_KEYS if self._preset_label_for_language(language, key) == label), None)
+
+    def _update_tracker_settings(
+        self, tracker_id: int, preset: str, category_id: str, language: str, parent: tk.Misc,
+    ) -> bool:
+        try:
+            self.database.update_tracker(tracker_id, preset=preset, category_id=category_id)
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror(
+                translate(language, "menu.playlist_tracker"),
+                translate(language, "tracker.error.update", error=exc),
+                parent=parent,
+            )
+            return False
+        return True
+
+    def _tracker_queue_rows(self, candidates: list[PlaylistCandidate]) -> list[dict[str, object]]:
+        trackers = {tracker.id: tracker for tracker in self.database.trackers()}
+        categories = {category.id: category for category in self.database.categories()}
+        rows = []
+        for candidate in candidates:
+            tracker = trackers[candidate.playlist_id]
+            category = categories[tracker.category_id]
+            template = self.filename_template_var.get().strip() or DEFAULT_FILENAME_TEMPLATE
+            if candidate.position is not None:
+                template = f"{candidate.position} - {template}"
+            rows.append({
+                "url": f"https://www.youtube.com/watch?v={candidate.video_id}",
+                "preset": tracker.preset,
+                "download_dir": category.download_dir,
+                "filename_template": template,
+                "category_id": category.id,
+                "category_name": category.name,
+                "source_type": "tracker",
+                "playlist_id": tracker.playlist_id,
+                "playlist_position": candidate.position,
+            })
+        return rows
 
     def _show_settings(self) -> None:
         dialog = tk.Toplevel(self.root)
@@ -736,8 +850,8 @@ class YtDlpHelperApp:
         if not self.queue_runner.is_running:
             self.queue_runner = self._create_queue_runner()
         self._persist_settings()
-        self._refresh_language()
         dialog.destroy()
+        self._refresh_language()
 
     def _language_label_for_code(self, pairs: list[tuple[str, str]], code: str) -> str:
         for label, language_code in pairs:

@@ -55,6 +55,17 @@ class DatabaseTests(unittest.TestCase):
         self.database.replace_categories([Category("default", "Default", "d")])
         self.assertEqual(self.database.trackers()[0].category_id, "default")
 
+    def test_stopped_tracker_settings_can_be_updated(self) -> None:
+        self.database.replace_categories([Category("default", "Default", "d"), Category("work", "Work", "w")])
+        tracker_id = self.database.add_tracker("PL1234567890", "url", "List", "best-video", "default")
+        self.database.set_tracker_active(tracker_id, False)
+
+        self.database.update_tracker(tracker_id, preset="audio-mp3", category_id="work")
+
+        tracker = self.database.trackers()[0]
+        self.assertFalse(tracker.active)
+        self.assertEqual((tracker.preset, tracker.category_id), ("audio-mp3", "work"))
+
     def test_corrupt_database_is_backed_up(self) -> None:
         path = self.root / "broken.db"
         path.write_bytes(b"not sqlite")

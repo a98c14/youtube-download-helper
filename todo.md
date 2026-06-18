@@ -1,5 +1,11 @@
 # to-do
 
+codex resume 019edc5d-5a38-7951-94d4-e81b3b4c0123
+
+## issues
+- [] Playlist tracker doesn't create folder for the playlist inside the channel folder. It should create a path similar to "{ChannelName}/{PlaylistName}/{VideoName}" if the setting is active.
+
 ## features
-- [x] Add video categorization with per-category download folders (#4).
-- [x] New feature: Playlist Tracker. I want to be able to playlist urls to a tracking list so everytime a new video is uploaded to that playlist I can easily download the next video. It should work manually on a button click (e.g Check for New Videos). It should show a popup with something like "X videos found, add to queue?` and vound videos should be added to the queue after user clicks yes.
+- [] Instead of "Devam Et" and "Duraklat" we should have little icons and we should also show somewhere the current status.
+- [] We shouldn't rely on yt-dlp playlist download feature. We should download playlist videos separately and track them separately. We should also not rely on yt-dlp download archive instead we use our own sqlite db for tracking those.
+- [] Channel tracking feature. Very similar to playlist tracking but it tracks the channel. It shouldn't download all the videos but there should be a cut off date that can be set by user (e.g since 2025-01-01). Also if a video is tracked by playlist tracker it shouldn't be downloaded again by the channel tracker. They should reside in the same window and it should be named "Auto Tracker" (naming open to suggestions). It accepts both playlist and channels.

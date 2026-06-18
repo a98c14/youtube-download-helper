@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -11,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from ytdlp_helper import __version__
 from ytdlp_helper.app import YtDlpHelperApp
 from ytdlp_helper.config import AppPaths, Category
+from ytdlp_helper.database import PlaylistCandidate
 from ytdlp_helper.download_queue import QueueItem
 
 
@@ -205,6 +207,76 @@ class AppStatusTests(unittest.TestCase):
         self.assertEqual(app.selected_category_id, "work")
         self.assertEqual(app.paths.download_dir, category_dir)
         self.assertEqual(save_settings.call_args.args[1].categories, categories)
+
+    def test_settings_save_destroys_dialog_before_refresh_even_when_refresh_raises(self) -> None:
+        app = _app_with_localized_widgets()
+        dialog = FakeDialog()
+
+        def refresh() -> None:
+            self.assertTrue(dialog.destroyed)
+            raise RuntimeError("refresh failed")
+
+        app._refresh_language = refresh  # type: ignore[method-assign]
+        with patch("ytdlp_helper.app.save_settings"):
+            with self.assertRaisesRegex(RuntimeError, "refresh failed"):
+                app._save_settings_dialog(  # noqa: SLF001
+                    dialog,
+                    "English",
+                    [("English", "en")],
+                    str(app.paths.download_dir),
+                    "%(title)s.%(ext)s",
+                )
+
+        self.assertTrue(dialog.destroyed)
+
+    def test_tracker_display_values_are_localized_without_changing_domain_values(self) -> None:
+        app = YtDlpHelperApp.__new__(YtDlpHelperApp)
+
+        self.assertEqual(app._tracker_state_label("tr", True), "Aktif")  # noqa: SLF001
+        self.assertEqual(app._tracker_state_label("tr", False), "Durduruldu")  # noqa: SLF001
+        self.assertEqual(app._tracker_outcome_label("tr", "success"), "Başarılı")  # noqa: SLF001
+        self.assertEqual(app._tracker_outcome_label("tr", "failed"), "Başarısız")  # noqa: SLF001
+        self.assertEqual(app._tracker_outcome_label("tr", ""), "Kontrol edilmedi")  # noqa: SLF001
+
+    def test_tracker_summary_uses_captured_language(self) -> None:
+        app = YtDlpHelperApp.__new__(YtDlpHelperApp)
+        counts = [("Mix", 4, ""), ("News", 0, "offline")]
+
+        self.assertEqual(app._tracker_check_summary("en", counts), "Mix: 4 current\nNews: Failed - offline")  # noqa: SLF001
+        self.assertEqual(app._tracker_check_summary("tr", counts), "Mix: 4 mevcut\nNews: Başarısız - offline")  # noqa: SLF001
+
+    def test_tracker_settings_update_persists_keys_and_reports_failure(self) -> None:
+        app = YtDlpHelperApp.__new__(YtDlpHelperApp)
+        calls = []
+        app.database = type("Database", (), {
+            "update_tracker": lambda _self, tracker_id, *, preset, category_id: calls.append(
+                (tracker_id, preset, category_id)
+            )
+        })()
+
+        self.assertTrue(app._update_tracker_settings(7, "audio-mp3", "work", "tr", FakeDialog()))  # noqa: SLF001
+        self.assertEqual(calls, [(7, "audio-mp3", "work")])
+
+        app.database.update_tracker = lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("locked"))
+        with patch("ytdlp_helper.app.messagebox.showerror") as showerror:
+            self.assertFalse(app._update_tracker_settings(7, "best-video", "default", "tr", FakeDialog()))  # noqa: SLF001
+        self.assertIn("Takip ayarları güncellenemedi: locked", showerror.call_args.args[1])
+
+    def test_tracker_edits_only_change_future_queue_rows(self) -> None:
+        app = YtDlpHelperApp.__new__(YtDlpHelperApp)
+        app.filename_template_var = FakeVar("%(title)s.%(ext)s")
+        tracker = SimpleNamespace(id=5, playlist_id="PL1234567890", preset="best-video", category_id="default")
+        categories = [Category("default", "Default", "downloads"), Category("work", "Work", "work-dir")]
+        app.database = SimpleNamespace(trackers=lambda: [tracker], categories=lambda: categories)
+        candidate = PlaylistCandidate(5, 11, "video", "Video", 2, "")
+
+        existing_row = app._tracker_queue_rows([candidate])[0]  # noqa: SLF001
+        tracker.preset = "audio-mp3"
+        tracker.category_id = "work"
+        future_row = app._tracker_queue_rows([candidate])[0]  # noqa: SLF001
+
+        self.assertEqual((existing_row["preset"], existing_row["category_id"]), ("best-video", "default"))
+        self.assertEqual((future_row["preset"], future_row["category_id"]), ("audio-mp3", "work"))
 
     def test_refresh_language_updates_open_activity_log_copy_button(self) -> None:
         app = _app_with_localized_widgets()
