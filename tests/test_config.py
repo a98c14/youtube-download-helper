@@ -13,10 +13,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from ytdlp_helper.config import (
     DEFAULT_FILENAME_TEMPLATE,
     AppPaths,
+    Category,
     Settings,
     find_ffmpeg_location,
     get_app_paths,
     load_settings,
+    save_settings,
 )
 
 
@@ -51,6 +53,50 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.preset, "audio-mp3")
         self.assertEqual(settings.download_dir, str(saved_download_dir))
         self.assertEqual(settings.language, "tr")
+
+    def test_legacy_settings_create_default_category_from_saved_download_dir(self) -> None:
+        paths = _paths()
+        saved_download_dir = paths.data_dir.parent / "custom-downloads"
+        paths.data_dir.mkdir(parents=True)
+        paths.settings_file.write_text(
+            json.dumps({"download_dir": str(saved_download_dir)}),
+            encoding="utf-8",
+        )
+
+        settings = load_settings(paths)
+
+        self.assertEqual(len(settings.categories), 1)
+        self.assertEqual(settings.categories[0].name, "Default")
+        self.assertEqual(settings.categories[0].download_dir, str(saved_download_dir))
+        self.assertEqual(settings.selected_category_id, settings.categories[0].id)
+
+    def test_categories_round_trip_and_invalid_selection_falls_back(self) -> None:
+        paths = _paths()
+        categories = [
+            Category("work", "Work", str(paths.data_dir.parent / "work")),
+            Category("home", "Home", str(paths.data_dir.parent / "home")),
+        ]
+        save_settings(
+            paths,
+            Settings(categories=categories, selected_category_id="missing", download_dir=categories[0].download_dir),
+        )
+
+        settings = load_settings(paths)
+
+        self.assertEqual(settings.categories, categories)
+        self.assertEqual(settings.selected_category_id, "work")
+
+    def test_invalid_category_rows_normalize_to_default(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        paths.settings_file.write_text(
+            json.dumps({"download_dir": "legacy", "categories": [{"id": "", "name": "", "download_dir": ""}]}),
+            encoding="utf-8",
+        )
+
+        settings = load_settings(paths)
+
+        self.assertEqual(settings.categories, [Category("default", "Default", "legacy")])
 
     def test_default_settings_use_turkish_language(self) -> None:
         settings = Settings()

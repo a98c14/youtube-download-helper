@@ -16,6 +16,24 @@ from ytdlp_helper.download_queue import QueueItem, QueueRunner, QueueStore
 
 
 class QueueStoreTests(unittest.TestCase):
+    def test_add_snapshots_category_and_reload_preserves_it(self) -> None:
+        store = QueueStore.for_paths(_paths())
+
+        added = store.add(
+            "https://example.test/1",
+            "best-video",
+            False,
+            "D:/Videos/Work",
+            "%(title)s.%(ext)s",
+            "work",
+            "Work",
+        )
+        loaded = QueueStore(store.path).load()[0]
+
+        self.assertEqual((added.category_id, added.category_name), ("work", "Work"))
+        self.assertEqual((loaded.category_id, loaded.category_name), ("work", "Work"))
+        self.assertEqual(loaded.download_dir, "D:/Videos/Work")
+
     def test_load_recovers_running_items_as_failed(self) -> None:
         paths = _paths()
         store = QueueStore.for_paths(paths)
@@ -37,6 +55,8 @@ class QueueStoreTests(unittest.TestCase):
 
         self.assertEqual([item.status for item in items], ["failed", "queued"])
         self.assertEqual(items[0].error, "Interrupted while app was closed.")
+        self.assertTrue(all(item.category_name == "Default" for item in items))
+        self.assertEqual(json.loads(store.path.read_text(encoding="utf-8"))["version"], 2)
 
     def test_load_skips_invalid_rows_and_corrupt_data(self) -> None:
         paths = _paths()

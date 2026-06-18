@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ytdlp_helper import __version__
 from ytdlp_helper.app import YtDlpHelperApp
-from ytdlp_helper.config import AppPaths
+from ytdlp_helper.config import AppPaths, Category
 from ytdlp_helper.download_queue import QueueItem
 
 
@@ -120,6 +120,8 @@ class FakeQueueStore:
         playlist: bool,
         download_dir: str,
         filename_template: str,
+        category_id: str = "default",
+        category_name: str = "Default",
     ) -> QueueItem:
         item = QueueItem(
             id=f"item-{len(self.items) + 1}",
@@ -129,6 +131,8 @@ class FakeQueueStore:
             download_dir=download_dir,
             filename_template=filename_template,
             added_at="2026-04-24T00:00:00+00:00",
+            category_id=category_id,
+            category_name=category_name,
         )
         self.items.append(item)
         return item
@@ -180,6 +184,27 @@ class AppStatusTests(unittest.TestCase):
         self.assertEqual(app.archive_status_var.value, "Kontrol edilmedi")
         self.assertEqual(app.status_var.value, "Hazır")
         self.assertEqual(app.help_menu.entries[1]["label"], "Hakkında")
+
+    def test_settings_save_commits_category_edits_with_general_settings(self) -> None:
+        app = _app_with_localized_widgets()
+        dialog = FakeDialog()
+        category_dir = app.paths.data_dir.parent / "work"
+        categories = [Category("work", "Work", str(category_dir))]
+
+        with patch("ytdlp_helper.app.save_settings") as save_settings:
+            app._save_settings_dialog(  # noqa: SLF001
+                dialog,
+                "English",
+                [("English", "en")],
+                filename_template="%(title)s.%(ext)s",
+                categories=categories,
+                selected_category_id="work",
+            )
+
+        self.assertEqual(app.categories, categories)
+        self.assertEqual(app.selected_category_id, "work")
+        self.assertEqual(app.paths.download_dir, category_dir)
+        self.assertEqual(save_settings.call_args.args[1].categories, categories)
 
     def test_refresh_language_updates_open_activity_log_copy_button(self) -> None:
         app = _app_with_localized_widgets()
@@ -326,6 +351,18 @@ class AppStatusTests(unittest.TestCase):
         self.assertFalse(app.queue_store.items[0].playlist)
         self.assertEqual(app.queue_runner.resumed_with, [2])
         self.assertEqual(app.queue_runner.notify_count, 0)
+
+    def test_start_download_snapshots_selected_category(self) -> None:
+        app = _app_for_start_download()
+        category_dir = app.paths.data_dir.parent / "work"
+        app.categories = [Category("work", "Work", str(category_dir))]
+        app.selected_category_id = "work"
+
+        app._start_download_request(playlist=False)  # noqa: SLF001
+
+        item = app.queue_store.items[0]
+        self.assertEqual((item.category_id, item.category_name), ("work", "Work"))
+        self.assertEqual(item.download_dir, str(category_dir))
 
     def test_start_download_request_keeps_explicitly_paused_queue_paused(self) -> None:
         app = _app_for_start_download()

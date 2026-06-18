@@ -18,6 +18,8 @@ from .dependencies import RuntimeToolContext, RuntimeToolResolver, ensure_runtim
 
 StatusCallback = Callable[[str, str], None]
 LogCallback = Callable[[str], None]
+CompletionCallback = Callable[["DownloadCompletion"], None]
+COMPLETION_PREFIX = "YTDLP_HELPER_COMPLETE:"
 
 VIDEO_PRESET_FORMATS = {
     "video-1080p": "bv*[height<=1080]+ba/b[height<=1080]",
@@ -31,6 +33,14 @@ class DownloadRequest:
     url: str
     preset: str
     playlist: bool = False
+
+
+@dataclass(frozen=True)
+class DownloadCompletion:
+    extractor: str
+    media_id: str
+    title: str
+    output_path: str
 
 
 class DownloadService:
@@ -65,6 +75,7 @@ class DownloadService:
         request: DownloadRequest,
         status_callback: StatusCallback,
         log_callback: LogCallback,
+        completion_callback: CompletionCallback | None = None,
     ) -> None:
         url = request.url.strip()
         if not url:
@@ -80,7 +91,7 @@ class DownloadService:
             log_callback("No saved cookies; downloading as public session.")
         log_callback(f"Running: {command[0]} ...")
         status_callback("resolving", "Resolving video information")
-        output = self._run_process(command, log_callback, status_callback)
+        output = self._run_process(command, log_callback, status_callback, completion_callback)
 
         if _process_failed(output):
             message = _humanize_error("\n".join(output))
@@ -103,10 +114,14 @@ class DownloadService:
             "--no-color",
             "--download-archive",
             str(self._paths.archive_file),
+            "--print",
+            f"after_move:{COMPLETION_PREFIX}%(extractor)s\t%(id)s\t%(title)s\t%(filepath)s",
         ]
         if request.playlist:
             default_template = _output_template(self._filename_template, self._organize_by_channel, playlist=False)
-            playlist_template = _output_template(self._filename_template, self._organize_by_channel, playlist=True)
+            playlist_template = _output_template(
+                f"%(playlist_index&{{}} - |)s{self._filename_template}", self._organize_by_channel, playlist=True
+            )
             command.extend(
                 [
                     "--output",
@@ -192,6 +207,7 @@ class DownloadService:
         command: list[str],
         log_callback: LogCallback,
         status_callback: StatusCallback | None = None,
+        completion_callback: CompletionCallback | None = None,
     ) -> list[str]:
         try:
             process = subprocess.Popen(
@@ -213,6 +229,9 @@ class DownloadService:
                     continue
                 output.append(line)
                 log_callback(line)
+                completion = _completion_from_output(line)
+                if completion and completion_callback:
+                    completion_callback(completion)
                 if status_callback:
                     _update_status_from_output(line, status_callback)
 
@@ -240,6 +259,15 @@ def _update_status_from_output(line: str, status_callback: StatusCallback) -> No
         speed_match = re.search(r"\bat\s+([^\s]+/s)\b", line)
         if speed_match:
             status_callback("speed", speed_match.group(1))
+
+
+def _completion_from_output(line: str) -> DownloadCompletion | None:
+    if not line.startswith(COMPLETION_PREFIX):
+        return None
+    parts = line[len(COMPLETION_PREFIX):].split("\t", 3)
+    if len(parts) != 4 or not parts[3]:
+        return None
+    return DownloadCompletion(*parts)
 
 
 def _output_template(filename_template: str, organize_by_channel: bool, playlist: bool) -> str:

@@ -100,7 +100,7 @@ class DownloaderTests(unittest.TestCase):
         )
         self.assertEqual(
             command[command.index("--output", command.index("--output") + 1) + 1],
-            "pl_video:%(channel,uploader&{}|.)s/%(playlist&{}|.)s/%(upload_date)s - %(title)s.%(ext)s",
+            "pl_video:%(channel,uploader&{}|.)s/%(playlist&{}|.)s/%(playlist_index&{} - |)s%(upload_date)s - %(title)s.%(ext)s",
         )
         self.assert_option(command, "--format", "bv*+ba/b")
         self.assertEqual(command[-1], "https://www.youtube.com/playlist?list=abc123")
@@ -130,7 +130,7 @@ class DownloaderTests(unittest.TestCase):
         self.assert_option(playlist_command, "--output", "default:%(upload_date)s - %(title)s.%(ext)s")
         self.assertEqual(
             playlist_command[playlist_command.index("--output", playlist_command.index("--output") + 1) + 1],
-            "pl_video:%(upload_date)s - %(title)s.%(ext)s",
+            "pl_video:%(playlist_index&{} - |)s%(upload_date)s - %(title)s.%(ext)s",
         )
 
     def test_builds_audio_mp3_command(self) -> None:

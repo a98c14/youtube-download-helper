@@ -4,8 +4,10 @@ from dataclasses import replace
 import os
 from pathlib import Path
 import subprocess
+import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
+from uuid import uuid4
 
 from . import __version__
 from .activity_log import ActivityLogStore
@@ -15,6 +17,7 @@ from .archive import (
     parse_youtube_video_id,
 )
 from .config import (
+    Category,
     DEFAULT_FILENAME_TEMPLATE,
     MAX_QUEUE_CONCURRENCY,
     MIN_QUEUE_CONCURRENCY,
@@ -24,11 +27,14 @@ from .config import (
     get_app_paths,
     load_settings,
     save_settings,
+    settings_categories,
 )
 from .cookies import get_cookie_status, save_cookie_text
 from .dependencies import RuntimeToolResolver, read_tool_version
 from .download_queue import QueueItem, QueueRunner, QueueStore
+from .database import Database
 from .downloader import DownloadRequest, DownloadService
+from .playlist_tracker import PlaylistChecker, canonical_playlist_url, parse_youtube_playlist_id
 from .app_update import AppUpdateResult, start_restart_script
 from .i18n import language_options, normalize_language, translate
 from .update_service import UpdateService
@@ -61,8 +67,15 @@ class YtDlpHelperApp:
 
         self.paths = get_app_paths()
         self.settings = load_settings(self.paths)
+        imported_categories = settings_categories(self.settings, str(self.paths.download_dir))
+        self.database = Database.for_data_dir(self.paths.data_dir)
+        self.database_backup = self.database.initialize_with_recovery()
+        self.database.import_categories(imported_categories)
+        self.categories = self.database.categories() or imported_categories
+        self.selected_category_id = self.settings.selected_category_id or self.categories[0].id
+        selected_category = self._selected_category()
         self.language = normalize_language(self.settings.language)
-        self.paths = replace(self.paths, download_dir=Path(self.settings.download_dir).expanduser())
+        self.paths = replace(self.paths, download_dir=Path(selected_category.download_dir).expanduser())
         ensure_app_dirs(self.paths)
         self.runtime_tools = RuntimeToolResolver(self.paths)
         self.downloader = DownloadService(
@@ -94,6 +107,7 @@ class YtDlpHelperApp:
         self.actions_enabled = True
         self.preset_var = tk.StringVar(value=self.settings.preset)
         self.preset_label_var = tk.StringVar()
+        self.category_label_var = tk.StringVar(value=selected_category.name)
         self.cookie_status_var = tk.StringVar(value=self._localized_cookie_status())
         self.status_key = "status.ready"
         self.status_var = tk.StringVar(value=self._t(self.status_key))
@@ -107,12 +121,19 @@ class YtDlpHelperApp:
         self.queue_summary_var = tk.StringVar()
         self.progress_var = tk.IntVar(value=0)
         self.queue_item_ids: dict[str, str] = {}
+        self.tracker_check_running = False
 
         self._build_ui()
         self.url_var.trace_add("write", self._on_url_changed)
         self.root.after(150, self.worker_pipeline.poll)
         self.root.after(150, self._poll_queue_runner)
         self._refresh_queue_table()
+        if self.database_backup:
+            messagebox.showwarning(
+                "Database recovered",
+                f"The database could not be opened. A fresh database was created.\n\nBackup: {self.database_backup}",
+                parent=self.root,
+            )
 
     def _build_ui(self) -> None:
         self._build_menu()
@@ -176,9 +197,19 @@ class YtDlpHelperApp:
         preset_combo.current(self._preset_index(self.settings.preset))
         self.preset_combo = preset_combo
 
-        self._form_label(form, "field.cookies").grid(row=3, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
+        self._form_label(form, "field.category").grid(row=3, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
+        self.category_combo = ttk.Combobox(
+            form,
+            textvariable=self.category_label_var,
+            state="readonly",
+            values=[category.name for category in self.categories],
+        )
+        self.category_combo.grid(row=3, column=1, sticky="ew", pady=(0, 12))
+        self.category_combo.bind("<<ComboboxSelected>>", self._on_category_changed)
+
+        self._form_label(form, "field.cookies").grid(row=4, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
         cookies_row = ttk.Frame(form)
-        cookies_row.grid(row=3, column=1, sticky="ew", pady=(0, 12))
+        cookies_row.grid(row=4, column=1, sticky="ew", pady=(0, 12))
         cookies_row.columnconfigure(0, weight=1)
         ttk.Label(cookies_row, textvariable=self.cookie_status_var).grid(row=0, column=0, sticky="w")
         paste_cookies_button = ttk.Button(cookies_row, text=self._t("button.paste_cookies"), command=self._paste_cookies)
@@ -235,16 +266,18 @@ class YtDlpHelperApp:
         self.queue_filter_combo = filter_combo
         ttk.Label(queue_bar, textvariable=self.queue_summary_var).pack(side="right")
 
-        columns = ("name", "progress", "speed", "added", "status")
+        columns = ("name", "category", "progress", "speed", "added", "status")
         self.queue_table = ttk.Treeview(container, columns=columns, show="headings", height=8, selectmode="browse")
         self.queue_table.grid(row=5, column=0, sticky="nsew", pady=(0, 8))
         container.rowconfigure(5, weight=1)
         self.queue_table.heading("name", text=self._t("queue.column.name"))
+        self.queue_table.heading("category", text=self._t("queue.column.category"))
         self.queue_table.heading("progress", text=self._t("queue.column.progress"))
         self.queue_table.heading("speed", text=self._t("queue.column.speed"))
         self.queue_table.heading("added", text=self._t("queue.column.added"))
         self.queue_table.heading("status", text=self._t("queue.column.status"))
-        self.queue_table.column("name", width=330, anchor="w")
+        self.queue_table.column("name", width=250, anchor="w")
+        self.queue_table.column("category", width=110, anchor="w")
         self.queue_table.column("progress", width=80, anchor="center")
         self.queue_table.column("speed", width=100, anchor="center")
         self.queue_table.column("added", width=150, anchor="center")
@@ -288,6 +321,8 @@ class YtDlpHelperApp:
         menu_bar = tk.Menu(self.root)
         file_menu = tk.Menu(menu_bar, tearoff=False)
         file_menu.add_command(label=self._t("menu.settings"), command=self._show_settings)
+        file_menu.add_command(label=self._t("menu.playlist_tracker"), command=self._show_playlist_tracker)
+        file_menu.add_command(label=self._t("menu.download_history"), command=self._show_download_history)
         file_menu.add_command(label=self._t("menu.activity_log"), command=self._show_activity_log)
         help_menu = tk.Menu(menu_bar, tearoff=False)
         help_menu.add_command(label=self._t("menu.update"), command=self._start_update)
@@ -300,9 +335,154 @@ class YtDlpHelperApp:
         self.file_menu = file_menu
         self.help_menu = help_menu
 
+    def _show_download_history(self) -> None:
+        dialog = tk.Toplevel(self.root)
+        dialog.title(self._t("menu.download_history"))
+        dialog.geometry("900x420")
+        columns = ("completed", "title", "category", "preset", "path")
+        table = ttk.Treeview(dialog, columns=columns, show="headings")
+        labels = ("Completed (UTC)", "Title", "Category", "Preset", "Output Path")
+        for column, label in zip(columns, labels):
+            table.heading(column, text=label)
+        table.column("completed", width=155)
+        table.column("title", width=210)
+        table.column("category", width=110)
+        table.column("preset", width=100)
+        table.column("path", width=300)
+        scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=table.yview)
+        table.configure(yscrollcommand=scrollbar.set)
+        table.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=12)
+        scrollbar.pack(side="right", fill="y", padx=(0, 12), pady=12)
+        for record in self.database.download_history():
+            table.insert("", "end", values=(record.completed_at, record.title, record.category_name,
+                                             record.preset, record.output_path))
+
+    def _show_playlist_tracker(self) -> None:
+        dialog = tk.Toplevel(self.root)
+        dialog.title(self._t("menu.playlist_tracker"))
+        dialog.geometry("860x430")
+        columns = ("title", "state", "category", "preset", "attempt", "result")
+        table = ttk.Treeview(dialog, columns=columns, show="headings", selectmode="browse")
+        for column, label in zip(columns, ("Playlist", "State", "Category", "Preset", "Latest Check", "Result")):
+            table.heading(column, text=label)
+        table.column("title", width=220)
+        table.column("state", width=80)
+        table.column("category", width=120)
+        table.column("preset", width=100)
+        table.column("attempt", width=160)
+        table.column("result", width=110)
+        table.pack(fill="both", expand=True, padx=12, pady=(12, 6))
+
+        def refresh() -> None:
+            table.delete(*table.get_children())
+            categories = {category.id: category.name for category in self.database.categories()}
+            for tracker in self.database.trackers():
+                table.insert("", "end", iid=str(tracker.id), values=(tracker.title or tracker.playlist_id,
+                    "Active" if tracker.active else "Stopped", categories.get(tracker.category_id, "Default"),
+                    tracker.preset, tracker.last_attempt_at, tracker.last_outcome.title()))
+
+        def selected_id() -> int | None:
+            selected = table.selection()
+            return int(selected[0]) if selected else None
+
+        def add() -> None:
+            url = simpledialog.askstring(self._t("menu.playlist_tracker"), "YouTube playlist URL:", parent=dialog)
+            if not url:
+                return
+            playlist_id = parse_youtube_playlist_id(url)
+            if not playlist_id:
+                messagebox.showerror(self._t("menu.playlist_tracker"), "Enter a YouTube URL containing a stable list ID.", parent=dialog)
+                return
+            try:
+                self.database.add_tracker(playlist_id, canonical_playlist_url(playlist_id), playlist_id,
+                                          self.preset_var.get(), self._selected_category().id)
+            except Exception as exc:  # noqa: BLE001
+                messagebox.showerror(self._t("menu.playlist_tracker"), str(exc), parent=dialog)
+            refresh()
+
+        def edit() -> None:
+            tracker_id = selected_id()
+            if tracker_id is not None:
+                self.database.update_tracker(tracker_id, preset=self.preset_var.get(), category_id=self._selected_category().id)
+                refresh()
+
+        def toggle(active: bool) -> None:
+            tracker_id = selected_id()
+            if tracker_id is not None:
+                self.database.set_tracker_active(tracker_id, active)
+                refresh()
+
+        def reset() -> None:
+            tracker_id = selected_id()
+            if tracker_id is not None and messagebox.askyesno("Reset Tracking State", "Offer all current entries again?", parent=dialog):
+                self.database.reset_tracker(tracker_id)
+
+        actions = ttk.Frame(dialog)
+        actions.pack(fill="x", padx=12, pady=(0, 12))
+        ttk.Button(actions, text="Add", command=add).pack(side="left")
+        ttk.Button(actions, text="Edit Settings", command=edit).pack(side="left", padx=4)
+        ttk.Button(actions, text="Stop Tracking", command=lambda: toggle(False)).pack(side="left", padx=4)
+        ttk.Button(actions, text="Reactivate", command=lambda: toggle(True)).pack(side="left", padx=4)
+        ttk.Button(actions, text="Reset Tracking State", command=reset).pack(side="left", padx=4)
+        ttk.Button(actions, text="Check All", command=lambda: self._check_all_trackers(dialog, refresh)).pack(side="right")
+        refresh()
+
+    def _check_all_trackers(self, parent: tk.Misc, refresh: object) -> None:
+        if self.tracker_check_running:
+            messagebox.showinfo("Playlist Tracker", "A tracker check is already running.", parent=parent)
+            return
+        self.tracker_check_running = True
+
+        def work() -> None:
+            checker = PlaylistChecker(self.paths)
+            counts: list[tuple[str, int, str]] = []
+            for tracker in self.database.trackers():
+                if not tracker.active:
+                    continue
+                try:
+                    title, entries = checker.check(tracker.url)
+                    self.database.record_playlist_check(tracker.id, entries)
+                    counts.append((title or tracker.title or tracker.playlist_id, len(entries), ""))
+                except Exception as exc:  # noqa: BLE001
+                    self.database.record_playlist_check(tracker.id, None, str(exc))
+                    counts.append((tracker.title or tracker.playlist_id, 0, str(exc)))
+            self.root.after(0, lambda: finish(counts))
+
+        def finish(counts: list[tuple[str, int, str]]) -> None:
+            self.tracker_check_running = False
+            refresh()  # type: ignore[operator]
+            candidates = self.database.pending_candidates()
+            summary = "\n".join(f"{name}: {'Failed - ' + error if error else str(count) + ' current'}" for name, count, error in counts)
+            if not candidates:
+                messagebox.showinfo("Playlist Tracker", summary + "\n\nNo pending entries.", parent=parent)
+                return
+            accepted = messagebox.askyesno("Playlist Tracker", summary + f"\n\nAdd {len(candidates)} pending entries to the queue?", parent=parent)
+            if accepted:
+                trackers = {tracker.id: tracker for tracker in self.database.trackers()}
+                categories = {category.id: category for category in self.database.categories()}
+                rows = []
+                for candidate in candidates:
+                    tracker = trackers[candidate.playlist_id]
+                    category = categories[tracker.category_id]
+                    template = self.filename_template_var.get().strip() or DEFAULT_FILENAME_TEMPLATE
+                    if candidate.position is not None:
+                        template = f"{candidate.position} - {template}"
+                    rows.append({"url": f"https://www.youtube.com/watch?v={candidate.video_id}", "preset": tracker.preset,
+                                 "download_dir": category.download_dir, "filename_template": template,
+                                 "category_id": category.id, "category_name": category.name, "source_type": "tracker",
+                                 "playlist_id": tracker.playlist_id, "playlist_position": candidate.position})
+                self.queue_store.add_many(rows, [candidate.entry_id for candidate in candidates])
+                self.queue_runner.notify_queue_changed()
+                self._refresh_queue_table()
+            else:
+                self.database.decide_entries((candidate.entry_id for candidate in candidates), "dismissed")
+
+        threading.Thread(target=work, daemon=True).start()
+
     def _show_settings(self) -> None:
         dialog = tk.Toplevel(self.root)
         dialog.title(self._t("settings.title"))
+        dialog.geometry("760x560")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
@@ -311,10 +491,11 @@ class YtDlpHelperApp:
         language_pairs = language_options(self.language)
         language_labels = [label for label, _ in language_pairs]
         selected_language.set(self._language_label_for_code(language_pairs, self.language))
-        selected_download_folder = tk.StringVar(value=str(self.paths.download_dir))
         selected_filename_template = tk.StringVar(value=self.filename_template_var.get())
         selected_queue_concurrency = tk.IntVar(value=int(self.queue_concurrency_var.get()))
         selected_organize_by_channel = tk.BooleanVar(value=bool(self.organize_by_channel_var.get()))
+        working_categories = list(self.categories)
+        working_selected_id = [self.selected_category_id]
 
         frame = ttk.Frame(dialog, padding=16)
         frame.grid(row=0, column=0, sticky="nsew")
@@ -331,20 +512,115 @@ class YtDlpHelperApp:
         )
         language_combo.grid(row=0, column=1, sticky="ew", pady=(0, 12))
 
-        ttk.Label(frame, text=self._t("settings.downloads_folder")).grid(
-            row=1, column=0, sticky="w", padx=(0, 12), pady=(0, 12)
-        )
-        download_folder_row = ttk.Frame(frame)
-        download_folder_row.grid(row=1, column=1, sticky="ew", pady=(0, 12))
-        download_folder_row.columnconfigure(0, weight=1)
-        ttk.Entry(download_folder_row, textvariable=selected_download_folder, width=46).grid(
-            row=0, column=0, sticky="ew"
-        )
+        categories_frame = ttk.LabelFrame(frame, text=self._t("settings.categories"), padding=12)
+        categories_frame.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(0, 12))
+        categories_frame.columnconfigure(1, weight=1)
+        category_list = tk.Listbox(categories_frame, height=9, width=24, exportselection=False)
+        category_list.grid(row=0, column=0, rowspan=4, sticky="ns", padx=(0, 12))
+        category_name = tk.StringVar()
+        category_folder = tk.StringVar()
+        active_index = [0]
+        refreshing = [False]
+
+        ttk.Label(categories_frame, text=self._t("categories.name")).grid(row=0, column=1, sticky="w")
+        ttk.Entry(categories_frame, textvariable=category_name).grid(row=1, column=1, sticky="ew", pady=(2, 10))
+        ttk.Label(categories_frame, text=self._t("categories.folder")).grid(row=2, column=1, sticky="w")
+        category_folder_row = ttk.Frame(categories_frame)
+        category_folder_row.grid(row=3, column=1, sticky="ew")
+        category_folder_row.columnconfigure(0, weight=1)
+        ttk.Entry(category_folder_row, textvariable=category_folder).grid(row=0, column=0, sticky="ew")
         ttk.Button(
-            download_folder_row,
+            category_folder_row,
             text=self._t("button.browse"),
-            command=lambda: self._choose_settings_download_folder(selected_download_folder, dialog),
-        ).grid(row=0, column=1, sticky="e", padx=(10, 0))
+            command=lambda: self._choose_settings_download_folder(category_folder, dialog),
+        ).grid(row=0, column=1, padx=(8, 0))
+
+        def store_active_category() -> None:
+            if not working_categories:
+                return
+            index = active_index[0]
+            existing = working_categories[index]
+            working_categories[index] = Category(
+                existing.id,
+                category_name.get().strip(),
+                category_folder.get().strip(),
+            )
+            refreshing[0] = True
+            category_list.delete(index)
+            category_list.insert(index, working_categories[index].name)
+            category_list.selection_set(index)
+            refreshing[0] = False
+
+        def show_category(index: int) -> None:
+            active_index[0] = max(0, min(index, len(working_categories) - 1))
+            category = working_categories[active_index[0]]
+            category_name.set(category.name)
+            category_folder.set(category.download_dir)
+
+        def refresh_categories(index: int) -> None:
+            refreshing[0] = True
+            category_list.delete(0, "end")
+            for category in working_categories:
+                category_list.insert("end", category.name)
+            index = max(0, min(index, len(working_categories) - 1))
+            category_list.selection_set(index)
+            refreshing[0] = False
+            show_category(index)
+
+        def select_category(_event: object = None) -> None:
+            if refreshing[0]:
+                return
+            selection = category_list.curselection()
+            if not selection:
+                return
+            new_index = selection[0]
+            if new_index != active_index[0]:
+                store_active_category()
+                refreshing[0] = True
+                category_list.selection_clear(0, "end")
+                category_list.selection_set(new_index)
+                refreshing[0] = False
+                show_category(new_index)
+
+        def add_category() -> None:
+            store_active_category()
+            working_categories.append(
+                Category(str(uuid4()), self._t("categories.new_name"), str(Path.home() / "Downloads"))
+            )
+            refresh_categories(len(working_categories) - 1)
+
+        def remove_category() -> None:
+            if len(working_categories) == 1:
+                messagebox.showerror(
+                    self._t("dialog.category_required.title"),
+                    self._t("dialog.category_required.message"),
+                    parent=dialog,
+                )
+                return
+            if working_categories[active_index[0]].id == "default":
+                messagebox.showerror(
+                    self._t("dialog.category_required.title"),
+                    "The Default Category cannot be deleted.",
+                    parent=dialog,
+                )
+                return
+            removed = working_categories.pop(active_index[0])
+            if removed.id == working_selected_id[0]:
+                working_selected_id[0] = working_categories[0].id
+            refresh_categories(active_index[0])
+
+        category_list.bind("<<ListboxSelect>>", select_category)
+        category_actions = ttk.Frame(categories_frame)
+        category_actions.grid(row=4, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        ttk.Button(category_actions, text=self._t("button.add"), command=add_category).pack(side="left")
+        ttk.Button(category_actions, text=self._t("button.remove"), command=remove_category).pack(
+            side="left", padx=(8, 0)
+        )
+        initial_category_index = next(
+            (index for index, category in enumerate(working_categories) if category.id == working_selected_id[0]),
+            0,
+        )
+        refresh_categories(initial_category_index)
 
         ttk.Label(frame, text=self._t("settings.filename_format")).grid(
             row=2, column=0, sticky="w", padx=(0, 12), pady=(0, 12)
@@ -370,6 +646,19 @@ class YtDlpHelperApp:
             variable=selected_organize_by_channel,
         ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(0, 12))
 
+        def save_dialog() -> None:
+            store_active_category()
+            self._save_settings_dialog(
+                dialog,
+                selected_language.get(),
+                language_pairs,
+                filename_template=selected_filename_template.get(),
+                queue_concurrency=selected_queue_concurrency.get(),
+                organize_by_channel=selected_organize_by_channel.get(),
+                categories=working_categories,
+                selected_category_id=working_selected_id[0],
+            )
+
         button_bar = ttk.Frame(frame)
         button_bar.grid(row=5, column=0, columnspan=2, sticky="e")
         ttk.Button(button_bar, text=self._t("button.cancel"), command=dialog.destroy).pack(
@@ -378,15 +667,7 @@ class YtDlpHelperApp:
         ttk.Button(
             button_bar,
             text=self._t("button.save"),
-            command=lambda: self._save_settings_dialog(
-                dialog,
-                selected_language.get(),
-                language_pairs,
-                selected_download_folder.get(),
-                selected_filename_template.get(),
-                selected_queue_concurrency.get(),
-                selected_organize_by_channel.get(),
-            ),
+            command=save_dialog,
         ).pack(side="right")
 
         language_combo.focus_set()
@@ -401,14 +682,27 @@ class YtDlpHelperApp:
         filename_template: str | None = None,
         queue_concurrency: int | None = None,
         organize_by_channel: bool | None = None,
+        categories: list[Category] | None = None,
+        selected_category_id: str | None = None,
     ) -> None:
         selected_language = self._language_code_for_label(language_pairs, selected_label)
         if not selected_language:
             return
 
-        download_dir = self._validate_download_folder(download_folder or self.download_folder_var.get(), dialog)
-        if not download_dir:
-            return
+        validated_categories = None
+        if categories is not None:
+            validated_categories = self._validate_categories(categories, dialog)
+            if not validated_categories:
+                return
+            selected_id = selected_category_id or validated_categories[0].id
+            if not any(category.id == selected_id for category in validated_categories):
+                selected_id = validated_categories[0].id
+            selected_category = next(category for category in validated_categories if category.id == selected_id)
+            download_dir = Path(selected_category.download_dir)
+        else:
+            download_dir = self._validate_download_folder(download_folder or self.download_folder_var.get(), dialog)
+            if not download_dir:
+                return
 
         validated_template = self._validate_filename_template(
             filename_template if filename_template is not None else self.filename_template_var.get(),
@@ -418,6 +712,13 @@ class YtDlpHelperApp:
             return
 
         self.language = selected_language
+        if validated_categories is not None:
+            self.categories = validated_categories
+            self.selected_category_id = selected_id
+            if hasattr(self, "category_label_var"):
+                self.category_label_var.set(selected_category.name)
+            if hasattr(self, "category_combo"):
+                self.category_combo.configure(values=[category.name for category in validated_categories])
         self.paths = replace(self.paths, download_dir=download_dir)
         self.download_folder_var.set(str(download_dir))
         self.filename_template_var.set(validated_template)
@@ -449,6 +750,30 @@ class YtDlpHelperApp:
             if language_label == label:
                 return language_code
         return None
+
+    def _validate_categories(self, categories: list[Category], parent: tk.Misc) -> list[Category] | None:
+        if not categories:
+            messagebox.showerror(self._t("dialog.category_required.title"), self._t("dialog.category_required.message"), parent=parent)
+            return None
+        validated: list[Category] = []
+        for category in categories:
+            if not category.name.strip():
+                messagebox.showerror(self._t("dialog.category_name_required.title"), self._t("dialog.category_name_required.message"), parent=parent)
+                return None
+            folder = self._validate_download_folder(category.download_dir, parent)
+            if not folder:
+                return None
+            validated.append(Category(category.id, category.name.strip(), str(folder)))
+        return validated
+
+    def _on_category_changed(self, _event: tk.Event | None) -> None:
+        selected_name = self.category_label_var.get()
+        for category in self.categories:
+            if category.name == selected_name:
+                self.selected_category_id = category.id
+                self.download_folder_var.set(category.download_dir)
+                self._persist_settings()
+                return
 
     def _show_activity_log(self) -> None:
         if self.log_window and self.log_window.winfo_exists():
@@ -620,7 +945,9 @@ class YtDlpHelperApp:
             self._set_status("failed", "Enter a valid URL starting with http:// or https://.")
             return
 
-        if not self._apply_download_folder():
+        category = self._selected_category()
+        download_dir = self._validate_download_folder(category.download_dir, self.root)
+        if not download_dir:
             return
 
         if self.queue_store.has_duplicate_url(url):
@@ -638,8 +965,10 @@ class YtDlpHelperApp:
                 url,
                 self.preset_var.get(),
                 playlist,
-                str(self.paths.download_dir),
+                str(download_dir),
                 self.filename_template_var.get().strip() or DEFAULT_FILENAME_TEMPLATE,
+                category.id,
+                category.name,
             )
         except Exception as exc:  # noqa: BLE001
             self._set_status("failed", str(exc))
@@ -773,6 +1102,7 @@ class YtDlpHelperApp:
                 "end",
                 values=(
                     item.name or item.url,
+                    item.category_name,
                     f"{item.progress}%" if item.progress is not None else "",
                     item.speed if item.status == "running" else "",
                     item.added_at[:19].replace("T", " "),
@@ -947,15 +1277,32 @@ class YtDlpHelperApp:
         self.log_text.configure(state="disabled")
 
     def _persist_settings(self) -> None:
+        category = self._selected_category()
+        categories = getattr(self, "categories", None) or [category]
         self.settings = Settings(
             preset=self.preset_var.get(),
-            download_dir=str(self.paths.download_dir),
+            download_dir=category.download_dir,
             language=self.language,
             filename_template=self.filename_template_var.get().strip() or DEFAULT_FILENAME_TEMPLATE,
             queue_concurrency=self._validate_queue_concurrency(self.queue_concurrency_var.get()),
             organize_by_channel=bool(self.organize_by_channel_var.get()),
+            categories=None if hasattr(self, "database") else list(categories),
+            selected_category_id=category.id,
         )
+        if hasattr(self, "database"):
+            self.database.replace_categories(categories)
         save_settings(self.paths, self.settings)
+
+    def _selected_category(self) -> Category:
+        categories = getattr(self, "categories", None) or [
+            Category("default", "Default", str(self.paths.download_dir))
+        ]
+        selected_id = getattr(self, "selected_category_id", "")
+        for category in categories:
+            if category.id == selected_id:
+                return category
+        self.selected_category_id = categories[0].id
+        return categories[0]
 
     def _create_queue_runner(self) -> QueueRunner:
         return QueueRunner(
@@ -1103,7 +1450,9 @@ class YtDlpHelperApp:
         self.menu_bar.entryconfigure(0, label=self._t("menu.file"))
         self.menu_bar.entryconfigure(1, label=self._t("menu.help"))
         self.file_menu.entryconfigure(0, label=self._t("menu.settings"))
-        self.file_menu.entryconfigure(1, label=self._t("menu.activity_log"))
+        self.file_menu.entryconfigure(1, label=self._t("menu.playlist_tracker"))
+        self.file_menu.entryconfigure(2, label=self._t("menu.download_history"))
+        self.file_menu.entryconfigure(3, label=self._t("menu.activity_log"))
         self.help_menu.entryconfigure(0, label=self._t("menu.update"))
         self.help_menu.entryconfigure(1, label=self._t("menu.about"))
 
@@ -1118,6 +1467,7 @@ class YtDlpHelperApp:
             self.status_var.set(self._t(self.status_key, **getattr(self, "status_params", {})))
         if hasattr(self, "queue_table"):
             self.queue_table.heading("name", text=self._t("queue.column.name"))
+            self.queue_table.heading("category", text=self._t("queue.column.category"))
             self.queue_table.heading("progress", text=self._t("queue.column.progress"))
             self.queue_table.heading("speed", text=self._t("queue.column.speed"))
             self.queue_table.heading("added", text=self._t("queue.column.added"))

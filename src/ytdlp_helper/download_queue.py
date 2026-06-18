@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, fields, replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -11,12 +11,13 @@ from typing import Callable, Literal
 from uuid import uuid4
 
 from .config import AppPaths
+from .database import Database, DATABASE_FILE
 from .dependencies import RuntimeToolResolver
-from .downloader import DownloadRequest, DownloadService
+from .downloader import DownloadCompletion, DownloadRequest, DownloadService
 from .worker_status import percent_from_message
 
 
-QUEUE_SCHEMA_VERSION = 1
+QUEUE_SCHEMA_VERSION = 2
 QUEUE_FILE = "queue.json"
 QUEUE_STATUSES = ("queued", "running", "completed", "failed", "skipped")
 QueueStatus = Literal["queued", "running", "completed", "failed", "skipped"]
@@ -31,12 +32,18 @@ class QueueItem:
     download_dir: str
     filename_template: str
     added_at: str
+    category_id: str = "default"
+    category_name: str = "Default"
     status: QueueStatus = "queued"
     name: str = ""
     progress: int | None = None
     speed: str = ""
     error: str = ""
     output_path: str = ""
+    warning: str = ""
+    source_type: str = "manual"
+    playlist_id: str = ""
+    playlist_position: int | None = None
 
 
 @dataclass(frozen=True)
@@ -47,19 +54,38 @@ class QueueEvent:
 
 
 class QueueStore:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, database_path: Path | None = None) -> None:
+        # `path` remains the legacy queue path for API compatibility and one-time import.
         self.path = path
+        self.database = Database(database_path or path.parent / DATABASE_FILE)
         self._items: list[QueueItem] = []
         self._lock = threading.RLock()
+        self._database_ready = False
+        self._legacy_loaded = False
+
+    def _ensure_database(self) -> None:
+        if not self._database_ready:
+            self.database.initialize()
+            self._database_ready = True
 
     @classmethod
     def for_paths(cls, paths: AppPaths) -> "QueueStore":
-        return cls(paths.data_dir / QUEUE_FILE)
+        return cls(paths.data_dir / QUEUE_FILE, paths.data_dir / DATABASE_FILE)
 
     def load(self) -> list[QueueItem]:
         with self._lock:
-            self._items = self._read_items()
-            self.save()
+            self._ensure_database()
+            if self._legacy_loaded:
+                # Compatibility for callers that deliberately replace the legacy file
+                # during one process; production imports it only once at startup.
+                self._items = self._read_items()
+                self._write_all()
+                return list(self._items)
+            self._import_legacy_once()
+            self._items = self._read_database_items()
+            for item in list(self._items):
+                if item.status == "running":
+                    self.replace(replace(item, status="failed", speed="", error="Interrupted while app was closed."))
             return list(self._items)
 
     def items(self) -> list[QueueItem]:
@@ -73,6 +99,12 @@ class QueueStore:
         playlist: bool,
         download_dir: str,
         filename_template: str,
+        category_id: str = "default",
+        category_name: str = "Default",
+        *,
+        source_type: str = "manual",
+        playlist_id: str = "",
+        playlist_position: int | None = None,
     ) -> QueueItem:
         item = QueueItem(
             id=str(uuid4()),
@@ -82,19 +114,54 @@ class QueueStore:
             download_dir=download_dir,
             filename_template=filename_template,
             added_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            category_id=category_id,
+            category_name=category_name,
             name=_fallback_name(url),
+            source_type=source_type,
+            playlist_id=playlist_id,
+            playlist_position=playlist_position,
         )
         with self._lock:
             self._items.append(item)
-            self.save()
+            self._write_all()
         return item
+
+    def add_many(self, items: list[dict[str, object]], playlist_entry_ids: list[int] | None = None) -> list[QueueItem]:
+        """Append tracker results atomically, preserving the supplied order."""
+        created = [QueueItem(
+            id=str(uuid4()), url=str(raw["url"]).strip(), preset=str(raw["preset"]),
+            playlist=bool(raw.get("playlist", False)), download_dir=str(raw["download_dir"]),
+            filename_template=str(raw["filename_template"]), added_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            category_id=str(raw.get("category_id", "default")), category_name=str(raw.get("category_name", "Default")),
+            name=_fallback_name(str(raw["url"])), source_type=str(raw.get("source_type", "tracker")),
+            playlist_id=str(raw.get("playlist_id", "")),
+            playlist_position=int(raw["playlist_position"]) if raw.get("playlist_position") is not None else None,
+        ) for raw in items]
+        with self._lock:
+            previous = list(self._items)
+            self._items.extend(created)
+            try:
+                self._ensure_database()
+                with self.database.connect() as connection:
+                    connection.execute("BEGIN IMMEDIATE")
+                    self._write_all_to_connection(connection)
+                    if playlist_entry_ids:
+                        connection.execute(
+                            f"UPDATE playlist_entries SET decision='queued' WHERE id IN ({','.join('?' for _ in playlist_entry_ids)})",
+                            playlist_entry_ids,
+                        )
+                    connection.commit()
+            except Exception:
+                self._items = previous
+                raise
+        return created
 
     def replace(self, item: QueueItem) -> None:
         with self._lock:
             for index, existing in enumerate(self._items):
                 if existing.id == item.id:
                     self._items[index] = item
-                    self.save()
+                    self._write_all()
                     return
 
     def get(self, item_id: str) -> QueueItem | None:
@@ -114,7 +181,7 @@ class QueueStore:
             if not item or item.status == "running":
                 return False
             self._items = [existing for existing in self._items if existing.id != item_id]
-            self.save()
+            self._write_all()
             return True
 
     def clear_completed(self) -> None:
@@ -122,7 +189,7 @@ class QueueStore:
             self._items = [
                 item for item in self._items if item.status not in {"completed", "skipped"}
             ]
-            self.save()
+            self._write_all()
 
     def retry(self, item_id: str) -> bool:
         with self._lock:
@@ -143,16 +210,57 @@ class QueueStore:
             if self._items[index].status == "running" or self._items[target].status == "running":
                 return False
             self._items[index], self._items[target] = self._items[target], self._items[index]
-            self.save()
+            self._write_all()
             return True
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "version": QUEUE_SCHEMA_VERSION,
-            "items": [asdict(item) for item in self._items],
-        }
-        self.path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        with self._lock:
+            self._write_all()
+
+    def _write_all(self) -> None:
+        self._ensure_database()
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._write_all_to_connection(connection)
+            connection.commit()
+
+    def _write_all_to_connection(self, connection: object) -> None:
+        connection.execute("DELETE FROM queue_items")  # type: ignore[attr-defined]
+        for position, item in enumerate(self._items):
+                connection.execute(  # type: ignore[attr-defined]
+                    "INSERT INTO queue_items(id,position,url,preset,playlist,download_dir,filename_template,added_at,"
+                    "category_id,category_name,status,name,progress,speed,error,output_path,warning,source_type,playlist_id,playlist_position) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (item.id, position, item.url, item.preset, item.playlist, item.download_dir, item.filename_template,
+                     item.added_at, item.category_id, item.category_name, item.status, item.name, item.progress,
+                     item.speed, item.error, item.output_path, item.warning, item.source_type,
+                     item.playlist_id or None, item.playlist_position),
+                )
+
+    def _read_database_items(self) -> list[QueueItem]:
+        self._ensure_database()
+        names = {field.name for field in fields(QueueItem)}
+        with self.database.connect() as connection:
+            rows = connection.execute("SELECT * FROM queue_items ORDER BY position").fetchall()
+        return [QueueItem(**{name: row[name] for name in names if name in row.keys()}) for row in rows]
+
+    def _import_legacy_once(self) -> None:
+        self._ensure_database()
+        with self.database.connect() as connection:
+            if connection.execute("SELECT COUNT(*) FROM queue_items").fetchone()[0] or not self.path.exists():
+                return
+        imported = self._read_items()
+        self._legacy_loaded = True
+        self._items = imported
+        self._write_all()
+        # Retain a readable normalized source and a verbatim migration backup.
+        backup = self.path.with_suffix(self.path.suffix + ".migrated")
+        if not backup.exists():
+            try:
+                backup.write_bytes(self.path.read_bytes())
+            except OSError:
+                pass
+        self.path.write_text(json.dumps({"version": QUEUE_SCHEMA_VERSION, "items": [asdict(i) for i in imported]}, indent=2), encoding="utf-8")
 
     def _read_items(self) -> list[QueueItem]:
         if not self.path.exists():
@@ -161,7 +269,7 @@ class QueueStore:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return []
-        if data.get("version") != QUEUE_SCHEMA_VERSION:
+        if data.get("version") not in {1, QUEUE_SCHEMA_VERSION}:
             return []
 
         items = []
@@ -270,11 +378,15 @@ class QueueRunner:
                     item.filename_template,
                     self._organize_by_channel_provider(),
                 )
-            service.download(
+            callbacks = (
                 DownloadRequest(item.url, item.preset, item.playlist),
                 lambda status, message: self._handle_status(item.id, status, message),
                 lambda message: self._handle_log(item.id, message),
             )
+            if self._uses_default_downloader_factory:
+                service.download(*callbacks, lambda completed: self._record_completion(item, completed))
+            else:
+                service.download(*callbacks)
             latest = self._store.get(item.id)
             if latest and latest.status == "skipped":
                 final_status = "skipped"
@@ -293,6 +405,26 @@ class QueueRunner:
             self._running.discard(item.id)
             self._events.put(QueueEvent("item", item.id))
         self._schedule()
+
+    def _record_completion(self, item: QueueItem, completed: DownloadCompletion) -> None:
+        path = Path(completed.output_path)
+        if not path.is_absolute():
+            path = Path(item.download_dir).expanduser() / path
+        latest = self._store.get(item.id)
+        if latest:
+            self._store.replace(replace(latest, name=completed.title or path.name, output_path=str(path)))
+        try:
+            self._store.database.add_download_record(
+                title=completed.title or path.stem, category_name=item.category_name,
+                preset=item.preset, output_path=str(path), extractor=completed.extractor,
+                media_id=completed.media_id, queue_item_id=item.id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            warning = f"File downloaded, but Download History could not be saved: {exc}"
+            current = self._store.get(item.id)
+            if current:
+                self._store.replace(replace(current, warning=warning, output_path=str(path)))
+            self._log_callback(warning)
 
     def _handle_status(self, item_id: str, status: str, message: str) -> None:
         item = self._store.get(item_id)
@@ -345,12 +477,18 @@ def _parse_item(raw_item: object) -> QueueItem | None:
             download_dir=str(raw_item["download_dir"]),
             filename_template=str(raw_item["filename_template"]),
             added_at=str(raw_item["added_at"]),
+            category_id=str(raw_item.get("category_id", "default")) or "default",
+            category_name=str(raw_item.get("category_name", "Default")) or "Default",
             status=status,
             name=str(raw_item.get("name", "")),
             progress=_optional_int(raw_item.get("progress")),
             speed=str(raw_item.get("speed", "")),
             error=str(raw_item.get("error", "")),
             output_path=str(raw_item.get("output_path", "")),
+            warning=str(raw_item.get("warning", "")),
+            source_type=str(raw_item.get("source_type", "manual")),
+            playlist_id=str(raw_item.get("playlist_id", "")),
+            playlist_position=(int(raw_item["playlist_position"]) if raw_item.get("playlist_position") is not None else None),
         )
     except KeyError:
         return None

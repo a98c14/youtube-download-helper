@@ -8,7 +8,7 @@ A small Windows desktop app that wraps `yt-dlp` in a simple GUI for non-technica
 - Supports single videos and playlists
 - Uses pasted Netscape-format `cookies.txt` text for paid/member content
 - Includes a download archive to skip videos that were already downloaded
-- Editable output folder, defaulting to `%USERPROFILE%\Downloads\youtube-download-helper`
+- User-defined Categories route downloads to named destination folders
 - Simple presets only:
   - `Best Video`
   - `Video 1080p`
@@ -83,3 +83,5 @@ Files:
 - `tools\ffmpeg\ffmpeg.exe`
 - `tools\ffmpeg\ffprobe.exe`
 - `tools\*.json` runtime tool metadata
+
+`settings.json` stores Categories and the currently selected Category. Existing settings are migrated to a `Default` Category using the previously saved downloads folder. Queue items snapshot their Category name and destination, so later Category edits do not move queued or historical downloads.

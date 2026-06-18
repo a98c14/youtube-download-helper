@@ -21,6 +21,14 @@ DEFAULT_FILENAME_TEMPLATE = "%(title)s [%(id)s].%(ext)s"
 DEFAULT_QUEUE_CONCURRENCY = 1
 MIN_QUEUE_CONCURRENCY = 1
 MAX_QUEUE_CONCURRENCY = 4
+DEFAULT_CATEGORY_ID = "default"
+
+
+@dataclass(frozen=True)
+class Category:
+    id: str
+    name: str
+    download_dir: str
 
 
 @dataclass
@@ -31,6 +39,8 @@ class Settings:
     filename_template: str = DEFAULT_FILENAME_TEMPLATE
     queue_concurrency: int = DEFAULT_QUEUE_CONCURRENCY
     organize_by_channel: bool = True
+    categories: list[Category] | None = None
+    selected_category_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -83,7 +93,12 @@ def ensure_app_dirs(paths: AppPaths) -> None:
 
 
 def load_settings(paths: AppPaths) -> Settings:
-    defaults = Settings(download_dir=str(paths.download_dir))
+    default_category = Category(DEFAULT_CATEGORY_ID, "Default", str(paths.download_dir))
+    defaults = Settings(
+        download_dir=str(paths.download_dir),
+        categories=[default_category],
+        selected_category_id=default_category.id,
+    )
     if not paths.settings_file.exists():
         return defaults
 
@@ -92,19 +107,49 @@ def load_settings(paths: AppPaths) -> Settings:
     except (OSError, json.JSONDecodeError):
         return defaults
 
+    download_dir = str(data.get("download_dir", defaults.download_dir)) or defaults.download_dir
+    categories = _normalize_categories(data.get("categories"), download_dir)
+    selected_category_id = str(data.get("selected_category_id", ""))
+    if not any(category.id == selected_category_id for category in categories):
+        selected_category_id = categories[0].id
     settings = Settings(
         preset=str(data.get("preset", defaults.preset)),
-        download_dir=str(data.get("download_dir", defaults.download_dir)),
+        download_dir=download_dir,
         language=normalize_language(str(data.get("language", defaults.language))),
         filename_template=str(data.get("filename_template", defaults.filename_template)),
         queue_concurrency=_normalize_queue_concurrency(data.get("queue_concurrency", defaults.queue_concurrency)),
         organize_by_channel=_normalize_bool(data.get("organize_by_channel", defaults.organize_by_channel), True),
+        categories=categories,
+        selected_category_id=selected_category_id,
     )
     if not settings.download_dir:
         settings.download_dir = str(paths.download_dir)
     if not settings.filename_template.strip():
         settings.filename_template = DEFAULT_FILENAME_TEMPLATE
     return settings
+
+
+def settings_categories(settings: Settings, default_download_dir: str) -> list[Category]:
+    return _normalize_categories(settings.categories, default_download_dir)
+
+
+def _normalize_categories(value: object, default_download_dir: str) -> list[Category]:
+    categories: list[Category] = []
+    if isinstance(value, list):
+        seen_ids: set[str] = set()
+        for raw in value:
+            if not isinstance(raw, dict):
+                continue
+            category_id = str(raw.get("id", "")).strip()
+            name = str(raw.get("name", "")).strip()
+            download_dir = str(raw.get("download_dir", "")).strip()
+            if not category_id or category_id in seen_ids or not name or not download_dir:
+                continue
+            categories.append(Category(category_id, name, download_dir))
+            seen_ids.add(category_id)
+    if not categories:
+        categories.append(Category(DEFAULT_CATEGORY_ID, "Default", default_download_dir))
+    return categories
 
 
 def save_settings(paths: AppPaths, settings: Settings) -> None:

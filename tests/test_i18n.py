@@ -53,6 +53,12 @@ class I18nTests(unittest.TestCase):
         self.assertEqual(translate("tr", "queue.filter.completed"), "Tamamlandı")
         self.assertEqual(translate("tr", "queue.filter.failed"), "Başarısız")
 
+    def test_category_controls_are_translated(self) -> None:
+        self.assertEqual(translate("en", "field.category"), "Category")
+        self.assertEqual(translate("tr", "field.category"), "Kategori")
+        self.assertEqual(translate("en", "queue.column.category"), "Category")
+        self.assertEqual(translate("tr", "queue.column.category"), "Kategori")
+
 
 if __name__ == "__main__":
     unittest.main()
