@@ -37,3 +37,17 @@
 - Do not commit exported cookies, local browser data, or `%LOCALAPPDATA%` app-state files.
 - Authenticated downloads should rely only on `--cookies-from-browser` against the user’s local profile.
 - Treat `dist/` output as disposable build output; rebuild instead of patching packaged files manually.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the five canonical triage labels documented in `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository. See `docs/agents/domain.md`.
