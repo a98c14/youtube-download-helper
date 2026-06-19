@@ -10,14 +10,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ytdlp_helper.config import AppPaths, Category
 from ytdlp_helper.database import Database
+from ytdlp_helper.download_queue import QueueStore
 from ytdlp_helper.tracked_playlist_controller import TrackedPlaylistController
 
 PLAYLIST_URL = "https://www.youtube.com/playlist?list=PLabc123XYZ"
 PLAYLIST_URL2 = "https://www.youtube.com/playlist?list=PLxyz789ABCD"
-PLAYLIST_URL3 = "https://www.youtube.com/playlist?list=PLrowsLongID"
-PLAYLIST_URL4 = "https://www.youtube.com/playlist?list=PLposLongID12"
-PLAYLIST_URL5 = "https://www.youtube.com/playlist?list=PLdecideLong1"
-PLAYLIST_URL6 = "https://www.youtube.com/playlist?list=PLresetLong123"
 
 
 def _paths() -> AppPaths:
@@ -48,7 +45,8 @@ class TrackedPlaylistControllerTests(unittest.TestCase):
         self.database.import_categories([
             Category("default", "Default", str(self.paths.download_dir)),
         ])
-        self.controller = TrackedPlaylistController(self.database, self.paths)
+        self.queue_store = QueueStore.for_paths(self.paths)
+        self.controller = TrackedPlaylistController(self.database, self.paths, self.queue_store)
 
     def test_add_tracker_rejects_invalid_url(self) -> None:
         with self.assertRaises(ValueError):
@@ -78,17 +76,6 @@ class TrackedPlaylistControllerTests(unittest.TestCase):
         tracker = next(t for t in self.database.trackers() if t.id == tracker_id)
         self.assertTrue(tracker.active)
 
-    def test_reset_tracker_clears_entries(self) -> None:
-        tracker_id = self.controller.add_tracker(
-            PLAYLIST_URL6, "best-video", "default",
-        )
-        self.database.record_playlist_check(tracker_id, [
-            {"video_id": "vid1", "title": "Video 1", "position": 1, "upload_date": "20260101"},
-        ])
-        self.controller.reset_tracker(tracker_id)
-        candidates = self.database.pending_candidates()
-        self.assertEqual(len(candidates), 1)
-
     def test_update_tracker_changes_preset_and_category(self) -> None:
         tracker_id = self.controller.add_tracker(
             PLAYLIST_URL, "best-video", "default",
@@ -108,7 +95,7 @@ class TrackedPlaylistControllerTests(unittest.TestCase):
         self.assertEqual(self.controller.outcome_label("tr", ""), "Kontrol edilmedi")
 
     def test_check_summary_formats_counts(self) -> None:
-        counts = [("Mix", 4, ""), ("News", 0, "offline")]
+        counts = [("Mix", 4, "", 2), ("News", 0, "offline", 0)]
         self.assertEqual(
             self.controller.check_summary("en", counts),
             "Mix: 4 current\nNews: Failed - offline",
@@ -117,36 +104,6 @@ class TrackedPlaylistControllerTests(unittest.TestCase):
             self.controller.check_summary("tr", counts),
             "Mix: 4 mevcut\nNews: Başarısız - offline",
         )
-
-    def test_queue_rows_uses_current_tracker_settings(self) -> None:
-        self.controller.add_tracker(
-            PLAYLIST_URL3, "best-video", "default",
-        )
-        tracker = self.database.trackers()[0]
-        self.database.record_playlist_check(tracker.id, [
-            {"video_id": "vid1", "title": "Video 1", "position": 1, "upload_date": "20260101"},
-        ])
-        candidates = self.database.pending_candidates()
-        rows = self.controller.queue_rows(candidates, "%(title)s.%(ext)s")
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["preset"], "best-video")
-        self.assertEqual(rows[0]["playlist_id"], "PLrowsLongID")
-
-        self.controller.update_tracker(tracker.id, "audio-mp3", "default")
-        rows = self.controller.queue_rows(candidates, "%(title)s.%(ext)s")
-        self.assertEqual(rows[0]["preset"], "audio-mp3")
-
-    def test_queue_rows_includes_position_in_template(self) -> None:
-        self.controller.add_tracker(
-            PLAYLIST_URL4, "best-video", "default",
-        )
-        tracker = self.database.trackers()[0]
-        self.database.record_playlist_check(tracker.id, [
-            {"video_id": "vid1", "title": "Video 1", "position": 3, "upload_date": "20260101"},
-        ])
-        candidates = self.database.pending_candidates()
-        rows = self.controller.queue_rows(candidates, "%(title)s.%(ext)s")
-        self.assertIn("3 - ", rows[0]["filename_template"])
 
     def test_preset_labels_for_language(self) -> None:
         labels = self.controller.preset_labels_for_language("en")
@@ -163,19 +120,6 @@ class TrackedPlaylistControllerTests(unittest.TestCase):
     def test_preset_key_for_label_returns_none_for_unknown(self) -> None:
         key = self.controller.preset_key_for_label("en", "NonExistent")
         self.assertIsNone(key)
-
-    def test_decide_entries_dismisses_candidates(self) -> None:
-        self.controller.add_tracker(
-            PLAYLIST_URL5, "best-video", "default",
-        )
-        tracker = self.database.trackers()[0]
-        self.database.record_playlist_check(tracker.id, [
-            {"video_id": "vid1", "title": "Video", "position": 1, "upload_date": "20260101"},
-        ])
-        candidates = self.controller.pending_candidates()
-        self.assertEqual(len(candidates), 1)
-        self.controller.decide_entries([candidates[0].entry_id], "dismissed")
-        self.assertEqual(len(self.controller.pending_candidates()), 0)
 
     def test_check_all_skips_when_running(self) -> None:
         self.controller.check_running = True

@@ -12,11 +12,7 @@ from uuid import uuid4
 
 from . import __version__
 from .activity_log import ActivityLogStore
-from .archive import (
-    clear_archive_entry,
-    is_archived,
-    parse_youtube_video_id,
-)
+from .archive import parse_youtube_video_id
 from .category_settings_controller import CategorySettingsController
 from .config import (
     Category,
@@ -35,7 +31,7 @@ from .config import (
 from .cookies import CookiePhase, CookieStatus, get_cookie_status, save_cookie_text
 from .dependencies import RuntimeToolResolver, read_tool_version
 from .download_queue import QueueItem, QueueRunner, QueueStore
-from .database import Database, PlaylistCandidate, TrackedPlaylist
+from .database import Database, TrackedPlaylist
 from .download_history_viewer import DownloadHistoryViewer
 from .downloader import DownloadRequest, DownloadService
 from .playlist_tracker import PlaylistChecker, canonical_playlist_url, parse_youtube_playlist_id
@@ -99,16 +95,12 @@ class YtDlpHelperApp:
         self.label_widgets: dict[str, ttk.Label] = {}
         self.button_widgets: dict[str, ttk.Button] = {}
 
-        self.tracker_controller = TrackedPlaylistController(self.database, self.paths)
         self.category_controller = CategorySettingsController(self.database)
         self.queue_controller = QueueItemController(self.queue_store, self.queue_runner)
         self.history_viewer = DownloadHistoryViewer(self.database)
+        self.tracker_controller = TrackedPlaylistController(self.database, self.paths, self.queue_store)
 
         self.url_var = tk.StringVar()
-        self.archive_status_key = "archive.not_checked"
-        self.archive_status_var = tk.StringVar(value=self._t(self.archive_status_key))
-        self.archive_checked_video_id: str | None = None
-        self.archive_is_archived = False
         self.actions_enabled = True
         self.preset_var = tk.StringVar(value=self.settings.preset)
         self.preset_label_var = tk.StringVar()
@@ -170,52 +162,31 @@ class YtDlpHelperApp:
         self._form_label(form, "field.url").grid(row=0, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
         ttk.Entry(form, textvariable=self.url_var).grid(row=0, column=1, sticky="ew", pady=(0, 12))
 
-        self._form_label(form, "field.archive").grid(row=1, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
-        archive_row = ttk.Frame(form)
-        archive_row.grid(row=1, column=1, sticky="ew", pady=(0, 12))
-        archive_row.columnconfigure(0, weight=1)
-        ttk.Label(archive_row, textvariable=self.archive_status_var).grid(row=0, column=0, sticky="w")
-        self.archive_check_button = ttk.Button(
-            archive_row,
-            text=self._t("button.check"),
-            command=self._check_archive_status,
-        )
-        self.button_widgets["button.check"] = self.archive_check_button
-        self.archive_check_button.grid(row=0, column=1, sticky="e", padx=(10, 0))
-        self.archive_clear_button = ttk.Button(
-            archive_row,
-            text=self._t("button.clear"),
-            command=self._clear_archive_status,
-            state="disabled",
-        )
-        self.button_widgets["button.clear"] = self.archive_clear_button
-        self.archive_clear_button.grid(row=0, column=2, sticky="e", padx=(10, 0))
-
-        self._form_label(form, "field.preset").grid(row=2, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
+        self._form_label(form, "field.preset").grid(row=1, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
         preset_combo = ttk.Combobox(
             form,
             textvariable=self.preset_label_var,
             state="readonly",
             values=self._preset_labels(),
         )
-        preset_combo.grid(row=2, column=1, sticky="ew", pady=(0, 12))
+        preset_combo.grid(row=1, column=1, sticky="ew", pady=(0, 12))
         preset_combo.bind("<<ComboboxSelected>>", self._on_preset_changed)
         preset_combo.current(self._preset_index(self.settings.preset))
         self.preset_combo = preset_combo
 
-        self._form_label(form, "field.category").grid(row=3, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
+        self._form_label(form, "field.category").grid(row=2, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
         self.category_combo = ttk.Combobox(
             form,
             textvariable=self.category_label_var,
             state="readonly",
             values=[category.name for category in self.categories],
         )
-        self.category_combo.grid(row=3, column=1, sticky="ew", pady=(0, 12))
+        self.category_combo.grid(row=2, column=1, sticky="ew", pady=(0, 12))
         self.category_combo.bind("<<ComboboxSelected>>", self._on_category_changed)
 
-        self._form_label(form, "field.cookies").grid(row=4, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
+        self._form_label(form, "field.cookies").grid(row=3, column=0, sticky="w", padx=(0, 12), pady=(0, 12))
         cookies_row = ttk.Frame(form)
-        cookies_row.grid(row=4, column=1, sticky="ew", pady=(0, 12))
+        cookies_row.grid(row=3, column=1, sticky="ew", pady=(0, 12))
         cookies_row.columnconfigure(0, weight=1)
         ttk.Label(cookies_row, textvariable=self.cookie_status_var).grid(row=0, column=0, sticky="w")
         paste_cookies_button = ttk.Button(cookies_row, text=self._t("button.paste_cookies"), command=self._paste_cookies)
@@ -401,16 +372,12 @@ class YtDlpHelperApp:
         self.queue_store.load()
         self.queue_runner = self._create_queue_runner()
         self.queue_user_paused = False
-        self.tracker_controller = TrackedPlaylistController(self.database, self.paths)
+        self.tracker_controller = TrackedPlaylistController(self.database, self.paths, self.queue_store)
         self.category_controller = CategorySettingsController(self.database)
         self.queue_controller = QueueItemController(self.queue_store, self.queue_runner)
         self.history_viewer = DownloadHistoryViewer(self.database)
 
         self.url_var.set("")
-        self.archive_status_key = "archive.not_checked"
-        self.archive_status_var.set(self._t(self.archive_status_key))
-        self.archive_checked_video_id = None
-        self.archive_is_archived = False
         self.preset_var.set(self.settings.preset)
         self.preset_label_var.set(self._preset_label(self.settings.preset))
         self.category_label_var.set(selected_category.name)
@@ -601,31 +568,16 @@ class YtDlpHelperApp:
             messagebox.showinfo(tracker_t("menu.playlist_tracker"), tracker_t("tracker.check.running"), parent=parent)
             return
 
-        def on_complete(counts: list[tuple[str, int, str]]) -> None:
+        def on_complete(counts: list[tuple[str, int, str, int]]) -> None:
             self.root.after(0, lambda: _finish(counts))
 
-        def _finish(counts: list[tuple[str, int, str]]) -> None:
+        def _finish(counts: list[tuple[str, int, str, int]]) -> None:
             self.tracker_controller.check_running = False
             refresh()  # type: ignore[operator]
-            candidates = self.tracker_controller.pending_candidates()
             summary = self.tracker_controller.check_summary(tracker_language, counts)
-            if not candidates:
-                messagebox.showinfo(tracker_t("menu.playlist_tracker"),
-                                    summary + "\n\n" + tracker_t("tracker.check.no_pending"), parent=parent)
-                return
-            accepted = messagebox.askyesno(tracker_t("menu.playlist_tracker"),
-                                           summary + "\n\n" + tracker_t("tracker.check.queue_prompt", count=len(candidates)),
-                                           parent=parent)
-            if accepted:
-                rows = self.tracker_controller.queue_rows(candidates, self.filename_template_var.get().strip())
-                entry_ids = [candidate.entry_id for candidate in candidates]
-                self.queue_controller.add_many(rows, entry_ids)
-                self.queue_controller.notify_changed()
-                self._refresh_queue_table()
-            else:
-                self.tracker_controller.decide_entries(
-                    [candidate.entry_id for candidate in candidates], "dismissed",
-                )
+            messagebox.showinfo(tracker_t("menu.playlist_tracker"), summary, parent=parent)
+            self._refresh_queue_table()
+            self.queue_controller.notify_changed()
 
         self.tracker_controller.check_all(tracker_language, on_complete)
 
@@ -1044,64 +996,25 @@ class YtDlpHelperApp:
         self._refresh_queue_table()
 
     def _on_url_changed(self, *_args: object) -> None:
-        self.archive_checked_video_id = None
-        self.archive_is_archived = False
-        self._set_archive_status("archive.not_checked")
-        self._update_archive_buttons_state()
-
-    def _check_archive_status(self) -> None:
-        video_id = parse_youtube_video_id(self.url_var.get())
-        if not video_id:
-            self.archive_checked_video_id = None
-            self.archive_is_archived = False
-            self._set_archive_status("archive.unsupported_video_url")
-            self._update_archive_buttons_state()
-            return
-
-        self._set_archive_status_for_video(video_id)
-
-    def _set_archive_status_for_video(self, video_id: str) -> None:
-        self.archive_checked_video_id = video_id
-        self.archive_is_archived = is_archived(self.paths.archive_file, video_id)
-        self._set_archive_status("archive.archived" if self.archive_is_archived else "archive.not_archived")
-        self._update_archive_buttons_state()
-
-    def _clear_archive_status(self) -> None:
-        video_id = self.archive_checked_video_id
-        if not video_id or not self.archive_is_archived:
-            return
-
-        confirmed = messagebox.askyesno(
-            self._t("dialog.clear_archive.title"),
-            self._t("dialog.clear_archive.message"),
-            parent=self.root,
-        )
-        if not confirmed:
-            return
-
-        removed_count = clear_archive_entry(self.paths.archive_file, video_id)
-        self._set_archive_status_for_video(video_id)
-
-        if removed_count:
-            message = f"Cleared archive entry for YouTube video {video_id}"
-        else:
-            message = f"No archive entry found for YouTube video {video_id}"
-        self._set_status("queued", message)
-        self._append_log(message)
+        pass
 
     def _start_download(self) -> None:
-        self._start_download_request(playlist=False)
-
-    def _start_playlist_download(self) -> None:
-        self._start_download_request(playlist=True)
-
-    def _start_download_request(self, playlist: bool) -> None:
         url = self.url_var.get().strip()
         if not url:
             self._set_status("failed", "Enter a YouTube video or playlist URL.")
             return
         if not url.lower().startswith(("http://", "https://")):
             self._set_status("failed", "Enter a valid URL starting with http:// or https://.")
+            return
+
+        playlist_id = parse_youtube_playlist_id(url)
+        video_id = parse_youtube_video_id(url)
+
+        if not video_id and playlist_id:
+            self._set_status("failed", "This is a playlist URL. Use Download Playlist for playlists.")
+            return
+        if not video_id:
+            self._set_status("failed", "Enter a valid YouTube video URL.")
             return
 
         category = self._selected_category()
@@ -1113,27 +1026,54 @@ class YtDlpHelperApp:
             messagebox.showerror(self._t("dialog.downloads_required.title"), message, parent=self.root)
             return
 
-        if self.queue_controller.has_duplicate_url(url):
-            confirmed = messagebox.askyesno(
-                self._t("dialog.duplicate_url.title"),
-                self._t("dialog.duplicate_url.message"),
+        preset = self.preset_var.get()
+        filename_template = self.filename_template_var.get().strip() or DEFAULT_FILENAME_TEMPLATE
+        organize_by_channel = bool(self.organize_by_channel_var.get())
+
+        existing = self.queue_controller.find_existing(
+            video_id, preset, str(download_dir), filename_template,
+            organize_by_channel, "",
+        )
+
+        if existing:
+            if existing.status == "completed":
+                confirmed = messagebox.askyesno(
+                    self._t("dialog.confirm_redownload.title"),
+                    self._t("dialog.confirm_redownload.message"),
+                    parent=self.root,
+                )
+                if not confirmed:
+                    return
+                self.queue_controller.retry(existing.id)
+                self._append_log(f"Re-queued download for {existing.url}")
+                self._refresh_queue_table()
+                return
+            if existing.status == "failed":
+                self.queue_controller.retry(existing.id)
+                self._append_log(f"Re-queued failed download for {existing.url}")
+                self._refresh_queue_table()
+                return
+            messagebox.showinfo(
+                self._t("dialog.duplicate_queue_item.title"),
+                self._t("dialog.duplicate_queue_item.message"),
                 parent=self.root,
             )
-            if not confirmed:
-                return
+            return
 
         self._persist_settings()
         try:
             item = self.queue_controller.add_item(
                 url,
-                self.preset_var.get(),
-                playlist,
+                preset,
                 str(download_dir),
-                self.filename_template_var.get().strip() or DEFAULT_FILENAME_TEMPLATE,
+                filename_template,
                 category.id,
                 category.name,
+                organize_by_channel=organize_by_channel,
+                media_id=video_id,
+                extractor="youtube",
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self._set_status("failed", str(exc))
             self._append_log(str(exc))
             return
@@ -1141,6 +1081,87 @@ class YtDlpHelperApp:
         status_key = "status.queue_item_added_paused" if self.queue_user_paused else "status.queue_item_added"
         self._set_status_key("queued", status_key)
         self._append_log(f"Queued download for {item.url}")
+        self.url_var.set("")
+        if self.queue_user_paused:
+            self.queue_controller.notify_changed()
+        else:
+            self.queue_controller.resume(self.category_controller.validate_queue_concurrency(self.queue_concurrency_var.get()))
+        self._refresh_queue_table()
+
+    def _start_playlist_download(self) -> None:
+        url = self.url_var.get().strip()
+        if not url:
+            self._set_status("failed", "Enter a YouTube playlist URL.")
+            return
+        if not url.lower().startswith(("http://", "https://")):
+            self._set_status("failed", "Enter a valid URL starting with http:// or https://.")
+            return
+
+        playlist_id = parse_youtube_playlist_id(url)
+        if not playlist_id:
+            self._set_status("failed", "Enter a YouTube URL containing a playlist.")
+            return
+
+        category = self._selected_category()
+        download_dir = self.category_controller.validate_download_folder(category.download_dir)
+        if not download_dir:
+            message = self._t("dialog.downloads_required.message")
+            self._set_status("failed", message)
+            self._append_log(message)
+            messagebox.showerror(self._t("dialog.downloads_required.title"), message, parent=self.root)
+            return
+
+        preset = self.preset_var.get()
+        filename_template = self.filename_template_var.get().strip() or DEFAULT_FILENAME_TEMPLATE
+        organize_by_channel = bool(self.organize_by_channel_var.get())
+        url_changed = False
+
+        from .playlist_tracker import PlaylistChecker, canonical_playlist_url
+        checker = PlaylistChecker(self.paths)
+        try:
+            playlist_title, entries = checker.check(url)
+        except Exception as exc:
+            self._set_status("failed", str(exc))
+            self._append_log(str(exc))
+            return
+
+        new_count = 0
+        for entry in entries:
+            video_id = str(entry["video_id"])
+            existing = self.queue_controller.find_existing(
+                video_id, preset, str(download_dir), filename_template,
+                organize_by_channel, playlist_id,
+            )
+            if existing:
+                continue
+            new_count += 1
+            template = filename_template
+            position = entry.get("position")
+            if position is not None:
+                template = f"{position} - {template}"
+            self.queue_controller.add_item(
+                url=f"https://www.youtube.com/watch?v={video_id}",
+                preset=preset,
+                download_dir=str(download_dir),
+                filename_template=template,
+                category_id=category.id,
+                category_name=category.name,
+                organize_by_channel=organize_by_channel,
+                source_type="manual",
+                playlist_id=playlist_id,
+                playlist_position=position,
+                playlist_title=playlist_title,
+                media_id=video_id,
+                extractor="youtube",
+            )
+            url_changed = True
+
+        if new_count == 0:
+            self._set_status("queued", "All playlist videos are already in the queue.")
+            return
+
+        self._set_status_key("queued", "status.queue_item_added")
+        self._append_log(f"Queued {new_count} videos from playlist")
         self.url_var.set("")
         if self.queue_user_paused:
             self.queue_controller.notify_changed()
@@ -1177,9 +1198,12 @@ class YtDlpHelperApp:
         self._update_queue_state()
 
     def _poll_queue_runner(self) -> None:
-        events = self.queue_runner.poll_events()
-        if events:
-            self._refresh_queue_table()
+        try:
+            events = self.queue_runner.poll_events()
+            if events:
+                self._refresh_queue_table()
+        except Exception:
+            self._append_log("Queue runner poll error")
         self.root.after(150, self._poll_queue_runner)
 
     def _selected_queue_item(self) -> QueueItem | None:
@@ -1268,28 +1292,32 @@ class YtDlpHelperApp:
             selected = self._selected_queue_item()
             selected_id = selected.id if selected else None
 
-        for row_id in self.queue_table.get_children():
-            self.queue_table.delete(row_id)
-        self.queue_item_ids.clear()
-
         filter_key = self.queue_filter_var.get()
+        existing_rows_by_item_id = {
+            item_id: row_id for row_id, item_id in self.queue_item_ids.items()
+            if row_id in self.queue_table.get_children()
+        }
+        visible_row_ids = set()
         selected_row = ""
-        for item in self.queue_controller.items_matching_filter(filter_key):
-            row_id = self.queue_table.insert(
-                "",
-                "end",
-                values=(
-                    item.name or item.url,
-                    item.category_name,
-                    f"{item.progress}%" if item.progress is not None else "",
-                    item.speed if item.status == "running" else "",
-                    item.added_at[:19].replace("T", " "),
-                    self._t(f"queue.status.{item.status}"),
-                ),
-            )
+        refreshed_ids = {}
+        for index, item in enumerate(self.queue_controller.items_matching_filter(filter_key)):
+            values = self._queue_item_row_values(item)
+            row_id = existing_rows_by_item_id.get(item.id)
+            if row_id:
+                self.queue_table.item(row_id, values=values)
+                self.queue_table.move(row_id, "", index)
+            else:
+                row_id = self.queue_table.insert("", index, values=values)
+            visible_row_ids.add(row_id)
+            refreshed_ids[row_id] = item.id
             self.queue_item_ids[row_id] = item.id
             if item.id == selected_id:
                 selected_row = row_id
+
+        for row_id in self.queue_table.get_children():
+            if row_id not in visible_row_ids:
+                self.queue_table.delete(row_id)
+        self.queue_item_ids = refreshed_ids
 
         if selected_row:
             self.queue_table.selection_set(selected_row)
@@ -1297,8 +1325,18 @@ class YtDlpHelperApp:
         self._update_queue_action_state()
         self._update_queue_state()
 
+    def _queue_item_row_values(self, item: QueueItem) -> tuple[str, str, str, str, str, str]:
+        return (
+            item.name or item.url,
+            item.category_name,
+            f"{item.progress}%" if item.progress is not None else "",
+            item.speed if item.status == "running" else "",
+            item.added_at[:19].replace("T", " "),
+            self._t(f"queue.status.{item.status}"),
+        )
+
     def _update_queue_summary(self) -> None:
-        counts = {status: 0 for status in ("queued", "running", "completed", "failed", "skipped")}
+        counts = {status: 0 for status in ("queued", "running", "completed", "failed")}
         for item in self.queue_controller.items():
             counts[item.status] += 1
         self.queue_summary_var.set(
@@ -1308,7 +1346,6 @@ class YtDlpHelperApp:
                 running=counts["running"],
                 completed=counts["completed"],
                 failed=counts["failed"],
-                skipped=counts["skipped"],
             )
         )
 
@@ -1318,16 +1355,16 @@ class YtDlpHelperApp:
         item = self._selected_queue_item()
         has_item = item is not None
         is_running = bool(item and item.status == "running")
-        is_failed_or_skipped = bool(item and item.status in {"failed", "skipped"})
+        is_failed = bool(item and item.status == "failed")
         has_error = bool(item and item.error)
-        self.retry_button.configure(state="normal" if is_failed_or_skipped else "disabled")
+        self.retry_button.configure(state="normal" if is_failed else "disabled")
         self.remove_button.configure(state="normal" if has_item and not is_running else "disabled")
         self.move_up_button.configure(state="normal" if has_item and not is_running else "disabled")
         self.move_down_button.configure(state="normal" if has_item and not is_running else "disabled")
         self.open_item_folder_button.configure(state="normal" if has_item else "disabled")
         self.error_button.configure(state="normal" if has_error else "disabled")
         if hasattr(self, "queue_context_menu"):
-            self.queue_context_menu.entryconfigure(self._ctx_retry_id, state="normal" if is_failed_or_skipped else "disabled")
+            self.queue_context_menu.entryconfigure(self._ctx_retry_id, state="normal" if is_failed else "disabled")
             self.queue_context_menu.entryconfigure(self._ctx_remove_id, state="normal" if has_item and not is_running else "disabled")
             self.queue_context_menu.entryconfigure(self._ctx_up_id, state="normal" if has_item and not is_running else "disabled")
             self.queue_context_menu.entryconfigure(self._ctx_down_id, state="normal" if has_item and not is_running else "disabled")
@@ -1519,15 +1556,6 @@ class YtDlpHelperApp:
         self.download_button.configure(state=state)
         self.download_playlist_button.configure(state=state)
         self.help_menu.entryconfigure(self._m_help_update, state=state)
-        self._update_archive_buttons_state()
-
-    def _update_archive_buttons_state(self) -> None:
-        if not hasattr(self, "archive_check_button"):
-            return
-        check_state = "normal" if self.actions_enabled else "disabled"
-        clear_state = "normal" if self.actions_enabled and self.archive_is_archived else "disabled"
-        self.archive_check_button.configure(state=check_state)
-        self.archive_clear_button.configure(state=clear_state)
 
     def _refresh_language(self) -> None:
         self.root.title(self._t("app.title"))
@@ -1553,7 +1581,6 @@ class YtDlpHelperApp:
         if hasattr(self, "queue_filter_combo"):
             self.queue_filter_combo.configure(values=self._queue_filter_labels())
             self.queue_filter_label_var.set(self._queue_filter_label(str(self.queue_filter_var.get())))
-        self.archive_status_var.set(self._t(self.archive_status_key))
         self.cookie_status_var.set(self._localized_cookie_status())
         if getattr(self, "status_key", None):
             self.status_var.set(self._t(self.status_key, **getattr(self, "status_params", {})))
@@ -1576,10 +1603,6 @@ class YtDlpHelperApp:
             self.log_window.title(self._t("menu.activity_log"))
             if self.copy_logs_button:
                 self.copy_logs_button.configure(text=self._t("button.copy_logs"))
-
-    def _set_archive_status(self, key: str) -> None:
-        self.archive_status_key = key
-        self.archive_status_var.set(self._t(key))
 
     def _preset_index(self, preset_key: str) -> int:
         for index, value in enumerate(PRESET_KEYS):

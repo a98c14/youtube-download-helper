@@ -4,7 +4,8 @@ import threading
 from typing import Callable
 
 from .config import AppPaths, DEFAULT_FILENAME_TEMPLATE
-from .database import Database, PlaylistCandidate
+from .database import Database
+from .download_queue import QueueItem, QueueStore
 from .playlist_tracker import PlaylistChecker, canonical_playlist_url, parse_youtube_playlist_id
 
 
@@ -19,10 +20,14 @@ PRESET_KEYS = [
 
 
 class TrackedPlaylistController:
-    def __init__(self, database: Database, paths: AppPaths) -> None:
+    def __init__(self, database: Database, paths: AppPaths, queue_store: QueueStore | None = None) -> None:
         self._database = database
         self._paths = paths
+        self._queue_store = queue_store
         self.check_running = False
+
+    def set_queue_store(self, queue_store: QueueStore) -> None:
+        self._queue_store = queue_store
 
     def add_tracker(self, url: str, preset: str, category_id: str) -> int:
         playlist_id = parse_youtube_playlist_id(url)
@@ -37,7 +42,7 @@ class TrackedPlaylistController:
         self._database.set_tracker_active(tracker_id, active)
 
     def reset_tracker(self, tracker_id: int) -> None:
-        self._database.reset_tracker(tracker_id)
+        self._database.record_tracker_check(tracker_id, entry_count=0, new_count=0)
 
     def update_tracker(self, tracker_id: int, preset: str, category_id: str) -> None:
         self._database.update_tracker(tracker_id, preset=preset, category_id=category_id)
@@ -49,52 +54,63 @@ class TrackedPlaylistController:
 
         def work() -> None:
             checker = PlaylistChecker(self._paths)
-            counts: list[tuple[str, int, str]] = []
+            counts: list[tuple[str, int, str, int]] = []
             for tracker in self._database.trackers():
                 if not tracker.active:
                     continue
                 try:
                     title, entries = checker.check(tracker.url)
-                    self._database.record_playlist_check(tracker.id, entries, playlist_title=title)
-                    counts.append((title or tracker.title or tracker.playlist_id, len(entries), ""))
-                except Exception as exc:  # noqa: BLE001
-                    self._database.record_playlist_check(tracker.id, None, str(exc))
-                    counts.append((tracker.title or tracker.playlist_id, 0, str(exc)))
+                    new_count = self._create_queue_items(tracker, entries, title)
+                    self._database.record_tracker_check(
+                        tracker.id, entry_count=len(entries), new_count=new_count,
+                        playlist_title=title,
+                    )
+                    counts.append((title or tracker.title or tracker.playlist_id, len(entries), "", new_count))
+                except Exception as exc:
+                    self._database.record_tracker_check(tracker.id, error=str(exc))
+                    counts.append((tracker.title or tracker.playlist_id, 0, str(exc), 0))
             on_complete(counts)
 
         threading.Thread(target=work, daemon=True).start()
 
-    def pending_candidates(self) -> list[PlaylistCandidate]:
-        return self._database.pending_candidates()
-
-    def decide_entries(self, entry_ids: list[int], decision: str) -> None:
-        self._database.decide_entries(entry_ids, decision)
-
-    def queue_rows(
-        self, candidates: list[PlaylistCandidate], filename_template: str,
-    ) -> list[dict[str, object]]:
-        trackers = {tracker.id: tracker for tracker in self._database.trackers()}
+    def _create_queue_items(self, tracker: object, entries: list[dict[str, object]],
+                            playlist_title: str) -> int:
+        if self._queue_store is None:
+            return 0
         categories = {category.id: category for category in self._database.categories()}
-        rows = []
-        for candidate in candidates:
-            tracker = trackers[candidate.playlist_id]
-            category = categories[tracker.category_id]
-            template = filename_template.strip() or DEFAULT_FILENAME_TEMPLATE
-            if candidate.position is not None:
-                template = f"{candidate.position} - {template}"
-            rows.append({
-                "url": f"https://www.youtube.com/watch?v={candidate.video_id}",
-                "preset": tracker.preset,
-                "download_dir": category.download_dir,
-                "filename_template": template,
-                "category_id": category.id,
-                "category_name": category.name,
-                "source_type": "tracker",
-                "playlist_id": tracker.playlist_id,
-                "playlist_position": candidate.position,
-                "playlist_title": tracker.title,
-            })
-        return rows
+        category = categories.get(tracker.category_id)
+        if category is None:
+            return 0
+        new_count = 0
+        for entry in entries:
+            video_id = str(entry["video_id"])
+            existing = self._queue_store.find_existing(
+                video_id, tracker.preset, category.download_dir,
+                DEFAULT_FILENAME_TEMPLATE, True, tracker.playlist_id,
+            )
+            if existing:
+                continue
+            new_count += 1
+            template = DEFAULT_FILENAME_TEMPLATE
+            position = entry.get("position")
+            if position is not None:
+                template = f"{position} - {template}"
+            self._queue_store.add(
+                url=f"https://www.youtube.com/watch?v={video_id}",
+                preset=tracker.preset,
+                download_dir=category.download_dir,
+                filename_template=template,
+                organize_by_channel=True,
+                category_id=category.id,
+                category_name=category.name,
+                source_type="tracker",
+                playlist_id=tracker.playlist_id,
+                playlist_position=position,
+                playlist_title=playlist_title or tracker.title,
+                media_id=video_id,
+                extractor="youtube",
+            )
+        return new_count
 
     def preset_labels_for_language(self, language: str) -> list[str]:
         from .i18n import translate
@@ -119,10 +135,10 @@ class TrackedPlaylistController:
         key = outcome if outcome in {"success", "failed"} else "not_checked"
         return translate(language, f"tracker.outcome.{key}")
 
-    def check_summary(self, language: str, counts: list[tuple[str, int, str]]) -> str:
+    def check_summary(self, language: str, counts: list[tuple[str, int, str, int]]) -> str:
         from .i18n import translate
         lines = []
-        for name, count, error in counts:
+        for name, count, error, _new_count in counts:
             entry_key = "tracker.check.failed" if error else "tracker.check.current"
             lines.append(translate(language, entry_key, name=name, count=count, error=error))
         return "\n".join(lines)

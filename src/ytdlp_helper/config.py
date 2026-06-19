@@ -90,7 +90,6 @@ def ensure_app_dirs(paths: AppPaths) -> None:
     paths.logs_dir.mkdir(parents=True, exist_ok=True)
     paths.tools_dir.mkdir(parents=True, exist_ok=True)
     paths.download_dir.mkdir(parents=True, exist_ok=True)
-    paths.archive_file.touch(exist_ok=True)
 
 
 def load_settings(paths: AppPaths) -> Settings:
@@ -295,13 +294,6 @@ def factory_reset(paths: AppPaths) -> list[str]:
                 db_path.unlink()
             except OSError as exc:
                 errors.append(f"Could not delete {db_path.name}: {exc}")
-
-    # --- Delete download archive ---
-    if paths.archive_file.exists():
-        try:
-            paths.archive_file.unlink()
-        except OSError as exc:
-            errors.append(f"Could not delete archive: {exc}")
 
     # --- Delete cookies ---
     if paths.cookies_file.exists():
