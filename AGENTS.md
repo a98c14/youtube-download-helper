@@ -31,6 +31,7 @@
 - PRs should include a short summary, test results, and screenshots for UI-visible changes.
 - Call out packaging changes explicitly when they affect `dist/`, `build/`, or bundled `ffmpeg`.
 - After completing work, update `todo.md` so it reflects the current state before handing off.
+- Never force push or amend commits. Always create new commits for updates, even on PR review branches.
 
 ## Security & Configuration Tips
 - Do not commit exported cookies, local browser data, or `%LOCALAPPDATA%` app-state files.
