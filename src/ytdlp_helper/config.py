@@ -278,3 +278,80 @@ def find_deno_executable(paths: AppPaths | None = None) -> str | None:
 
 def _has_ffmpeg_pair(directory: Path) -> bool:
     return (directory / "ffmpeg.exe").exists() and (directory / "ffprobe.exe").exists()
+
+
+def factory_reset(paths: AppPaths) -> list[str]:
+    """Clear app-owned state, preserving downloaded media and Runtime Tools.
+
+    Returns a list of error messages (empty on success).
+    """
+    errors: list[str] = []
+
+    # --- Delete database and WAL/SHM companions ---
+    for suffix in ("", "-wal", "-shm"):
+        db_path = Path(str(paths.data_dir / "app.db") + suffix)
+        if db_path.exists():
+            try:
+                db_path.unlink()
+            except OSError as exc:
+                errors.append(f"Could not delete {db_path.name}: {exc}")
+
+    # --- Delete download archive ---
+    if paths.archive_file.exists():
+        try:
+            paths.archive_file.unlink()
+        except OSError as exc:
+            errors.append(f"Could not delete archive: {exc}")
+
+    # --- Delete cookies ---
+    if paths.cookies_file.exists():
+        try:
+            paths.cookies_file.unlink()
+        except OSError as exc:
+            errors.append(f"Could not delete cookies: {exc}")
+
+    # --- Delete settings ---
+    if paths.settings_file.exists():
+        try:
+            paths.settings_file.unlink()
+        except OSError as exc:
+            errors.append(f"Could not delete settings: {exc}")
+
+    # --- Delete legacy queue files ---
+    for queue_filename in ("queue.json", "queue.json.migrated"):
+        queue_path = paths.data_dir / queue_filename
+        if queue_path.exists():
+            try:
+                queue_path.unlink()
+            except OSError as exc:
+                errors.append(f"Could not delete {queue_filename}: {exc}")
+
+    # --- Delete all log files ---
+    if paths.logs_dir.exists():
+        try:
+            for log_file in paths.logs_dir.iterdir():
+                try:
+                    log_file.unlink()
+                except OSError as exc:
+                    errors.append(f"Could not delete log {log_file.name}: {exc}")
+        except OSError as exc:
+            errors.append(f"Could not list logs directory: {exc}")
+
+    # --- Recreate directories and default state ---
+    try:
+        ensure_app_dirs(paths)
+    except OSError as exc:
+        errors.append(f"Could not recreate app directories: {exc}")
+
+    # --- Create default settings file ---
+    try:
+        settings = Settings(
+            download_dir=str(paths.download_dir),
+            categories=[Category(DEFAULT_CATEGORY_ID, "Default", str(paths.download_dir))],
+            selected_category_id=DEFAULT_CATEGORY_ID,
+        )
+        save_settings(paths, settings)
+    except (OSError, ValueError) as exc:
+        errors.append(f"Could not create default settings: {exc}")
+
+    return errors

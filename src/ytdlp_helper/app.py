@@ -24,6 +24,7 @@ from .config import (
     MIN_QUEUE_CONCURRENCY,
     Settings,
     ensure_app_dirs,
+    factory_reset,
     find_ytdlp_executable,
     get_app_paths,
     load_settings,
@@ -329,6 +330,8 @@ class YtDlpHelperApp:
         file_menu.add_command(label=self._t("menu.playlist_tracker"), command=self._show_playlist_tracker)
         file_menu.add_command(label=self._t("menu.download_history"), command=self._show_download_history)
         file_menu.add_command(label=self._t("menu.activity_log"), command=self._show_activity_log)
+        file_menu.add_separator()
+        file_menu.add_command(label=self._t("menu.factory_reset"), command=self._factory_reset)
         help_menu = tk.Menu(menu_bar, tearoff=False)
         help_menu.add_command(label=self._t("menu.update"), command=self._start_update)
         help_menu.add_command(label=self._t("menu.about"), command=self._show_about)
@@ -339,6 +342,88 @@ class YtDlpHelperApp:
         self.menu_bar = menu_bar
         self.file_menu = file_menu
         self.help_menu = help_menu
+
+    def _factory_reset(self) -> None:
+        if self.worker_pipeline.is_busy or self.queue_runner.is_running or self.tracker_check_running:
+            messagebox.showinfo(
+                self._t("dialog.factory_reset.confirm_title"),
+                self._t("dialog.factory_reset.blocked_msg"),
+                parent=self.root,
+            )
+            return
+
+        confirmed = messagebox.askyesno(
+            self._t("dialog.factory_reset.confirm_title"),
+            self._t("dialog.factory_reset.confirm"),
+            parent=self.root,
+        )
+        if not confirmed:
+            return
+
+        errors = factory_reset(self.paths)
+        if errors:
+            messagebox.showerror(
+                self._t("dialog.factory_reset.confirm_title"),
+                self._t("dialog.factory_reset.failed_msg", error="\n".join(errors)),
+                parent=self.root,
+            )
+            return
+
+        self.settings = load_settings(self.paths)
+        imported_categories = settings_categories(self.settings, str(self.paths.download_dir))
+        self.database = Database.for_data_dir(self.paths.data_dir)
+        self.database.initialize_with_recovery()
+        self.database.import_categories(imported_categories)
+        self.categories = self.database.categories() or imported_categories
+        self.selected_category_id = self.categories[0].id
+        selected_category = self._selected_category()
+        self.paths = replace(self.paths, download_dir=Path(selected_category.download_dir).expanduser())
+        ensure_app_dirs(self.paths)
+        self.downloader = DownloadService(
+            self.paths,
+            self.settings.filename_template,
+            self.settings.organize_by_channel,
+            self._runtime_tool_resolver(),
+        )
+        self.update_service = UpdateService(self.paths, self._runtime_tool_resolver())
+        self.activity_log = ActivityLogStore(self.paths)
+        self.queue_store = QueueStore.for_paths(self.paths)
+        self.queue_store.load()
+        self.queue_runner = self._create_queue_runner()
+        self.queue_user_paused = False
+
+        self.url_var.set("")
+        self.archive_status_key = "archive.not_checked"
+        self.archive_status_var.set(self._t(self.archive_status_key))
+        self.archive_checked_video_id = None
+        self.archive_is_archived = False
+        self.preset_var.set(self.settings.preset)
+        self.preset_label_var.set(self._preset_label(self.settings.preset))
+        self.category_label_var.set(selected_category.name)
+        if hasattr(self, "category_combo"):
+            self.category_combo.configure(values=[category.name for category in self.categories])
+        self.cookie_status_var.set(self._localized_cookie_status())
+        self.status_key = "status.ready"
+        self.status_var.set(self._t(self.status_key))
+        self.speed_var.set(self._t("status.speed_empty"))
+        self.download_folder_var.set(str(self.paths.download_dir))
+        self.filename_template_var.set(self.settings.filename_template)
+        self.queue_concurrency_var.set(self.settings.queue_concurrency)
+        self.organize_by_channel_var.set(self.settings.organize_by_channel)
+        self.queue_filter_var.set("all")
+        if hasattr(self, "queue_filter_combo"):
+            self.queue_filter_combo.set(self._queue_filter_label("all"))
+            self.queue_filter_label_var.set(self._queue_filter_label("all"))
+        self.progress_var.set(0)
+
+        self._close_activity_log()
+        self._refresh_queue_table()
+
+        messagebox.showinfo(
+            self._t("dialog.factory_reset.confirm_title"),
+            self._t("dialog.factory_reset.success_msg"),
+            parent=self.root,
+        )
 
     def _show_download_history(self) -> None:
         dialog = tk.Toplevel(self.root)
@@ -1606,6 +1691,7 @@ class YtDlpHelperApp:
         self.file_menu.entryconfigure(1, label=self._t("menu.playlist_tracker"))
         self.file_menu.entryconfigure(2, label=self._t("menu.download_history"))
         self.file_menu.entryconfigure(3, label=self._t("menu.activity_log"))
+        self.file_menu.entryconfigure(5, label=self._t("menu.factory_reset"))
         self.help_menu.entryconfigure(0, label=self._t("menu.update"))
         self.help_menu.entryconfigure(1, label=self._t("menu.about"))
 
