@@ -1,8 +1,7 @@
 # to-do
 
-codex resume 019edc5d-5a38-7951-94d4-e81b3b4c0123
-
 ## issues
+- [x] Architecture: split app.py god-module into UI Adapter + domain controllers (#5)
 
 ## features
 - [x] Ability to factory reset the app. It should delete all the sqlite data, yt-dlp archive data and other logs. It should be like starting fresh. It should warn the user before doing so. It shouldn't delete any downloaded videos. Just the logs. PRD: #16.
