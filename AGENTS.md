@@ -11,7 +11,6 @@
 - `python -m pip install -r requirements.txt`: install runtime and packaging dependencies.
 - `python -m ytdlp_helper`: run the desktop app locally from source.
 - `python -m unittest discover -s tests -v`: run the test suite.
-- `powershell -ExecutionPolicy Bypass -File .\scripts\build_portable.ps1`: build the portable Windows bundle in `dist/YouTube Download Helper/`.
 
 ## Coding Style & Naming Conventions
 - Target Python 3.13+ and keep code ASCII unless an existing file already uses Unicode.
