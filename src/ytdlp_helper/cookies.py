@@ -1,9 +1,22 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 
 from .config import AppPaths
+
+
+class CookiePhase(Enum):
+    NONE = "none"
+    SAVED = "saved"
+
+
+@dataclass(frozen=True)
+class CookieStatus:
+    phase: CookiePhase
+    timestamp: str | None = None
 
 
 def is_valid_netscape_cookie_text(text: str) -> bool:
@@ -24,12 +37,12 @@ def save_cookie_text(paths: AppPaths, text: str) -> None:
     paths.cookies_file.write_text(text, encoding="utf-8")
 
 
-def get_cookie_status(paths: AppPaths) -> str:
+def get_cookie_status(paths: AppPaths) -> CookieStatus:
     if not paths.cookies_file.exists():
-        return "No cookies saved"
+        return CookieStatus(CookiePhase.NONE)
 
     modified = datetime.fromtimestamp(paths.cookies_file.stat().st_mtime)
-    return f"Saved {modified:%Y-%m-%d %H:%M:%S}"
+    return CookieStatus(CookiePhase.SAVED, timestamp=modified.strftime("%Y-%m-%d %H:%M:%S"))
 
 
 def has_saved_cookies(paths: AppPaths) -> bool:

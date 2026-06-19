@@ -14,7 +14,7 @@ from .config import AppPaths
 from .database import Database, DATABASE_FILE
 from .dependencies import RuntimeToolResolver
 from .downloader import DownloadCompletion, DownloadRequest, DownloadService
-from .worker_status import percent_from_message
+from .worker_status import StatusEvent, event_percent
 
 
 QUEUE_SCHEMA_VERSION = 2
@@ -426,18 +426,23 @@ class QueueRunner:
                 self._store.replace(replace(current, warning=warning, output_path=str(path)))
             self._log_callback(warning)
 
-    def _handle_status(self, item_id: str, status: str, message: str) -> None:
+    def _handle_status(self, item_id: str, phase: str, event: StatusEvent | str) -> None:
         item = self._store.get(item_id)
         if not item:
             return
-        if status == "speed":
-            updated = replace(item, speed=message)
-        elif status == "name":
-            updated = replace(item, name=message or item.name)
-        elif status == "skipped":
+        if phase == "speed":
+            updated = replace(item, speed=str(event) if isinstance(event, str) else "")
+        elif phase == "name":
+            updated = replace(item, name=str(event) if isinstance(event, str) else item.name)
+        elif phase == "skipped":
             updated = replace(item, status="skipped", progress=None, speed="")
         else:
-            updated = replace(item, progress=percent_from_message(message))
+            progress = None
+            if not isinstance(event, str):
+                progress = event_percent(event)
+            elif event:
+                progress = _percent_from_message(event)
+            updated = replace(item, progress=progress)
         self._store.replace(updated)
         self._events.put(QueueEvent("item", item_id))
 
@@ -524,3 +529,19 @@ def _output_path_from_output(line: str) -> str:
     if merger_match:
         return merger_match.group(1)
     return ""
+
+
+def _percent_from_message(message: str) -> int | None:
+    percent_index = message.find("%")
+    if percent_index == -1:
+        return None
+    digits = []
+    for character in reversed(message[:percent_index]):
+        if not character.isdigit():
+            if digits:
+                break
+            continue
+        digits.append(character)
+    if not digits:
+        return None
+    return max(0, min(100, int("".join(reversed(digits)))))

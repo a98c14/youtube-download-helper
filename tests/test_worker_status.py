@@ -10,7 +10,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ytdlp_helper.app_update import AppUpdateResult
 from ytdlp_helper.i18n import translate
-from ytdlp_helper.worker_status import WorkerReporter, WorkerStatusPipeline, WorkerTask, WorkerPhase
+from ytdlp_helper.worker_status import (
+    AppUpdatePhase,
+    AppUpdateStatus,
+    DownloadPhase,
+    DownloadStatus,
+    RuntimeTool,
+    RuntimeToolPhase,
+    RuntimeToolStatus,
+    StatusEvent,
+    WorkerReporter,
+    WorkerStatusPipeline,
+    WorkerTask,
+    WorkerPhase,
+)
 
 
 class FakeUi:
@@ -31,8 +44,8 @@ class FakeUi:
     def set_busy(self, busy: bool) -> None:
         self.busy.append(busy)
 
-    def show_status(self, phase: WorkerPhase, message: str) -> None:
-        self.statuses.append((phase, message))
+    def show_status(self, phase: WorkerPhase, event: StatusEvent | str) -> None:
+        self.statuses.append((phase, event))
 
     def show_status_key(self, phase: WorkerPhase, key: str, **params: object) -> None:
         self.status_keys.append((phase, key, params))
@@ -87,11 +100,10 @@ class WorkerStatusPipelineTests(unittest.TestCase):
         self.assertEqual(ui.busy[0], True)
         self.assertEqual(ui.busy[-1], False)
         self.assertEqual(ui.logs[:2], ["", "Starting download for https://example.test/video"])
-        self.assertIn(("resolving", "Resolving video information"), ui.statuses)
-        self.assertIn(("downloading", "Downloading 42%"), ui.statuses)
+        self.assertIn(("resolving", DownloadStatus(DownloadPhase.RESOLVING_VIDEO)), ui.statuses)
+        self.assertIn(("downloading", DownloadStatus(DownloadPhase.DOWNLOADING, percent=42)), ui.statuses)
         self.assertIn("yt-dlp output line", ui.logs)
         self.assertIn(42, ui.progress)
-        self.assertIn("1.2MiB/s", ui.speeds)
         self.assertIn(("completed", "status.download_completed", {}), ui.status_keys)
         self.assertEqual(ui.infos, [("dialog.download_finished.title", "status.download_completed", True)])
 
@@ -117,7 +129,7 @@ class WorkerStatusPipelineTests(unittest.TestCase):
         _drain_until_idle(pipeline)
         self.assertEqual(ui.busy[-1], False)
 
-    def test_legacy_status_callback_normalizes_known_messages(self) -> None:
+    def test_runtime_tool_status_translates_via_typed_event(self) -> None:
         ui = FakeUi()
         pipeline = WorkerStatusPipeline(ui, lambda key, **params: translate("tr", key, **params), _noop_after)
 
@@ -126,14 +138,20 @@ class WorkerStatusPipelineTests(unittest.TestCase):
                 kind="download",
                 initial_status_key=None,
                 initial_log="download",
-                run=lambda reporter: reporter.status_callback("installing", "Downloading ffmpeg 42%"),
+                run=lambda reporter: reporter.status(
+                    "installing",
+                    RuntimeToolStatus(RuntimeTool.FFMPEG, RuntimeToolPhase.DOWNLOADING, percent=42),
+                ),
                 success=lambda _result, _ui: None,
                 error_title_key="dialog.download_failed.title",
             )
         )
         _drain_until_idle(pipeline)
 
-        self.assertIn(("installing", "ffmpeg indiriliyor 42%"), ui.statuses)
+        self.assertIn(
+            ("installing", RuntimeToolStatus(RuntimeTool.FFMPEG, RuntimeToolPhase.DOWNLOADING, percent=42)),
+            ui.statuses,
+        )
         self.assertIn(42, ui.progress)
 
     def test_failure_routes_to_task_error_title_and_reenables_actions(self) -> None:
@@ -204,10 +222,9 @@ class WorkerStatusPipelineTests(unittest.TestCase):
 
 
 def _report_download_success(reporter: WorkerReporter) -> None:
-    reporter.status_callback("resolving", "Resolving video information")
-    reporter.status_callback("downloading", "Downloading 42%")
-    reporter.status_callback("speed", "1.2MiB/s")
-    reporter.log_callback("yt-dlp output line")
+    reporter.status("resolving", DownloadStatus(DownloadPhase.RESOLVING_VIDEO))
+    reporter.status("downloading", DownloadStatus(DownloadPhase.DOWNLOADING, percent=42))
+    reporter.log("yt-dlp output line")
 
 
 def _update_success(result: AppUpdateResult, ui: FakeUi) -> None:

@@ -29,7 +29,7 @@ from .config import (
     save_settings,
     settings_categories,
 )
-from .cookies import get_cookie_status, save_cookie_text
+from .cookies import CookiePhase, CookieStatus, get_cookie_status, save_cookie_text
 from .dependencies import RuntimeToolResolver, read_tool_version
 from .download_queue import QueueItem, QueueRunner, QueueStore
 from .database import Database, PlaylistCandidate, TrackedPlaylist
@@ -38,7 +38,7 @@ from .playlist_tracker import PlaylistChecker, canonical_playlist_url, parse_you
 from .app_update import AppUpdateResult, start_restart_script
 from .i18n import language_options, normalize_language, translate
 from .update_service import UpdateService
-from .worker_status import WorkerPhase, WorkerStatusPipeline, WorkerTask, WorkerUi, percent_from_message
+from .worker_status import StatusEvent, WorkerPhase, WorkerStatusPipeline, WorkerTask, WorkerUi, status_event_to_key
 
 PRESET_KEYS = [
     "best-video",
@@ -1316,9 +1316,15 @@ class YtDlpHelperApp:
     def set_busy(self, busy: bool) -> None:
         self._set_action_buttons_state("disabled" if busy else "normal")
 
-    def show_status(self, phase: WorkerPhase, message: str) -> None:
+    def show_status(self, phase: WorkerPhase, event: StatusEvent | str) -> None:
         self.status_key = None
-        self.status_var.set(message)
+        if isinstance(event, str):
+            self.status_var.set(event)
+        else:
+            key, params = status_event_to_key(event)
+            self.status_var.set(self._t(key, **params))
+            self.status_key = key
+            self.status_params = params
 
     def show_status_key(self, phase: WorkerPhase, key: str, **params: object) -> None:
         self._set_status_key(phase, key, **params)
@@ -1356,11 +1362,9 @@ class YtDlpHelperApp:
         self.status_key = None
         self.status_var.set(message)
         if status == "downloading":
-            percent = percent_from_message(message)
-            self.progress_var.set(percent if percent is not None else 10)
+            self.progress_var.set(10)
         elif status == "installing":
-            percent = percent_from_message(message)
-            self.progress_var.set(percent if percent is not None else 5)
+            self.progress_var.set(5)
             self.speed_var.set(self._t("status.speed_empty"))
         elif status == "postprocessing":
             self.progress_var.set(95)
@@ -1629,11 +1633,9 @@ class YtDlpHelperApp:
 
     def _localized_cookie_status(self) -> str:
         status = get_cookie_status(self.paths)
-        if status == "No cookies saved":
+        if status.phase == CookiePhase.NONE:
             return self._t("cookies.none")
-        if status.startswith("Saved "):
-            return self._t("cookies.saved", timestamp=status.removeprefix("Saved "))
-        return status
+        return self._t("cookies.saved", timestamp=status.timestamp or "")
 
     def _t(self, key: str, **params: object) -> str:
         return translate(getattr(self, "language", "tr"), key, **params)

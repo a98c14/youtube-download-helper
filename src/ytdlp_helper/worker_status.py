@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 import queue
-import re
 import threading
 from typing import Callable, Generic, Literal, Protocol, TypeVar
 
@@ -23,12 +23,75 @@ WorkerKind = Literal["download", "update"]
 T = TypeVar("T")
 
 
+class RuntimeTool(Enum):
+    YTDLP = "ytdlp"
+    FFMPEG = "ffmpeg"
+    DENO = "deno"
+
+    @property
+    def display_name(self) -> str:
+        return _RUNTIME_TOOL_DISPLAY[self]
+
+
+_RUNTIME_TOOL_DISPLAY = {
+    RuntimeTool.YTDLP: "yt-dlp",
+    RuntimeTool.FFMPEG: "ffmpeg",
+    RuntimeTool.DENO: "Deno",
+}
+
+
+class RuntimeToolPhase(Enum):
+    UPDATING = "updating"
+    CHECKING = "checking"
+    INSTALLING = "installing"
+    DOWNLOADING = "downloading"
+
+
+@dataclass(frozen=True)
+class RuntimeToolStatus:
+    tool: RuntimeTool
+    phase: RuntimeToolPhase
+    percent: int | None = None
+    size_mb: str | None = None
+
+
+class DownloadPhase(Enum):
+    PREPARING = "preparing"
+    RESOLVING_VIDEO = "resolving_video"
+    RESOLVING_PLAYLIST = "resolving_playlist"
+    DOWNLOADING = "downloading"
+    FINALIZING = "finalizing"
+    ARCHIVE_SKIPPED = "archive_skipped"
+
+
+@dataclass(frozen=True)
+class DownloadStatus:
+    phase: DownloadPhase
+    percent: int | None = None
+    speed: str | None = None
+
+
+class AppUpdatePhase(Enum):
+    CHECKING = "checking"
+    DOWNLOADING = "downloading"
+    READY = "ready"
+
+
+@dataclass(frozen=True)
+class AppUpdateStatus:
+    phase: AppUpdatePhase
+    percent: int | None = None
+
+
+StatusEvent = RuntimeToolStatus | DownloadStatus | AppUpdateStatus
+
+
 class WorkerReporter(Protocol):
-    def status(self, phase: WorkerPhase, message: str) -> None: ...
+    def status(self, phase: WorkerPhase, event: StatusEvent) -> None: ...
     def log(self, message: str) -> None: ...
 
     @property
-    def status_callback(self) -> Callable[[str, str], None]: ...
+    def status_callback(self) -> Callable[[WorkerPhase, StatusEvent], None]: ...
 
     @property
     def log_callback(self) -> Callable[[str], None]: ...
@@ -46,7 +109,7 @@ class WorkerTask(Generic[T]):
 
 class WorkerUi(Protocol):
     def set_busy(self, busy: bool) -> None: ...
-    def show_status(self, phase: WorkerPhase, message: str) -> None: ...
+    def show_status(self, phase: WorkerPhase, event: StatusEvent | str) -> None: ...
     def show_status_key(self, phase: WorkerPhase, key: str, **params: object) -> None: ...
     def show_speed(self, speed: str | None) -> None: ...
     def show_progress(self, value: int) -> None: ...
@@ -61,7 +124,12 @@ class WorkerUi(Protocol):
 @dataclass(frozen=True)
 class _StatusEvent:
     phase: WorkerPhase
-    message: str
+    event: StatusEvent
+
+
+@dataclass(frozen=True)
+class _SpeedEvent:
+    speed: str
 
 
 @dataclass(frozen=True)
@@ -83,14 +151,14 @@ class _QueueWorkerReporter:
     def __init__(self, events: "queue.Queue[object]") -> None:
         self._events = events
 
-    def status(self, phase: WorkerPhase, message: str) -> None:
-        self._events.put(_StatusEvent(phase, message))
+    def status(self, phase: WorkerPhase, event: StatusEvent) -> None:
+        self._events.put(_StatusEvent(phase, event))
 
     def log(self, message: str) -> None:
         self._events.put(_LogEvent(message))
 
     @property
-    def status_callback(self) -> Callable[[str, str], None]:
+    def status_callback(self) -> Callable[[WorkerPhase, StatusEvent], None]:
         return self.status
 
     @property
@@ -162,7 +230,9 @@ class WorkerStatusPipeline:
 
     def _handle_event(self, event: object) -> None:
         if isinstance(event, _StatusEvent):
-            self._show_status(event.phase, event.message)
+            self._show_status(event.phase, event.event)
+        elif isinstance(event, _SpeedEvent):
+            self._ui.show_speed(event.speed)
         elif isinstance(event, _LogEvent):
             self._ui.append_log(event.message)
         elif isinstance(event, _ErrorEvent):
@@ -170,14 +240,9 @@ class WorkerStatusPipeline:
         elif isinstance(event, _DoneEvent):
             self._show_success(event.result)
 
-    def _show_status(self, phase: WorkerPhase, message: str) -> None:
-        if phase == "speed":
-            self._ui.show_speed(message or None)
-            return
-
-        normalized = normalize_worker_status(message, self._translate)
-        self._ui.show_status(phase, normalized.message)
-        self._apply_phase_progress(phase, normalized.percent)
+    def _show_status(self, phase: WorkerPhase, event: StatusEvent) -> None:
+        self._ui.show_status(phase, event)
+        self._apply_phase_progress(phase, event_percent(event))
 
     def _show_error(self, message: str) -> None:
         self._ui.show_status("failed", message)
@@ -216,78 +281,67 @@ class WorkerStatusPipeline:
             self._ui.show_speed(None)
 
 
-@dataclass(frozen=True)
-class NormalizedWorkerStatus:
-    message: str
-    percent: int | None = None
+def event_percent(event: StatusEvent) -> int | None:
+    if isinstance(event, RuntimeToolStatus):
+        return event.percent
+    if isinstance(event, DownloadStatus):
+        return event.percent
+    if isinstance(event, AppUpdateStatus):
+        return event.percent
+    return None
 
 
-STATUS_MESSAGE_KEYS = {
-    "Updating runtime tools": "status.updating_runtime_tools",
-    "Checking yt-dlp": "status.checking_ytdlp",
-    "Checking ffmpeg": "status.checking_ffmpeg",
-    "Installing yt-dlp": "status.installing_ytdlp",
-    "Installing ffmpeg": "status.installing_ffmpeg",
-    "Preparing download": "status.preparing_download",
-    "Resolving video information": "status.resolving_video",
-    "Resolving playlist": "status.resolving_playlist",
-    "Finalizing file": "status.finalizing_file",
-    "Already downloaded; skipped by archive": "status.archive_skipped",
-    "Checking latest app release": "status.checking_app_release",
-    "Downloading app update": "status.downloading_app_update",
-    "Ready to restart": "status.ready_to_restart",
+def status_event_to_key(event: StatusEvent) -> tuple[str, dict[str, object]]:
+    if isinstance(event, RuntimeToolStatus):
+        return _runtime_tool_status_key(event)
+    if isinstance(event, DownloadStatus):
+        return _download_status_key(event)
+    if isinstance(event, AppUpdateStatus):
+        return _app_update_status_key(event)
+    raise TypeError(f"Unknown status event type: {type(event)}")
+
+
+def _runtime_tool_status_key(event: RuntimeToolStatus) -> tuple[str, dict[str, object]]:
+    tool_value = event.tool.value
+    if event.phase == RuntimeToolPhase.UPDATING:
+        return ("status.updating_runtime_tools", {})
+    if event.phase == RuntimeToolPhase.CHECKING:
+        return (f"status.checking_{tool_value}", {})
+    if event.phase == RuntimeToolPhase.INSTALLING:
+        return (f"status.installing_{tool_value}", {})
+    if event.phase == RuntimeToolPhase.DOWNLOADING:
+        if event.percent is not None:
+            return ("status.downloading_tool_percent", {"tool_name": event.tool.display_name, "percent": event.percent})
+        if event.size_mb is not None:
+            return ("status.downloading_tool_mb", {"tool_name": event.tool.display_name, "size": event.size_mb})
+        return ("status.downloading_tool_percent", {"tool_name": event.tool.display_name, "percent": 0})
+    raise ValueError(f"Unknown RuntimeToolPhase: {event.phase}")
+
+
+_DOWNLOAD_PHASE_KEYS = {
+    DownloadPhase.PREPARING: "status.preparing_download",
+    DownloadPhase.RESOLVING_VIDEO: "status.resolving_video",
+    DownloadPhase.RESOLVING_PLAYLIST: "status.resolving_playlist",
+    DownloadPhase.DOWNLOADING: "status.downloading_percent",
+    DownloadPhase.FINALIZING: "status.finalizing_file",
+    DownloadPhase.ARCHIVE_SKIPPED: "status.archive_skipped",
 }
 
 
-def normalize_worker_status(
-    message: str,
-    translate: Callable[..., str],
-) -> NormalizedWorkerStatus:
-    key = STATUS_MESSAGE_KEYS.get(message)
-    if key:
-        return NormalizedWorkerStatus(translate(key), percent_from_message(message))
-
-    download_match = re.fullmatch(r"Downloading (\d+)%", message)
-    if download_match:
-        percent = int(download_match.group(1))
-        return NormalizedWorkerStatus(translate("status.downloading_percent", percent=percent), percent)
-
-    tool_percent_match = re.fullmatch(r"Downloading (.+) (\d+)%", message)
-    if tool_percent_match:
-        percent = int(tool_percent_match.group(2))
-        return NormalizedWorkerStatus(
-            translate(
-                "status.downloading_tool_percent",
-                tool_name=tool_percent_match.group(1),
-                percent=percent,
-            ),
-            percent,
-        )
-
-    tool_mb_match = re.fullmatch(r"Downloading (.+) ([0-9.]+) MB", message)
-    if tool_mb_match:
-        return NormalizedWorkerStatus(
-            translate(
-                "status.downloading_tool_mb",
-                tool_name=tool_mb_match.group(1),
-                size=tool_mb_match.group(2),
-            )
-        )
-
-    return NormalizedWorkerStatus(message, percent_from_message(message))
+def _download_status_key(event: DownloadStatus) -> tuple[str, dict[str, object]]:
+    key = _DOWNLOAD_PHASE_KEYS[event.phase]
+    params: dict[str, object] = {}
+    if event.phase == DownloadPhase.DOWNLOADING and event.percent is not None:
+        params["percent"] = event.percent
+    return (key, params)
 
 
-def percent_from_message(message: str) -> int | None:
-    percent_index = message.find("%")
-    if percent_index == -1:
-        return None
-    digits = []
-    for character in reversed(message[:percent_index]):
-        if not character.isdigit():
-            if digits:
-                break
-            continue
-        digits.append(character)
-    if not digits:
-        return None
-    return max(0, min(100, int("".join(reversed(digits)))))
+_APP_UPDATE_PHASE_KEYS = {
+    AppUpdatePhase.CHECKING: "status.checking_app_release",
+    AppUpdatePhase.DOWNLOADING: "status.downloading_app_update",
+    AppUpdatePhase.READY: "status.ready_to_restart",
+}
+
+
+def _app_update_status_key(event: AppUpdateStatus) -> tuple[str, dict[str, object]]:
+    return (_APP_UPDATE_PHASE_KEYS[event.phase], {})
