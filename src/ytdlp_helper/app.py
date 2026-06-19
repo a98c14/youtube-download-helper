@@ -504,7 +504,7 @@ class YtDlpHelperApp:
                     continue
                 try:
                     title, entries = checker.check(tracker.url)
-                    self.database.record_playlist_check(tracker.id, entries)
+                    self.database.record_playlist_check(tracker.id, entries, playlist_title=title)
                     counts.append((title or tracker.title or tracker.playlist_id, len(entries), ""))
                 except Exception as exc:  # noqa: BLE001
                     self.database.record_playlist_check(tracker.id, None, str(exc))
@@ -590,6 +590,7 @@ class YtDlpHelperApp:
                 "source_type": "tracker",
                 "playlist_id": tracker.playlist_id,
                 "playlist_position": candidate.position,
+                "playlist_title": tracker.title,
             })
         return rows
 

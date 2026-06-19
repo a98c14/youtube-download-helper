@@ -3,7 +3,7 @@
 codex resume 019edc5d-5a38-7951-94d4-e81b3b4c0123
 
 ## issues
-- [] Playlist tracker doesn't create folder for the playlist inside the channel folder. It should create a path similar to "{ChannelName}/{PlaylistName}/{VideoName}" if the setting is active.
+- [x] #13 Playlist tracker doesn't create folder for the playlist inside the channel folder.
 
 ## features
 - [] Instead of "Devam Et" and "Duraklat" we should have little icons and we should also show somewhere the current status.

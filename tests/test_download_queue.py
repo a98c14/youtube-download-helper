@@ -97,6 +97,18 @@ class QueueStoreTests(unittest.TestCase):
         self.assertTrue(store.remove(first.id))
         self.assertEqual(store.items(), [])
 
+    def test_add_preserves_playlist_title(self) -> None:
+        store = QueueStore.for_paths(_paths())
+
+        item = store.add(
+            "https://example.test/1", "best-video", False, "downloads", "%(title)s.%(ext)s",
+            source_type="tracker", playlist_title="My Playlist",
+        )
+
+        self.assertEqual(item.playlist_title, "My Playlist")
+        loaded = QueueStore(store.path).load()[0]
+        self.assertEqual(loaded.playlist_title, "My Playlist")
+
 
 class QueueRunnerTests(unittest.TestCase):
     def test_resume_runs_in_order_and_respects_concurrency(self) -> None:

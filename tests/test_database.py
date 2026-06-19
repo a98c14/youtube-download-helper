@@ -66,7 +66,13 @@ class DatabaseTests(unittest.TestCase):
         self.assertFalse(tracker.active)
         self.assertEqual((tracker.preset, tracker.category_id), ("audio-mp3", "work"))
 
-    def test_corrupt_database_is_backed_up(self) -> None:
+    def test_playlist_title_is_persisted_from_playlist_check(self) -> None:
+        tracker_id = self.database.add_tracker("PL1234567890", canonical_playlist_url("PL1234567890"),
+                                                "List", "best-video", "default")
+        entries = [{"video_id": "a", "title": "A", "position": 1, "upload_date": "20260101"}]
+        self.database.record_playlist_check(tracker_id, entries, playlist_title="My Real Playlist")
+        trackers = self.database.trackers()
+        self.assertEqual(trackers[0].title, "My Real Playlist")
         path = self.root / "broken.db"
         path.write_bytes(b"not sqlite")
         database = Database(path)

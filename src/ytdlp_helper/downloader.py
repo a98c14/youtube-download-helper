@@ -33,6 +33,7 @@ class DownloadRequest:
     url: str
     preset: str
     playlist: bool = False
+    playlist_context: str = ""
 
 
 @dataclass(frozen=True)
@@ -117,6 +118,7 @@ class DownloadService:
             "--print",
             f"after_move:{COMPLETION_PREFIX}%(extractor)s\t%(id)s\t%(title)s\t%(filepath)s",
         ]
+        explicit_folder = request.playlist_context.strip()
         if request.playlist:
             default_template = _output_template(self._filename_template, self._organize_by_channel, playlist=False)
             playlist_template = _output_template(
@@ -129,6 +131,13 @@ class DownloadService:
                     "--output",
                     f"pl_video:{playlist_template}",
                 ]
+            )
+        elif explicit_folder:
+            command.extend(
+                ["--output", _output_template(
+                    self._filename_template, self._organize_by_channel, playlist=True,
+                    explicit_playlist_folder=explicit_folder,
+                )]
             )
         else:
             command.extend(
@@ -270,16 +279,33 @@ def _completion_from_output(line: str) -> DownloadCompletion | None:
     return DownloadCompletion(*parts)
 
 
-def _output_template(filename_template: str, organize_by_channel: bool, playlist: bool) -> str:
+def _output_template(
+    filename_template: str,
+    organize_by_channel: bool,
+    playlist: bool,
+    *,
+    explicit_playlist_folder: str = "",
+) -> str:
     if not organize_by_channel:
         return filename_template
     creator_segment = "%(channel,uploader&{}|.)s"
+    if explicit_playlist_folder:
+        safe_folder = _sanitize_path_segment(explicit_playlist_folder) or "_"
+        return f"{creator_segment}/{safe_folder}/{filename_template}"
     playlist_segment = "%(playlist&{}|.)s" if playlist else ""
     segments = [creator_segment]
     if playlist_segment:
         segments.append(playlist_segment)
     segments.append(filename_template)
     return "/".join(segments)
+
+
+def _sanitize_path_segment(name: str) -> str:
+    if not name:
+        return ""
+    result = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", name)
+    result = result.rstrip(". ")
+    return result.strip() or "_"
 
 
 def _process_failed(output: list[str]) -> bool:
