@@ -17,7 +17,8 @@ ARCHIVE_FILE = "download-archive.txt"
 COOKIES_FILE = "cookies.txt"
 LOGS_FOLDER_NAME = "logs"
 ACTIVITY_LOG_FILE = "activity.log"
-DEFAULT_FILENAME_TEMPLATE = "%(title)s [%(id)s].%(ext)s"
+DEFAULT_FILENAME_TEMPLATE = "%(title)s.%(ext)s"
+LEGACY_FILENAME_TEMPLATE = "%(title)s [%(id)s].%(ext)s"
 DEFAULT_QUEUE_CONCURRENCY = 1
 MIN_QUEUE_CONCURRENCY = 1
 MAX_QUEUE_CONCURRENCY = 4
@@ -125,6 +126,8 @@ def load_settings(paths: AppPaths) -> Settings:
     if not settings.download_dir:
         settings.download_dir = str(paths.download_dir)
     if not settings.filename_template.strip():
+        settings.filename_template = DEFAULT_FILENAME_TEMPLATE
+    elif settings.filename_template.strip() == LEGACY_FILENAME_TEMPLATE:
         settings.filename_template = DEFAULT_FILENAME_TEMPLATE
     return settings
 

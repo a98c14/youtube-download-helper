@@ -13,7 +13,7 @@ from .config import Category, DEFAULT_CATEGORY_ID
 
 
 DATABASE_FILE = "app.db"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def utc_now() -> str:
@@ -75,9 +75,19 @@ class Database:
     def initialize(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
+            current_version = connection.execute("PRAGMA user_version").fetchone()[0]
             connection.executescript(_SCHEMA)
+            self._migrate(connection, current_version)
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             connection.commit()
+
+    @staticmethod
+    def _migrate(connection: sqlite3.Connection, from_version: int) -> None:
+        if from_version < 2:
+            try:
+                connection.execute("ALTER TABLE queue_items ADD COLUMN playlist_title TEXT")
+            except sqlite3.OperationalError:
+                pass
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -220,11 +230,13 @@ class Database:
             connection.execute("UPDATE playlist_entries SET decision='pending' WHERE tracked_playlist_id=?", (tracker_id,))
 
     def record_playlist_check(self, tracker_id: int, entries: Iterable[dict[str, object]] | None,
-                              error: str = "") -> None:
+                              error: str = "", playlist_title: str = "") -> None:
         attempted = utc_now()
         values = list(entries or [])
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            if playlist_title.strip():
+                connection.execute("UPDATE tracked_playlists SET title=? WHERE id=?", (playlist_title.strip(), tracker_id))
             if error:
                 connection.execute(
                     "INSERT INTO playlist_checks(tracked_playlist_id,attempted_at,outcome,entry_count,new_count,error) VALUES(?,?,'failed',0,0,?)",
@@ -285,7 +297,8 @@ CREATE TABLE IF NOT EXISTS queue_items(
  added_at TEXT NOT NULL, category_id TEXT NOT NULL, category_name TEXT NOT NULL,
  status TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', progress INTEGER, speed TEXT NOT NULL DEFAULT '',
  error TEXT NOT NULL DEFAULT '', output_path TEXT NOT NULL DEFAULT '', warning TEXT NOT NULL DEFAULT '',
- source_type TEXT NOT NULL DEFAULT 'manual', playlist_id TEXT, playlist_position INTEGER
+ source_type TEXT NOT NULL DEFAULT 'manual', playlist_id TEXT, playlist_position INTEGER,
+ playlist_title TEXT
 );
 CREATE TABLE IF NOT EXISTS videos(
  id INTEGER PRIMARY KEY, extractor TEXT NOT NULL, media_id TEXT NOT NULL, title TEXT NOT NULL DEFAULT '',

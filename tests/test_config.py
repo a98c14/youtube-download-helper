@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ytdlp_helper.config import (
     DEFAULT_FILENAME_TEMPLATE,
+    LEGACY_FILENAME_TEMPLATE,
     AppPaths,
     Category,
     Settings,
@@ -159,6 +160,33 @@ class ConfigTests(unittest.TestCase):
         settings = load_settings(paths)
 
         self.assertEqual(settings.filename_template, DEFAULT_FILENAME_TEMPLATE)
+
+    def test_load_settings_normalizes_legacy_default_filename_template(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        paths.settings_file.write_text(
+            json.dumps({"download_dir": "downloads", "filename_template": LEGACY_FILENAME_TEMPLATE}),
+            encoding="utf-8",
+        )
+
+        settings = load_settings(paths)
+
+        self.assertEqual(settings.filename_template, DEFAULT_FILENAME_TEMPLATE)
+
+    def test_load_settings_preserves_custom_filename_template(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        paths.settings_file.write_text(
+            json.dumps({"download_dir": "downloads", "filename_template": "%(upload_date)s - %(title)s.%(ext)s"}),
+            encoding="utf-8",
+        )
+
+        settings = load_settings(paths)
+
+        self.assertEqual(settings.filename_template, "%(upload_date)s - %(title)s.%(ext)s")
+
+    def test_default_filename_template_is_title_only(self) -> None:
+        self.assertEqual(DEFAULT_FILENAME_TEMPLATE, "%(title)s.%(ext)s")
 
     def test_load_settings_uses_saved_valid_language(self) -> None:
         paths = _paths()

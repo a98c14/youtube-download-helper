@@ -16,6 +16,8 @@ from ytdlp_helper.downloader import (
     DownloadService,
     _humanize_error,
     _hidden_subprocess_kwargs,
+    _output_template,
+    _sanitize_path_segment,
     _update_status_from_output,
 )
 from ytdlp_helper.worker_status import DownloadPhase, DownloadStatus
@@ -64,10 +66,10 @@ class DownloaderTests(unittest.TestCase):
         self.assert_option(
             command,
             "--output",
-            "%(channel,uploader&{}|.)s/%(playlist&{}|.)s/%(title)s [%(id)s].%(ext)s",
+            "%(channel,uploader&{}|.)s/%(playlist&{}|.)s/%(title)s.%(ext)s",
         )
-        self.assertNotIn("default:%(title)s [%(id)s].%(ext)s", command)
-        self.assertNotIn("pl_video:%(playlist)s/%(title)s [%(id)s].%(ext)s", command)
+        self.assertNotIn("default:%(title)s.%(ext)s", command)
+        self.assertNotIn("pl_video:%(playlist)s/%(title)s.%(ext)s", command)
         self.assertIn(f"home:{service._paths.download_dir}", command)  # noqa: SLF001
         self.assert_option(command, "--download-archive", str(service._paths.archive_file))  # noqa: SLF001
         self.assert_option(command, "--cookies", str(service._paths.cookies_file))  # noqa: SLF001
@@ -398,6 +400,138 @@ class DownloaderTests(unittest.TestCase):
     def test_hidden_subprocess_kwargs_uses_create_no_window_when_available(self) -> None:
         with patch("ytdlp_helper.downloader.subprocess.CREATE_NO_WINDOW", 134217728, create=True):
             self.assertEqual(_hidden_subprocess_kwargs(), {"creationflags": 134217728})
+
+    def test_builds_tracker_command_with_explicit_playlist_folder(self) -> None:
+        service = DownloadService(_paths(), organize_by_channel=True)
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
+            patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
+        ):
+            command = service._build_command(  # noqa: SLF001
+                DownloadRequest(
+                    url="https://www.youtube.com/watch?v=abc123",
+                    preset="best-video",
+                    playlist_context="My Playlist",
+                )
+            )
+
+        self.assert_option(
+            command,
+            "--output",
+            "%(channel,uploader&{}|.)s/My Playlist/%(title)s.%(ext)s",
+        )
+        self.assertIn("--no-playlist", command)
+
+    def test_builds_tracker_command_with_sanitized_playlist_folder(self) -> None:
+        service = DownloadService(_paths(), organize_by_channel=True)
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
+            patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
+        ):
+            command = service._build_command(  # noqa: SLF001
+                DownloadRequest(
+                    url="https://www.youtube.com/watch?v=abc123",
+                    preset="best-video",
+                    playlist_context='A/B:C<D>E"F|G?H*I',
+                )
+            )
+
+        self.assert_option(
+            command,
+            "--output",
+            "%(channel,uploader&{}|.)s/A-B-C-D-E-F-G-H-I/%(title)s.%(ext)s",
+        )
+
+    def test_builds_tracker_command_with_playlist_context_but_organization_disabled(self) -> None:
+        service = DownloadService(_paths(), organize_by_channel=False)
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
+            patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
+        ):
+            command = service._build_command(  # noqa: SLF001
+                DownloadRequest(
+                    url="https://www.youtube.com/watch?v=abc123",
+                    preset="best-video",
+                    playlist_context="My Playlist",
+                )
+            )
+
+        self.assert_option(command, "--output", "%(title)s.%(ext)s")
+
+    def test_builds_normal_video_without_playlist_context(self) -> None:
+        service = DownloadService(_paths(), organize_by_channel=True)
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
+            patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
+        ):
+            command = service._build_command(  # noqa: SLF001
+                DownloadRequest(
+                    url="https://www.youtube.com/watch?v=abc123",
+                    preset="best-video",
+                )
+            )
+
+        self.assert_option(
+            command,
+            "--output",
+            "%(channel,uploader&{}|.)s/%(playlist&{}|.)s/%(title)s.%(ext)s",
+        )
+
+    def test_builds_manual_playlist_without_playlist_context(self) -> None:
+        service = DownloadService(_paths(), "%(title)s.%(ext)s", organize_by_channel=True)
+
+        with (
+            patch("ytdlp_helper.downloader.find_ytdlp_executable", return_value="yt-dlp.exe"),
+            patch("ytdlp_helper.downloader.find_ffmpeg_location", return_value=None),
+        ):
+            command = service._build_command(  # noqa: SLF001
+                DownloadRequest(
+                    url="https://www.youtube.com/playlist?list=abc123",
+                    preset="best-video",
+                    playlist=True,
+                )
+            )
+
+        self.assertIn("--yes-playlist", command)
+        self.assert_option(
+            command,
+            "--output",
+            "default:%(channel,uploader&{}|.)s/%(title)s.%(ext)s",
+        )
+        self.assertEqual(
+            command[command.index("--output", command.index("--output") + 1) + 1],
+            "pl_video:%(channel,uploader&{}|.)s/%(playlist&{}|.)s/%(playlist_index&{} - |)s%(title)s.%(ext)s",
+        )
+
+    def test_output_template_with_explicit_playlist_folder(self) -> None:
+        self.assertEqual(
+            _output_template("%(title)s.%(ext)s", True, True, explicit_playlist_folder="My Playlist"),
+            "%(channel,uploader&{}|.)s/My Playlist/%(title)s.%(ext)s",
+        )
+
+    def test_output_template_without_explicit_playlist_folder(self) -> None:
+        self.assertEqual(
+            _output_template("%(title)s.%(ext)s", True, True),
+            "%(channel,uploader&{}|.)s/%(playlist&{}|.)s/%(title)s.%(ext)s",
+        )
+
+    def test_sanitize_path_segment_replaces_invalid_chars(self) -> None:
+        self.assertEqual(_sanitize_path_segment('A/B:C<D>E"F|G?H*I'), "A-B-C-D-E-F-G-H-I")
+
+    def test_sanitize_path_segment_trims_trailing_dots_and_spaces(self) -> None:
+        self.assertEqual(_sanitize_path_segment("My Playlist... "), "My Playlist")
+
+    def test_sanitize_path_segment_falls_back_for_empty_result(self) -> None:
+        self.assertEqual(_sanitize_path_segment(""), "")
+        self.assertEqual(_sanitize_path_segment("..."), "_")
+        self.assertEqual(_sanitize_path_segment("/\\"), "--")
+
+    def test_sanitize_path_segment_strips_control_characters(self) -> None:
+        self.assertEqual(_sanitize_path_segment("Hello\x00\x1fWorld"), "Hello--World")
 
     def assert_option(self, command: list[str], option: str, expected_value: str) -> None:
         self.assertIn(option, command)

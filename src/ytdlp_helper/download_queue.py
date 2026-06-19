@@ -44,6 +44,7 @@ class QueueItem:
     source_type: str = "manual"
     playlist_id: str = ""
     playlist_position: int | None = None
+    playlist_title: str = ""
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,7 @@ class QueueStore:
         source_type: str = "manual",
         playlist_id: str = "",
         playlist_position: int | None = None,
+        playlist_title: str = "",
     ) -> QueueItem:
         item = QueueItem(
             id=str(uuid4()),
@@ -120,6 +122,7 @@ class QueueStore:
             source_type=source_type,
             playlist_id=playlist_id,
             playlist_position=playlist_position,
+            playlist_title=playlist_title,
         )
         with self._lock:
             self._items.append(item)
@@ -136,6 +139,7 @@ class QueueStore:
             name=_fallback_name(str(raw["url"])), source_type=str(raw.get("source_type", "tracker")),
             playlist_id=str(raw.get("playlist_id", "")),
             playlist_position=int(raw["playlist_position"]) if raw.get("playlist_position") is not None else None,
+            playlist_title=str(raw.get("playlist_title", "")),
         ) for raw in items]
         with self._lock:
             previous = list(self._items)
@@ -229,12 +233,12 @@ class QueueStore:
         for position, item in enumerate(self._items):
                 connection.execute(  # type: ignore[attr-defined]
                     "INSERT INTO queue_items(id,position,url,preset,playlist,download_dir,filename_template,added_at,"
-                    "category_id,category_name,status,name,progress,speed,error,output_path,warning,source_type,playlist_id,playlist_position) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "category_id,category_name,status,name,progress,speed,error,output_path,warning,source_type,playlist_id,playlist_position,playlist_title) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (item.id, position, item.url, item.preset, item.playlist, item.download_dir, item.filename_template,
                      item.added_at, item.category_id, item.category_name, item.status, item.name, item.progress,
                      item.speed, item.error, item.output_path, item.warning, item.source_type,
-                     item.playlist_id or None, item.playlist_position),
+                     item.playlist_id or None, item.playlist_position, item.playlist_title or None),
                 )
 
     def _read_database_items(self) -> list[QueueItem]:
@@ -379,7 +383,10 @@ class QueueRunner:
                     self._organize_by_channel_provider(),
                 )
             callbacks = (
-                DownloadRequest(item.url, item.preset, item.playlist),
+                DownloadRequest(
+                    item.url, item.preset, item.playlist,
+                    playlist_context=item.playlist_title if item.source_type == "tracker" else "",
+                ),
                 lambda status, message: self._handle_status(item.id, status, message),
                 lambda message: self._handle_log(item.id, message),
             )
@@ -494,6 +501,7 @@ def _parse_item(raw_item: object) -> QueueItem | None:
             source_type=str(raw_item.get("source_type", "manual")),
             playlist_id=str(raw_item.get("playlist_id", "")),
             playlist_position=(int(raw_item["playlist_position"]) if raw_item.get("playlist_position") is not None else None),
+            playlist_title=str(raw_item.get("playlist_title", "")),
         )
     except KeyError:
         return None

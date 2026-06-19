@@ -265,7 +265,7 @@ class AppStatusTests(unittest.TestCase):
     def test_tracker_edits_only_change_future_queue_rows(self) -> None:
         app = YtDlpHelperApp.__new__(YtDlpHelperApp)
         app.filename_template_var = FakeVar("%(title)s.%(ext)s")
-        tracker = SimpleNamespace(id=5, playlist_id="PL1234567890", preset="best-video", category_id="default")
+        tracker = SimpleNamespace(id=5, playlist_id="PL1234567890", preset="best-video", category_id="default", title="My Playlist")
         categories = [Category("default", "Default", "downloads"), Category("work", "Work", "work-dir")]
         app.database = SimpleNamespace(trackers=lambda: [tracker], categories=lambda: categories)
         candidate = PlaylistCandidate(5, 11, "video", "Video", 2, "")
@@ -276,6 +276,7 @@ class AppStatusTests(unittest.TestCase):
         future_row = app._tracker_queue_rows([candidate])[0]  # noqa: SLF001
 
         self.assertEqual((existing_row["preset"], existing_row["category_id"]), ("best-video", "default"))
+        self.assertEqual(existing_row["playlist_title"], "My Playlist")
         self.assertEqual((future_row["preset"], future_row["category_id"]), ("audio-mp3", "work"))
 
     def test_refresh_language_updates_open_activity_log_copy_button(self) -> None:
