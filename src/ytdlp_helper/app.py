@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from importlib import resources
 import os
 from pathlib import Path
 import subprocess
@@ -992,17 +993,16 @@ class YtDlpHelperApp:
         icon.put("#4b5563", to=(12, 5, 13, 6))
         return icon
 
-    def _create_resume_icon(self) -> tk.PhotoImage:
-        icon = tk.PhotoImage(width=16, height=16)
-        for y, end_x in enumerate((5, 6, 7, 8, 10, 12, 14, 12, 10, 8, 7, 6, 5), start=2):
-            icon.put("#22c55e", to=(4, y, end_x + 1, y + 1))
-        return icon
+    def _create_resume_icon(self) -> tk.BitmapImage:
+        return self._load_bitmap_icon("play.xbm", "#22c55e")
 
-    def _create_pause_icon(self) -> tk.PhotoImage:
-        icon = tk.PhotoImage(width=16, height=16)
-        icon.put("#d9a441", to=(3, 3, 5, 13))
-        icon.put("#d9a441", to=(10, 3, 12, 13))
-        return icon
+    def _create_pause_icon(self) -> tk.BitmapImage:
+        return self._load_bitmap_icon("pause.xbm", "#d9a441")
+
+    def _load_bitmap_icon(self, filename: str, foreground: str) -> tk.BitmapImage:
+        resource = resources.files(__package__).joinpath("resources", filename)
+        with resources.as_file(resource) as icon_path:
+            return tk.BitmapImage(file=str(icon_path), foreground=foreground)
 
     def _on_preset_changed(self, _event: object) -> None:
         selected_label = self.preset_combo.get()
