@@ -18,3 +18,4 @@
 - `Playlist Position`: The latest observed one-based ordering of a Playlist Entry in its playlist.
 - `Queue State`: The queue-level execution mode shown near the pause/resume controls; one of Pausing, Paused, Running, Waiting, or Idle. It is derived from whether the user has explicitly paused and whether any Queue Items are running or queued.
 - `Playlist Download`: A Queue Item that asks `yt-dlp` to download an entire playlist, distinct from individual tracker-created Queue Items.
+- `Factory Reset`: A user-confirmed return to first-run app state that clears app-owned preferences, authentication, history, queue, tracker, archive, and log state while preserving downloaded media and Runtime Tools.
