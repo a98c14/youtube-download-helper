@@ -16,6 +16,7 @@ from ytdlp_helper.config import (
     AppPaths,
     Category,
     Settings,
+    factory_reset,
     find_ffmpeg_location,
     get_app_paths,
     load_settings,
@@ -253,6 +254,203 @@ class ConfigTests(unittest.TestCase):
             }[name]
 
             self.assertEqual(find_ffmpeg_location(paths), str(tools_dir))
+
+    def test_factory_reset_deletes_database_and_wal_shm(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        (paths.data_dir / "app.db").write_text("data")
+        (paths.data_dir / "app.db-wal").write_text("wal")
+        (paths.data_dir / "app.db-shm").write_text("shm")
+
+        errors = factory_reset(paths)
+
+        self.assertEqual(errors, [])
+        self.assertFalse((paths.data_dir / "app.db").exists())
+        self.assertFalse((paths.data_dir / "app.db-wal").exists())
+        self.assertFalse((paths.data_dir / "app.db-shm").exists())
+
+    def test_factory_reset_deletes_state_files(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        paths.settings_file.write_text(json.dumps({"preset": "audio-mp3"}))
+        paths.archive_file.write_text("youtube abc123\n")
+        paths.cookies_file.write_text("cookies")
+        paths.logs_dir.mkdir(parents=True)
+        (paths.data_dir / "queue.json").write_text("[]")
+        (paths.data_dir / "queue.json.migrated").write_text("[]")
+        (paths.logs_dir / "activity.log").write_text("log")
+        (paths.logs_dir / "activity-20250101.log").write_text("rotated")
+
+        errors = factory_reset(paths)
+
+        self.assertEqual(errors, [])
+        self.assertFalse(paths.cookies_file.exists())
+        self.assertFalse((paths.data_dir / "queue.json").exists())
+        self.assertFalse((paths.data_dir / "queue.json.migrated").exists())
+        self.assertFalse((paths.logs_dir / "activity.log").exists())
+        self.assertFalse((paths.logs_dir / "activity-20250101.log").exists())
+        settings = load_settings(paths)
+        self.assertEqual(settings.preset, "best-video")
+        self.assertEqual(settings.language, "tr")
+        self.assertEqual(paths.archive_file.read_text(encoding="utf-8"), "")
+
+    def test_factory_reset_preserves_tools(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        paths.tools_dir.mkdir(parents=True)
+        ytdlp = paths.tools_dir / "yt-dlp.exe"
+        ytdlp.write_text("tool")
+        ffmpeg_dir = paths.tools_dir / "ffmpeg"
+        ffmpeg_dir.mkdir(parents=True)
+        (ffmpeg_dir / "ffmpeg.exe").write_text("tool")
+
+        errors = factory_reset(paths)
+
+        self.assertEqual(errors, [])
+        self.assertTrue(ytdlp.exists())
+        self.assertTrue((ffmpeg_dir / "ffmpeg.exe").exists())
+
+    def test_factory_reset_preserves_database_backups(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        backup_dir = paths.data_dir / "database-backup-20250101"
+        backup_dir.mkdir(parents=True)
+        (backup_dir / "app.db").write_text("backup")
+
+        errors = factory_reset(paths)
+
+        self.assertEqual(errors, [])
+        self.assertTrue(backup_dir.exists())
+        self.assertTrue((backup_dir / "app.db").exists())
+
+    def test_factory_reset_preserves_download_dir_contents(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        paths.download_dir.mkdir(parents=True)
+        media_file = paths.download_dir / "video.mp4"
+        media_file.write_text("media-content")
+
+        errors = factory_reset(paths)
+
+        self.assertEqual(errors, [])
+        self.assertTrue(media_file.exists())
+
+    def test_factory_reset_recreates_dirs_and_default_settings(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+
+        errors = factory_reset(paths)
+
+        self.assertEqual(errors, [])
+        self.assertTrue(paths.logs_dir.exists())
+        settings = load_settings(paths)
+        self.assertEqual(settings.preset, "best-video")
+        self.assertEqual(settings.language, "tr")
+        self.assertEqual(settings.filename_template, DEFAULT_FILENAME_TEMPLATE)
+        self.assertEqual(settings.queue_concurrency, 1)
+        self.assertTrue(settings.organize_by_channel)
+        self.assertEqual(len(settings.categories), 1)
+        self.assertEqual(settings.categories[0].id, "default")
+        self.assertEqual(settings.categories[0].name, "Default")
+
+    def test_factory_reset_creates_fresh_archive_file(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+
+        errors = factory_reset(paths)
+
+        self.assertEqual(errors, [])
+        self.assertTrue(paths.archive_file.exists())
+        self.assertEqual(paths.archive_file.read_text(encoding="utf-8"), "")
+
+    def test_factory_reset_returns_empty_errors_on_success(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+
+        errors = factory_reset(paths)
+
+        self.assertEqual(errors, [])
+
+    def test_factory_reset_reports_file_deletion_errors(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        paths.settings_file.write_text("{}")
+
+        with patch("pathlib.Path.unlink", side_effect=OSError("permission denied")):
+            errors = factory_reset(paths)
+
+        self.assertTrue(len(errors) > 0)
+        self.assertTrue(any("permission denied" in err for err in errors))
+
+    def test_factory_reset_reports_recreate_errors(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+
+        with patch("ytdlp_helper.config.ensure_app_dirs", side_effect=OSError("disk full")):
+            errors = factory_reset(paths)
+
+        self.assertTrue(len(errors) > 0)
+        self.assertTrue(any("disk full" in err for err in errors))
+
+    def test_factory_reset_reports_settings_write_errors(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+
+        with patch("ytdlp_helper.config.save_settings", side_effect=OSError("read-only")):
+            errors = factory_reset(paths)
+
+        self.assertTrue(len(errors) > 0)
+        self.assertTrue(any("read-only" in err for err in errors))
+
+    def test_factory_reset_uses_defaults_when_no_state_exists(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+
+        errors = factory_reset(paths)
+
+        self.assertEqual(errors, [])
+        self.assertTrue(paths.data_dir.is_dir())
+
+    def test_factory_reset_deletes_rotated_logs_in_subdirs(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        paths.logs_dir.mkdir(parents=True)
+        (paths.logs_dir / "activity.log").write_text("current")
+        (paths.logs_dir / "activity-20250615.log").write_text("rotated1")
+        (paths.logs_dir / "activity-20250616.log").write_text("rotated2")
+
+        errors = factory_reset(paths)
+
+        self.assertEqual(errors, [])
+        remaining = list(paths.logs_dir.iterdir()) if paths.logs_dir.exists() else []
+        self.assertEqual(remaining, [])
+
+    def test_factory_reset_deletes_legacy_queue_files(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        (paths.data_dir / "queue.json").write_text('[{"url": "old"}]')
+        (paths.data_dir / "queue.json.migrated").write_text("migrated")
+
+        errors = factory_reset(paths)
+
+        self.assertEqual(errors, [])
+        self.assertFalse((paths.data_dir / "queue.json").exists())
+        self.assertFalse((paths.data_dir / "queue.json.migrated").exists())
+
+    def test_factory_reset_deletes_settings_cookies_and_archive(self) -> None:
+        paths = _paths()
+        paths.data_dir.mkdir(parents=True)
+        paths.settings_file.write_text(json.dumps({"preset": "audio-mp3"}))
+        paths.cookies_file.write_text("# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tFALSE\t0\tname\tvalue")
+        paths.archive_file.write_text("youtube abc123\n")
+
+        errors = factory_reset(paths)
+
+        self.assertEqual(errors, [])
+        self.assertFalse(paths.cookies_file.exists())
+        settings = load_settings(paths)
+        self.assertEqual(settings.preset, "best-video")
+        self.assertNotEqual(paths.archive_file.read_text(encoding="utf-8"), "youtube abc123\n")
 
     def test_find_ffmpeg_location_does_not_use_path_without_ffprobe(self) -> None:
         paths = _paths()

@@ -11,9 +11,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ytdlp_helper import __version__
 from ytdlp_helper.app import YtDlpHelperApp
-from ytdlp_helper.config import AppPaths, Category
+from ytdlp_helper.config import AppPaths, Category, factory_reset
 from ytdlp_helper.database import PlaylistCandidate
 from ytdlp_helper.download_queue import QueueItem
+from ytdlp_helper.i18n import translate
 
 
 class FakeVar:
@@ -97,6 +98,7 @@ class FakeQueueRunner:
         self.resumed_with: list[int] = []
         self.notify_count = 0
         self.pause_count = 0
+        self.is_running = False
 
     def resume(self, concurrency: int) -> None:
         self.resumed_with.append(concurrency)
@@ -644,6 +646,263 @@ class AppStatusTests(unittest.TestCase):
 
         self.assertIn("does not have a saved file path", showerror.call_args.args[1])
         self.assertIn("does not have a saved file path", app.logs[0])
+
+
+    def test_factory_reset_blocked_by_active_worker(self) -> None:
+        app = _app_for_factory_reset()
+        app.worker_pipeline.is_busy = True
+
+        with patch("ytdlp_helper.app.messagebox.showinfo") as showinfo:
+            app._factory_reset()  # noqa: SLF001
+
+        showinfo.assert_called_once()
+        self.assertIn("active", showinfo.call_args.args[1].lower())
+
+    def test_factory_reset_blocked_by_active_queue_runner(self) -> None:
+        app = _app_for_factory_reset()
+        app.queue_runner.is_running = True
+
+        with patch("ytdlp_helper.app.messagebox.showinfo") as showinfo:
+            app._factory_reset()  # noqa: SLF001
+
+        showinfo.assert_called_once()
+        self.assertIn("active", showinfo.call_args.args[1].lower())
+
+    def test_factory_reset_blocked_by_tracker_check(self) -> None:
+        app = _app_for_factory_reset()
+        app.tracker_check_running = True
+
+        with patch("ytdlp_helper.app.messagebox.showinfo") as showinfo:
+            app._factory_reset()  # noqa: SLF001
+
+        showinfo.assert_called_once()
+        self.assertIn("active", showinfo.call_args.args[1].lower())
+
+    def test_factory_reset_allowed_with_inactive_queue(self) -> None:
+        app = _app_for_factory_reset()
+        app.queue_store._items = [  # type: ignore[attr-defined]
+            _queue_item("queued", ""),
+            _queue_item("completed", ""),
+            _queue_item("failed", ""),
+            _queue_item("skipped", ""),
+        ]
+        app.queue_runner.is_running = False
+        app.worker_pipeline.is_busy = False
+        app.tracker_check_running = False
+
+        confirm_calls = []
+        info_calls = []
+
+        def fake_confirm(title: str, message: str, **kwargs: object) -> bool:
+            confirm_calls.append((title, message))
+            return True
+
+        def fake_info(title: str, message: str, **kwargs: object) -> None:
+            info_calls.append((title, message))
+
+        with (
+            patch("ytdlp_helper.app.factory_reset", return_value=[]),
+            patch("ytdlp_helper.app.messagebox.askyesno", fake_confirm),
+            patch("ytdlp_helper.app.messagebox.showinfo", fake_info),
+        ):
+            app._factory_reset()  # noqa: SLF001
+
+        self.assertEqual(len(confirm_calls), 1)
+        self.assertIn("Factory Reset", confirm_calls[0][0])
+        self.assertEqual(len(info_calls), 1)
+        self.assertIn("completed", info_calls[0][1].lower())
+
+    def test_factory_reset_cancellable_from_confirm_dialog(self) -> None:
+        app = _app_for_factory_reset()
+
+        with (
+            patch("ytdlp_helper.app.messagebox.askyesno", return_value=False),
+            patch("ytdlp_helper.app.factory_reset") as factory_reset_mock,
+        ):
+            app._factory_reset()  # noqa: SLF001
+
+        factory_reset_mock.assert_not_called()
+
+    def test_factory_reset_reports_failure_on_errors(self) -> None:
+        app = _app_for_factory_reset()
+
+        errors = ["Could not delete app.db: permission denied"]
+
+        def fake_confirm(title: str, message: str, **kwargs: object) -> bool:
+            return True
+
+        with (
+            patch("ytdlp_helper.app.factory_reset", return_value=errors),
+            patch("ytdlp_helper.app.messagebox.askyesno", fake_confirm),
+            patch("ytdlp_helper.app.messagebox.showerror") as showerror,
+        ):
+            app._factory_reset()  # noqa: SLF001
+
+        showerror.assert_called_once()
+        self.assertIn("permission denied", showerror.call_args.args[1])
+
+    def test_factory_reset_reinitializes_state_after_success(self) -> None:
+        app = _app_for_factory_reset()
+        app.language = "en"
+
+        def fake_confirm(title: str, message: str, **kwargs: object) -> bool:
+            return True
+
+        with (
+            patch("ytdlp_helper.app.factory_reset", return_value=[]),
+            patch("ytdlp_helper.app.messagebox.askyesno", fake_confirm),
+            patch("ytdlp_helper.app.messagebox.showinfo"),
+        ):
+            app._factory_reset()  # noqa: SLF001
+
+        self.assertEqual(app.status_key, "status.ready")
+        self.assertEqual(app.status_var.value, "Ready")
+        self.assertEqual(app.preset_var.value, "best-video")
+        self.assertEqual(app.archive_status_key, "archive.not_checked")
+        self.assertFalse(app.archive_is_archived)
+        self.assertIsNone(app.archive_checked_video_id)
+        self.assertEqual(app.filename_template_var.value, "%(title)s.%(ext)s")
+        self.assertEqual(app.queue_concurrency_var.value, 1)
+        self.assertTrue(app.organize_by_channel_var.value)
+        self.assertFalse(app.queue_user_paused)
+        self.assertIsNone(app.log_window)
+
+    def test_factory_reset_clears_queue_state(self) -> None:
+        app = _app_for_factory_reset()
+        app.queue_store._items = [_queue_item("completed", "downloads/video.mp4")]  # type: ignore[attr-defined]
+
+        def fake_confirm(title: str, message: str, **kwargs: object) -> bool:
+            return True
+
+        with (
+            patch("ytdlp_helper.app.factory_reset", return_value=[]),
+            patch("ytdlp_helper.app.messagebox.askyesno", fake_confirm),
+            patch("ytdlp_helper.app.messagebox.showinfo"),
+        ):
+            app._factory_reset()  # noqa: SLF001
+
+        self.assertEqual(len(app.queue_store.items()), 0)
+
+    def test_factory_reset_preserves_running_session_language(self) -> None:
+        app = _app_for_factory_reset()
+        app.language = "tr"
+
+        def fake_confirm(title: str, message: str, **kwargs: object) -> bool:
+            return True
+
+        with (
+            patch("ytdlp_helper.app.factory_reset", return_value=[]),
+            patch("ytdlp_helper.app.messagebox.askyesno", fake_confirm),
+            patch("ytdlp_helper.app.messagebox.showinfo"),
+        ):
+            app._factory_reset()  # noqa: SLF001
+
+        self.assertEqual(app.language, "tr")
+
+    def test_factory_reset_closes_activity_log_window(self) -> None:
+        app = _app_for_factory_reset()
+        app.log_window = FakeWindow()
+        app.log_text = FakeText("content")
+
+        def fake_confirm(title: str, message: str, **kwargs: object) -> bool:
+            return True
+
+        with (
+            patch("ytdlp_helper.app.factory_reset", return_value=[]),
+            patch("ytdlp_helper.app.messagebox.askyesno", fake_confirm),
+            patch("ytdlp_helper.app.messagebox.showinfo"),
+        ):
+            app._factory_reset()  # noqa: SLF001
+
+        self.assertIsNone(app.log_window)
+        self.assertIsNone(app.log_text)
+
+    def test_factory_reset_resets_cookie_status(self) -> None:
+        app = _app_for_factory_reset()
+        app.cookie_status_var.value = "Saved 2026-01-01"
+
+        def fake_confirm(title: str, message: str, **kwargs: object) -> bool:
+            return True
+
+        with (
+            patch("ytdlp_helper.app.factory_reset", return_value=[]),
+            patch("ytdlp_helper.app.messagebox.askyesno", fake_confirm),
+            patch("ytdlp_helper.app.messagebox.showinfo"),
+        ):
+            app._factory_reset()  # noqa: SLF001
+
+        self.assertIn("No cookies", app.cookie_status_var.value)
+
+
+def _app_for_factory_reset() -> YtDlpHelperApp:
+    app = YtDlpHelperApp.__new__(YtDlpHelperApp)
+    app.language = "en"
+    app.root = FakeRoot()
+    app.paths = _paths()
+    app.paths.download_dir.mkdir(parents=True)
+    app.paths.logs_dir.mkdir(parents=True)
+    app.settings = SimpleNamespace(
+        preset="best-video", language="en", filename_template="%(title)s.%(ext)s",
+        queue_concurrency=1, organize_by_channel=True,
+    )
+    app.database = SimpleNamespace()
+    app.database.categories = lambda: [Category("default", "Default", str(app.paths.download_dir))]
+    app.database.initialize_with_recovery = lambda: None
+    app.database.import_categories = lambda _cats: None
+    app.categories = [Category("default", "Default", str(app.paths.download_dir))]
+    app.selected_category_id = "default"
+    app.downloader = SimpleNamespace()
+    app.update_service = SimpleNamespace()
+    app.activity_log = SimpleNamespace()
+    app.worker_pipeline = SimpleNamespace(is_busy=False)
+    app.queue_store = FakeQueueStore()
+    app.queue_runner = FakeQueueRunner()
+    app.queue_user_paused = False
+    app.tracker_check_running = False
+    app.ytdlp_version_cache = None
+    app.ytdlp_version_cache_ready = False
+    app.log_window = None
+    app.log_text = None
+    app.copy_logs_button = None
+    app.label_widgets = {}
+    app.button_widgets = {}
+    app.url_var = FakeVar("https://www.youtube.com/watch?v=old")
+    app.archive_status_key = "archive.archived"
+    app.archive_status_var = FakeVar("Archived")
+    app.archive_checked_video_id = "abc123"
+    app.archive_is_archived = True
+    app.actions_enabled = True
+    app.preset_var = FakeVar("audio-mp3")
+    app.preset_label_var = FakeVar("Audio MP3")
+    app.category_label_var = FakeVar("Default")
+    app.cookie_status_var = FakeVar("Saved 2026-01-01")
+    app.status_key = "status.download_completed"
+    app.status_var = FakeVar("Download completed")
+    app.speed_var = FakeVar("Speed: 5 MB/s")
+    app.download_folder_var = FakeVar(str(app.paths.download_dir))
+    app.filename_template_var = FakeVar("%(upload_date)s - %(title)s.%(ext)s")
+    app.queue_concurrency_var = FakeVar(3)
+    app.organize_by_channel_var = FakeVar(False)
+    app.queue_filter_var = FakeVar("completed")
+    app.queue_filter_label_var = FakeVar("Completed")
+    app.queue_summary_var = FakeVar()
+    app.queue_state_var = FakeVar()
+    app.progress_var = FakeVar(50)
+    app.queue_item_ids = {}
+    app._append_log = lambda _msg: None  # type: ignore[method-assign]
+    app._create_open_folder_icon = lambda: None  # type: ignore[method-assign]
+    app._apply_download_folder = lambda: True  # type: ignore[method-assign]
+    app._runtime_tool_resolver = lambda: None  # type: ignore[method-assign]
+    app._create_queue_runner = lambda: FakeQueueRunner()  # type: ignore[method-assign]
+    app._selected_category = lambda: Category("default", "Default", str(app.paths.download_dir))  # type: ignore[method-assign]
+    app._t = lambda key, **params: translate("en", key, **params)  # type: ignore[method-assign]
+    app._preset_label = lambda key: translate("en", f"preset.{key}")  # type: ignore[method-assign]
+    app._queue_filter_label = lambda key: translate("en", f"queue.filter.{key}")  # type: ignore[method-assign]
+    app._localized_cookie_status = lambda: "No cookies saved"  # type: ignore[method-assign]
+    app._close_activity_log = lambda: setattr(app,  # type: ignore[method-assign]
+        "log_window", None) or setattr(app, "log_text", None)
+    app._refresh_queue_table = lambda: None  # type: ignore[method-assign]
+    return app
 
 
 def _app_with_localized_widgets() -> YtDlpHelperApp:
