@@ -38,14 +38,6 @@ python -m ytdlp_helper
 python -m unittest discover -s tests -v
 ```
 
-## Build Portable App
-
-The build produces a portable folder with one launcher executable. The app downloads `yt-dlp`, `ffmpeg`, and `ffprobe` into `%LOCALAPPDATA%\YT-DLP Helper\tools\` on first use when they are missing.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build_portable.ps1
-```
-
 Expected output:
 
 - `dist\YouTube Download Helper\YouTube Download Helper.exe`

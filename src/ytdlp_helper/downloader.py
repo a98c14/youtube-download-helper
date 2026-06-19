@@ -14,9 +14,10 @@ from .config import (
     find_ytdlp_executable,
 )
 from .dependencies import RuntimeToolContext, RuntimeToolResolver, ensure_runtime_tools, log_runtime_tool_context
+from .worker_status import DownloadPhase, DownloadStatus, StatusEvent, WorkerPhase
 
 
-StatusCallback = Callable[[str, str], None]
+StatusCallback = Callable[[WorkerPhase, StatusEvent | str], None]
 LogCallback = Callable[[str], None]
 CompletionCallback = Callable[["DownloadCompletion"], None]
 COMPLETION_PREFIX = "YTDLP_HELPER_COMPLETE:"
@@ -83,14 +84,14 @@ class DownloadService:
         if not re.match(r"^https?://", url, flags=re.IGNORECASE):
             raise ValueError("Enter a valid URL starting with http:// or https://.")
 
-        status_callback("queued", "Preparing download")
+        status_callback("queued", DownloadStatus(DownloadPhase.PREPARING))
         context = self._resolve_runtime_context(log_callback, status_callback)
         log_callback(f"Preset: {request.preset}")
         command = self._build_command(request, context)
         if not self._paths.cookies_file.exists():
             log_callback("No saved cookies; downloading as public session.")
         log_callback(f"Running: {command[0]} ...")
-        status_callback("resolving", "Resolving video information")
+        status_callback("resolving", DownloadStatus(DownloadPhase.RESOLVING_VIDEO))
         output = self._run_process(command, log_callback, status_callback, completion_callback)
 
         if _process_failed(output):
@@ -244,18 +245,19 @@ class DownloadService:
 def _update_status_from_output(line: str, status_callback: StatusCallback) -> None:
     lowered = line.lower()
     if "has already been recorded in the archive" in lowered:
-        status_callback("skipped", "Already downloaded; skipped by archive")
+        status_callback("skipped", DownloadStatus(DownloadPhase.ARCHIVE_SKIPPED))
         return
     if "[download] downloading playlist" in lowered:
-        status_callback("resolving", "Resolving playlist")
+        status_callback("resolving", DownloadStatus(DownloadPhase.RESOLVING_PLAYLIST))
         return
     if "[merger]" in lowered or "[extractaudio]" in lowered or "post-process" in lowered:
-        status_callback("postprocessing", "Finalizing file")
+        status_callback("postprocessing", DownloadStatus(DownloadPhase.FINALIZING))
         return
 
     progress_match = re.search(r"\[download\]\s+(\d+(?:\.\d+)?)%", line)
     if progress_match:
-        status_callback("downloading", f"Downloading {int(float(progress_match.group(1)))}%")
+        percent = int(float(progress_match.group(1)))
+        status_callback("downloading", DownloadStatus(DownloadPhase.DOWNLOADING, percent=percent))
         speed_match = re.search(r"\bat\s+([^\s]+/s)\b", line)
         if speed_match:
             status_callback("speed", speed_match.group(1))

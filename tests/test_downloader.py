@@ -18,6 +18,7 @@ from ytdlp_helper.downloader import (
     _hidden_subprocess_kwargs,
     _update_status_from_output,
 )
+from ytdlp_helper.worker_status import DownloadPhase, DownloadStatus
 
 
 class FakeProcess:
@@ -233,7 +234,7 @@ class DownloaderTests(unittest.TestCase):
 
     def test_download_streams_progress_and_completes(self) -> None:
         service = DownloadService(_paths())
-        statuses: list[tuple[str, str]] = []
+        statuses: list[tuple[str, object]] = []
         logs: list[str] = []
 
         with (
@@ -252,14 +253,14 @@ class DownloaderTests(unittest.TestCase):
                     url="https://www.youtube.com/watch?v=abc123",
                     preset="best-video",
                 ),
-                lambda status, message: statuses.append((status, message)),
+                lambda status, event: statuses.append((status, event)),
                 logs.append,
             )
 
         popen.assert_called_once()
-        self.assertIn(("downloading", "Downloading 42%"), statuses)
+        self.assertIn(("downloading", DownloadStatus(DownloadPhase.DOWNLOADING, percent=42)), statuses)
         self.assertIn(("speed", "1.23MiB/s"), statuses)
-        self.assertIn(("postprocessing", "Finalizing file"), statuses)
+        self.assertIn(("postprocessing", DownloadStatus(DownloadPhase.FINALIZING)), statuses)
         self.assertIn("[Merger] Merging formats", logs)
 
     def test_download_uses_cached_runtime_context_without_rediscovery(self) -> None:
@@ -292,7 +293,7 @@ class DownloaderTests(unittest.TestCase):
 
     def test_download_reports_archive_skip(self) -> None:
         service = DownloadService(_paths())
-        statuses: list[tuple[str, str]] = []
+        statuses: list[tuple[str, object]] = []
 
         with (
             patch("ytdlp_helper.downloader.ensure_runtime_tools"),
@@ -308,21 +309,21 @@ class DownloaderTests(unittest.TestCase):
                     url="https://www.youtube.com/watch?v=abc123",
                     preset="best-video",
                 ),
-                lambda status, message: statuses.append((status, message)),
+                lambda status, event: statuses.append((status, event)),
                 lambda *_args: None,
             )
 
-        self.assertIn(("skipped", "Already downloaded; skipped by archive"), statuses)
+        self.assertIn(("skipped", DownloadStatus(DownloadPhase.ARCHIVE_SKIPPED)), statuses)
 
     def test_progress_line_without_speed_does_not_report_speed(self) -> None:
-        statuses: list[tuple[str, str]] = []
+        statuses: list[tuple[str, object]] = []
 
         _update_status_from_output(
             "[download] 42.3% of 10.00MiB",
-            lambda status, message: statuses.append((status, message)),
+            lambda status, event: statuses.append((status, event)),
         )
 
-        self.assertEqual(statuses, [("downloading", "Downloading 42%")])
+        self.assertEqual(statuses, [("downloading", DownloadStatus(DownloadPhase.DOWNLOADING, percent=42))])
 
     def test_download_auth_error_points_to_fresh_pasted_cookies(self) -> None:
         service = DownloadService(_paths())

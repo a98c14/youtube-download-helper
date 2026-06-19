@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ytdlp_helper.config import AppPaths
-from ytdlp_helper.cookies import get_cookie_status, is_valid_netscape_cookie_text, save_cookie_text
+from ytdlp_helper.cookies import CookiePhase, CookieStatus, get_cookie_status, is_valid_netscape_cookie_text, save_cookie_text
 
 
 VALID_COOKIES = "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tabc123\n"
@@ -43,11 +43,16 @@ class CookieTests(unittest.TestCase):
     def test_status_reports_missing_vs_saved_timestamp(self) -> None:
         paths = _paths()
 
-        self.assertEqual(get_cookie_status(paths), "No cookies saved")
+        status = get_cookie_status(paths)
+        self.assertEqual(status.phase, CookiePhase.NONE)
+        self.assertIsNone(status.timestamp)
 
         save_cookie_text(paths, VALID_COOKIES)
 
-        self.assertRegex(get_cookie_status(paths), r"^Saved \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+        status = get_cookie_status(paths)
+        self.assertEqual(status.phase, CookiePhase.SAVED)
+        self.assertIsNotNone(status.timestamp)
+        self.assertRegex(status.timestamp or "", r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
 
 
 def _paths() -> AppPaths:

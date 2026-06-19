@@ -118,7 +118,7 @@ class AppUpdateTests(unittest.TestCase):
             ],
         )
 
-        def fake_download(url: str, destination: Path, *_args: object) -> None:
+        def fake_download(url: str, destination: Path, tool: object, *args: object) -> None:
             if url.endswith(".sha256"):
                 destination.write_text(f"{checksum}  app.zip", encoding="utf-8")
             else:

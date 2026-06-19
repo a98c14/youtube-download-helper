@@ -25,6 +25,7 @@ from ytdlp_helper.dependencies import (
     read_tool_version,
     refresh_runtime_tools,
 )
+from ytdlp_helper.worker_status import RuntimeTool, RuntimeToolPhase, RuntimeToolStatus
 
 
 class FakeResponse(io.BytesIO):
@@ -68,17 +69,17 @@ class DependencyTests(unittest.TestCase):
     def test_missing_ytdlp_downloads_and_installs_exe(self) -> None:
         paths = _paths()
         logs: list[str] = []
-        statuses: list[tuple[str, str]] = []
+        statuses: list[tuple[str, object]] = []
 
         with (
             patch("ytdlp_helper.dependencies.find_ytdlp_executable", return_value=None),
             patch("ytdlp_helper.dependencies.urllib.request.urlopen", return_value=FakeUrlOpen(b"yt-dlp")),
             patch("ytdlp_helper.dependencies._read_tool_version", return_value="2026.04.01"),
         ):
-            ensure_ytdlp(paths, logs.append, lambda status, message: statuses.append((status, message)))
+            ensure_ytdlp(paths, logs.append, lambda status, event: statuses.append((status, event)))
 
         self.assertEqual(paths.ytdlp_executable.read_bytes(), b"yt-dlp")
-        self.assertIn(("installing", "Installing yt-dlp"), statuses)
+        self.assertIn(("installing", RuntimeToolStatus(RuntimeTool.YTDLP, RuntimeToolPhase.INSTALLING)), statuses)
         metadata = json.loads((paths.tools_dir / "yt-dlp.json").read_text(encoding="utf-8"))
         self.assertEqual(metadata["tool"], "yt-dlp")
         self.assertEqual(metadata["version"], "2026.04.01")
@@ -145,7 +146,7 @@ class DependencyTests(unittest.TestCase):
             ),
             FakeUrlOpen(_deno_zip(b"new deno")),
         ]
-        statuses: list[tuple[str, str]] = []
+        statuses: list[tuple[str, object]] = []
 
         with (
             patch("ytdlp_helper.dependencies.urllib.request.urlopen", side_effect=payloads),
@@ -158,13 +159,13 @@ class DependencyTests(unittest.TestCase):
                 side_effect=["old", "latest", "ffmpeg version old", "ffmpeg version new", "deno 1.0.0", "deno 2.4.0"],
             ),
         ):
-            refresh_runtime_tools(paths, lambda *_args: None, lambda status, message: statuses.append((status, message)))
+            refresh_runtime_tools(paths, lambda *_args: None, lambda status, event: statuses.append((status, event)))
 
         self.assertEqual(paths.ytdlp_executable.read_bytes(), b"new yt-dlp")
         self.assertEqual(paths.ffmpeg_executable.read_bytes(), b"new ffmpeg")
         self.assertEqual(paths.ffprobe_executable.read_bytes(), b"new ffprobe")
         self.assertEqual(paths.deno_executable.read_bytes(), b"new deno")
-        self.assertIn(("installing", "Updating runtime tools"), statuses)
+        self.assertIn(("installing", RuntimeToolStatus(RuntimeTool.YTDLP, RuntimeToolPhase.UPDATING)), statuses)
 
     def test_refresh_runtime_tools_skips_current_managed_tools(self) -> None:
         paths = _paths()
@@ -245,7 +246,7 @@ class DependencyTests(unittest.TestCase):
         destination = root / "tool.exe"
         payload = b"x" * (3 * 1024 * 1024)
         logs: list[str] = []
-        statuses: list[tuple[str, str]] = []
+        statuses: list[tuple[str, object]] = []
 
         with patch(
             "ytdlp_helper.dependencies.urllib.request.urlopen",
@@ -254,15 +255,24 @@ class DependencyTests(unittest.TestCase):
             _download_file(
                 "https://example.test/tool.exe",
                 destination,
-                "yt-dlp",
+                RuntimeTool.YTDLP,
                 logs.append,
-                lambda status, message: statuses.append((status, message)),
+                lambda status, event: statuses.append((status, event)),
             )
 
         self.assertEqual(destination.read_bytes(), payload)
-        self.assertIn(("installing", "Downloading yt-dlp 33%"), statuses)
-        self.assertIn(("installing", "Downloading yt-dlp 66%"), statuses)
-        self.assertIn(("installing", "Downloading yt-dlp 100%"), statuses)
+        self.assertIn(
+            ("installing", RuntimeToolStatus(RuntimeTool.YTDLP, RuntimeToolPhase.DOWNLOADING, percent=33)),
+            statuses,
+        )
+        self.assertIn(
+            ("installing", RuntimeToolStatus(RuntimeTool.YTDLP, RuntimeToolPhase.DOWNLOADING, percent=66)),
+            statuses,
+        )
+        self.assertIn(
+            ("installing", RuntimeToolStatus(RuntimeTool.YTDLP, RuntimeToolPhase.DOWNLOADING, percent=100)),
+            statuses,
+        )
         self.assertIn("Downloading yt-dlp 100%", logs)
 
     def test_download_file_reports_megabyte_progress_without_content_length(self) -> None:
@@ -270,19 +280,20 @@ class DependencyTests(unittest.TestCase):
         destination = root / "ffmpeg.zip"
         payload = b"x" * (6 * 1024 * 1024)
         logs: list[str] = []
-        statuses: list[tuple[str, str]] = []
+        statuses: list[tuple[str, object]] = []
 
         with patch("ytdlp_helper.dependencies.urllib.request.urlopen", return_value=FakeUrlOpen(payload)):
             _download_file(
                 "https://example.test/ffmpeg.zip",
                 destination,
-                "ffmpeg",
+                RuntimeTool.FFMPEG,
                 logs.append,
-                lambda status, message: statuses.append((status, message)),
+                lambda status, event: statuses.append((status, event)),
             )
 
         self.assertEqual(destination.read_bytes(), payload)
-        self.assertIn(("installing", "Downloading ffmpeg 5.0 MB"), statuses)
+        expected = RuntimeToolStatus(RuntimeTool.FFMPEG, RuntimeToolPhase.DOWNLOADING, percent=None, size_mb="5.0")
+        self.assertIn(("installing", expected), statuses)
         self.assertIn("Downloading ffmpeg 5.0 MB", logs)
 
     def test_version_check_hides_subprocess_window_when_available(self) -> None:

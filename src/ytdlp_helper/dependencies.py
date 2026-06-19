@@ -18,8 +18,19 @@ from typing import Callable
 from .config import AppPaths, find_deno_executable, find_ffmpeg_location, find_ytdlp_executable
 
 
+from .worker_status import (
+    AppUpdatePhase,
+    AppUpdateStatus,
+    RuntimeTool,
+    RuntimeToolPhase,
+    RuntimeToolStatus,
+    StatusEvent,
+    WorkerPhase,
+)
+
+
 LogCallback = Callable[[str], None]
-StatusCallback = Callable[[str, str], None]
+StatusCallback = Callable[[WorkerPhase, StatusEvent], None]
 
 YTDLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
 FFMPEG_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
@@ -133,7 +144,7 @@ def refresh_runtime_tools(
     log_callback: LogCallback,
     status_callback: StatusCallback,
 ) -> None:
-    status_callback("installing", "Updating runtime tools")
+    status_callback("installing", RuntimeToolStatus(RuntimeTool.YTDLP, RuntimeToolPhase.UPDATING))
     log_callback("Checking app-managed runtime tools")
     refresh_ytdlp(paths, log_callback, status_callback)
     refresh_ffmpeg(paths, log_callback, status_callback)
@@ -149,7 +160,7 @@ def refresh_ytdlp(
         install_ytdlp(paths, log_callback, status_callback)
         return
 
-    status_callback("installing", "Checking yt-dlp")
+    status_callback("installing", RuntimeToolStatus(RuntimeTool.YTDLP, RuntimeToolPhase.CHECKING))
     latest_version = _fetch_latest_ytdlp_version()
     installed_version = _read_tool_version(paths.ytdlp_executable)
     if installed_version and _normalize_version(installed_version) == _normalize_version(latest_version):
@@ -169,7 +180,7 @@ def refresh_ffmpeg(
         install_ffmpeg(paths, log_callback, status_callback)
         return
 
-    status_callback("installing", "Checking ffmpeg")
+    status_callback("installing", RuntimeToolStatus(RuntimeTool.FFMPEG, RuntimeToolPhase.CHECKING))
     latest_version = _fetch_latest_ffmpeg_version()
     installed_version = _read_tool_version(paths.ffmpeg_executable)
     if installed_version and _ffmpeg_version_matches(installed_version, latest_version):
@@ -198,7 +209,7 @@ def refresh_deno(
         install_deno(paths, log_callback, status_callback)
         return
 
-    status_callback("installing", "Checking Deno")
+    status_callback("installing", RuntimeToolStatus(RuntimeTool.DENO, RuntimeToolPhase.CHECKING))
     latest_version, asset_url = _fetch_latest_deno_release()
     installed_version = _read_tool_version(paths.deno_executable)
     if installed_version and _deno_version_matches(installed_version, latest_version):
@@ -226,7 +237,7 @@ def install_ytdlp(
     status_callback: StatusCallback,
 ) -> None:
 
-    status_callback("installing", "Installing yt-dlp")
+    status_callback("installing", RuntimeToolStatus(RuntimeTool.YTDLP, RuntimeToolPhase.INSTALLING))
     log_callback(f"Downloading fresh yt-dlp from {YTDLP_URL}")
     paths.tools_dir.mkdir(parents=True, exist_ok=True)
 
@@ -234,7 +245,7 @@ def install_ytdlp(
         temp_path = Path(temp_dir)
         download_path = temp_path / "yt-dlp.exe"
         try:
-            _download_file(YTDLP_URL, download_path, "yt-dlp", log_callback, status_callback)
+            _download_file(YTDLP_URL, download_path, RuntimeTool.YTDLP, log_callback, status_callback)
             if not download_path.exists() or download_path.stat().st_size == 0:
                 raise DependencyInstallError("Downloaded yt-dlp.exe was empty.")
             os.replace(download_path, paths.ytdlp_executable)
@@ -278,7 +289,7 @@ def install_ffmpeg(
     source_identity: dict[str, str] | None = None,
 ) -> None:
 
-    status_callback("installing", "Installing ffmpeg")
+    status_callback("installing", RuntimeToolStatus(RuntimeTool.FFMPEG, RuntimeToolPhase.INSTALLING))
     log_callback(f"Downloading fresh ffmpeg from {FFMPEG_URL}")
     paths.tools_dir.mkdir(parents=True, exist_ok=True)
 
@@ -288,7 +299,7 @@ def install_ffmpeg(
         extract_dir = temp_path / "extract"
         stage_dir = temp_path / "ffmpeg"
         try:
-            _download_file(FFMPEG_URL, archive_path, "ffmpeg", log_callback, status_callback)
+            _download_file(FFMPEG_URL, archive_path, RuntimeTool.FFMPEG, log_callback, status_callback)
             with zipfile.ZipFile(archive_path) as archive:
                 archive.extractall(extract_dir)
             ffmpeg_exe = _find_extracted_executable(extract_dir, "ffmpeg.exe")
@@ -327,7 +338,7 @@ def install_deno(
     asset_url: str | None = None,
 ) -> None:
 
-    status_callback("installing", "Installing Deno")
+    status_callback("installing", RuntimeToolStatus(RuntimeTool.DENO, RuntimeToolPhase.INSTALLING))
     version: str | None = None
     if asset_url is None:
         version, asset_url = _fetch_latest_deno_release()
@@ -340,7 +351,7 @@ def install_deno(
         extract_dir = temp_path / "extract"
         stage_dir = temp_path / "deno"
         try:
-            _download_file(asset_url, archive_path, "Deno", log_callback, status_callback)
+            _download_file(asset_url, archive_path, RuntimeTool.DENO, log_callback, status_callback)
             with zipfile.ZipFile(archive_path) as archive:
                 archive.extractall(extract_dir)
             deno_exe = _find_extracted_executable(extract_dir, "deno.exe")
@@ -371,7 +382,7 @@ def install_deno(
 def _download_file(
     url: str,
     destination: Path,
-    tool_name: str,
+    tool: RuntimeTool | None,
     log_callback: LogCallback,
     status_callback: StatusCallback,
 ) -> None:
@@ -393,17 +404,36 @@ def _download_file(
                 if total_bytes:
                     percent = min(100, int(bytes_downloaded * 100 / total_bytes))
                     if percent != last_percent:
-                        message = f"Downloading {tool_name} {percent}%"
-                        status_callback("installing", message)
-                        if percent == 100 or percent // 10 > last_percent // 10:
-                            log_callback(message)
+                        _emit_download_progress(tool, percent, None, log_callback, status_callback)
                         last_percent = percent
                 elif bytes_downloaded >= next_unknown_total_log:
-                    message = f"Downloading {tool_name} {_format_megabytes(bytes_downloaded)} MB"
-                    status_callback("installing", message)
-                    log_callback(message)
+                    size_mb = _format_megabytes(bytes_downloaded)
+                    _emit_download_progress(tool, None, size_mb, log_callback, status_callback)
                     next_unknown_total_log += UNKNOWN_TOTAL_LOG_BYTES
     log_callback(f"Downloaded to temporary file {destination}")
+
+
+def _emit_download_progress(
+    tool: RuntimeTool | None,
+    percent: int | None,
+    size_mb: str | None,
+    log_callback: LogCallback,
+    status_callback: StatusCallback,
+) -> None:
+    if tool is not None:
+        event: StatusEvent = RuntimeToolStatus(tool, RuntimeToolPhase.DOWNLOADING, percent=percent, size_mb=size_mb)
+    else:
+        event = AppUpdateStatus(AppUpdatePhase.DOWNLOADING, percent=percent)
+    status_callback("installing", event)
+    if tool is not None and percent is not None:
+        desc = f"Downloading {tool.display_name} {percent}%"
+    elif tool is not None and size_mb is not None:
+        desc = f"Downloading {tool.display_name} {size_mb} MB"
+    elif percent is not None:
+        desc = f"Downloading {percent}%"
+    else:
+        return
+    log_callback(desc)
 
 
 def _content_length(response: object) -> int | None:

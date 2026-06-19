@@ -16,10 +16,11 @@ from typing import Callable
 
 from . import __version__
 from .dependencies import _download_file
+from .worker_status import AppUpdatePhase, AppUpdateStatus, StatusEvent, WorkerPhase
 
 
 LogCallback = Callable[[str], None]
-StatusCallback = Callable[[str, str], None]
+StatusCallback = Callable[[WorkerPhase, StatusEvent], None]
 
 LATEST_RELEASE_URL = "https://api.github.com/repos/a98c14/youtube-download-helper/releases/latest"
 PORTABLE_ZIP_PATTERN = re.compile(r"^YouTube-Download-Helper-.+-windows-portable\.zip$")
@@ -51,7 +52,7 @@ def check_and_stage_app_update(
     status_callback: StatusCallback,
     current_version: str = __version__,
 ) -> AppUpdateResult:
-    status_callback("installing", "Checking latest app release")
+    status_callback("installing", AppUpdateStatus(AppUpdatePhase.CHECKING))
     release = _fetch_latest_release()
     tag_name = str(release.get("tag_name", "")).strip()
     if not tag_name:
@@ -66,7 +67,7 @@ def check_and_stage_app_update(
         return AppUpdateResult("Runtime tools updated. App update is only available in the packaged app.")
 
     zip_asset, checksum_asset = select_portable_assets(release)
-    status_callback("installing", "Downloading app update")
+    status_callback("installing", AppUpdateStatus(AppUpdatePhase.DOWNLOADING))
     log_callback(f"Downloading app update {zip_asset.name}")
 
     with tempfile.TemporaryDirectory(prefix="ytdlp-helper-app-update-", delete=False) as temp_dir:
@@ -74,8 +75,8 @@ def check_and_stage_app_update(
         zip_path = temp_path / zip_asset.name
         checksum_path = temp_path / checksum_asset.name
         stage_dir = temp_path / "staged"
-        _download_file(zip_asset.download_url, zip_path, "app update", log_callback, status_callback)
-        _download_file(checksum_asset.download_url, checksum_path, "app checksum", log_callback, status_callback)
+        _download_file(zip_asset.download_url, zip_path, None, log_callback, status_callback)
+        _download_file(checksum_asset.download_url, checksum_path, None, log_callback, status_callback)
         _verify_sha256(zip_path, checksum_path)
         _extract_and_validate(zip_path, stage_dir)
         script_path = _write_restart_script(
@@ -86,7 +87,7 @@ def check_and_stage_app_update(
             executable_name=APP_EXE_NAME,
         )
 
-    status_callback("installing", "Ready to restart")
+    status_callback("installing", AppUpdateStatus(AppUpdatePhase.READY))
     log_callback(f"App update {tag_name} is staged at {stage_dir}")
     return AppUpdateResult("Runtime tools updated. App update is ready to install after restart.", script_path)
 
