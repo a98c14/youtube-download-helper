@@ -1,7 +1,8 @@
 # to-do
 
 ## issues
-- [x] Architecture: split app.py god-module into UI Adapter + domain controllers (#5)
+- [] In "Hata Detayı" screen error message doesn't reflect the actual error.
+- [] If a video is not a playlist video and user clicks playlist download it shouldn't silently ignore it. It shoud warn the user with a popup.
 
 ## features
 - [x] Queue Item-owned playlist expansion and download history (#21)

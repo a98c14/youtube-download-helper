@@ -1198,9 +1198,11 @@ class YtDlpHelperApp:
         self._update_queue_state()
 
     def _poll_queue_runner(self) -> None:
-        events = self.queue_runner.poll_events()
-        if events:
+        try:
+            self.queue_runner.poll_events()
             self._refresh_queue_table()
+        except Exception:
+            self._append_log("Queue runner poll error")
         self.root.after(150, self._poll_queue_runner)
 
     def _selected_queue_item(self) -> QueueItem | None:
