@@ -994,18 +994,8 @@ class YtDlpHelperApp:
 
     def _create_resume_icon(self) -> tk.PhotoImage:
         icon = tk.PhotoImage(width=16, height=16)
-        icon.put("#22c55e", to=(7, 3, 9, 3))
-        icon.put("#22c55e", to=(6, 4, 10, 4))
-        icon.put("#22c55e", to=(5, 5, 11, 5))
-        icon.put("#22c55e", to=(4, 6, 12, 6))
-        icon.put("#22c55e", to=(3, 7, 13, 7))
-        icon.put("#22c55e", to=(2, 8, 14, 8))
-        icon.put("#22c55e", to=(2, 9, 14, 9))
-        icon.put("#22c55e", to=(3, 10, 13, 10))
-        icon.put("#22c55e", to=(4, 11, 12, 11))
-        icon.put("#22c55e", to=(5, 12, 11, 12))
-        icon.put("#22c55e", to=(6, 13, 10, 13))
-        icon.put("#22c55e", to=(7, 2, 9, 14))
+        for y, end_x in enumerate((5, 6, 7, 8, 10, 12, 14, 12, 10, 8, 7, 6, 5), start=2):
+            icon.put("#22c55e", to=(4, y, end_x + 1, y + 1))
         return icon
 
     def _create_pause_icon(self) -> tk.PhotoImage:
