@@ -22,9 +22,9 @@ class QueueStoreTests(unittest.TestCase):
         added = store.add(
             "https://example.test/1",
             "best-video",
-            False,
             "D:/Videos/Work",
             "%(title)s.%(ext)s",
+            True,
             "work",
             "Work",
         )
@@ -41,7 +41,6 @@ class QueueStoreTests(unittest.TestCase):
         store.path.write_text(
             json.dumps(
                 {
-                    "version": 1,
                     "items": [
                         _raw_item("one", "running"),
                         _raw_item("two", "queued"),
@@ -56,40 +55,39 @@ class QueueStoreTests(unittest.TestCase):
         self.assertEqual([item.status for item in items], ["failed", "queued"])
         self.assertEqual(items[0].error, "Interrupted while app was closed.")
         self.assertTrue(all(item.category_name == "Default" for item in items))
-        self.assertEqual(json.loads(store.path.read_text(encoding="utf-8"))["version"], 2)
 
     def test_load_skips_invalid_rows_and_corrupt_data(self) -> None:
         paths = _paths()
         store = QueueStore.for_paths(paths)
         paths.data_dir.mkdir(parents=True)
         store.path.write_text(
-            json.dumps({"version": 1, "items": [_raw_item("ok", "queued"), {"id": "bad"}]}),
+            json.dumps({"items": [_raw_item("ok", "queued"), {"id": "bad"}]}),
             encoding="utf-8",
         )
 
         self.assertEqual([item.id for item in store.load()], ["ok"])
-        self.assertEqual(store.get("ok").output_path, "")  # type: ignore[union-attr]
+        self.assertEqual(store.get("ok").output_path, "")
 
         store.path.write_text("{", encoding="utf-8")
         self.assertEqual(store.load(), [])
 
     def test_save_add_move_retry_remove_and_clear_completed(self) -> None:
         store = QueueStore.for_paths(_paths())
-        first = store.add("https://example.test/1", "best-video", False, "downloads", "%(title)s.%(ext)s")
-        second = store.add("https://example.test/2", "audio-mp3", True, "downloads", "%(id)s.%(ext)s")
+        first = store.add("https://example.test/1", "best-video", "downloads", "%(title)s.%(ext)s")
+        second = store.add("https://example.test/2", "audio-mp3", "downloads", "%(id)s.%(ext)s")
 
-        self.assertTrue(store.has_duplicate_url("https://example.test/1"))
         self.assertTrue(store.move(second.id, -1))
         self.assertEqual([item.id for item in store.items()], [second.id, first.id])
 
         store.replace(replace(first, status="failed", error="network"))
         self.assertTrue(store.retry(first.id))
-        self.assertEqual(store.get(first.id).status, "queued")  # type: ignore[union-attr]
-        self.assertEqual(store.get(first.id).error, "")  # type: ignore[union-attr]
+        self.assertEqual(store.get(first.id).status, "queued")
+        self.assertEqual(store.get(first.id).error, "")
 
         store.replace(replace(first, status="failed", output_path=str(Path("downloads") / "old.mp4")))
         self.assertTrue(store.retry(first.id))
-        self.assertEqual(store.get(first.id).output_path, "")  # type: ignore[union-attr]
+        self.assertEqual(store.get(first.id).output_path, "")
+        self.assertEqual(store.get(first.id).previous_output_path, str(Path("downloads") / "old.mp4"))
 
         store.replace(replace(second, status="completed"))
         store.clear_completed()
@@ -101,7 +99,7 @@ class QueueStoreTests(unittest.TestCase):
         store = QueueStore.for_paths(_paths())
 
         item = store.add(
-            "https://example.test/1", "best-video", False, "downloads", "%(title)s.%(ext)s",
+            "https://example.test/1", "best-video", "downloads", "%(title)s.%(ext)s",
             source_type="tracker", playlist_title="My Playlist",
         )
 
@@ -109,50 +107,63 @@ class QueueStoreTests(unittest.TestCase):
         loaded = QueueStore(store.path).load()[0]
         self.assertEqual(loaded.playlist_title, "My Playlist")
 
+    def test_find_existing_returns_matching_item(self) -> None:
+        store = QueueStore.for_paths(_paths())
+        store.add("https://example.test/1", "best-video", "downloads", "%(title)s.%(ext)s",
+                   media_id="abc123", extractor="youtube")
+
+        found = store.find_existing("abc123", "best-video", "downloads",
+                                     "%(title)s.%(ext)s", True, "")
+        self.assertIsNotNone(found)
+
+        not_found = store.find_existing("xyz", "best-video", "downloads",
+                                         "%(title)s.%(ext)s", True, "")
+        self.assertIsNone(not_found)
+
 
 class QueueRunnerTests(unittest.TestCase):
     def test_resume_runs_in_order_and_respects_concurrency(self) -> None:
         paths = _paths()
         store = QueueStore.for_paths(paths)
-        first = store.add("https://example.test/1", "best-video", False, str(paths.download_dir), "%(title)s.%(ext)s")
-        second = store.add("https://example.test/2", "best-video", False, str(paths.download_dir), "%(title)s.%(ext)s")
+        first = store.add("https://example.test/1", "best-video", str(paths.download_dir), "%(title)s.%(ext)s")
+        second = store.add("https://example.test/2", "best-video", str(paths.download_dir), "%(title)s.%(ext)s")
         service = ControlledService()
         runner = QueueRunner(store, paths, lambda *_args: None, lambda *_args: service)
 
         runner.resume(1)
         _wait_for(lambda: service.started == [first.url])
-        self.assertEqual(store.get(first.id).status, "running")  # type: ignore[union-attr]
-        self.assertEqual(store.get(second.id).status, "queued")  # type: ignore[union-attr]
+        self.assertEqual(store.get(first.id).status, "running")
+        self.assertEqual(store.get(second.id).status, "queued")
 
         service.release_one()
         _wait_for(lambda: service.started == [first.url, second.url])
         service.release_one()
-        _wait_for(lambda: store.get(second.id).status == "completed")  # type: ignore[union-attr]
+        _wait_for(lambda: store.get(second.id).status == "completed")
 
-        self.assertEqual(store.get(first.id).progress, 100)  # type: ignore[union-attr]
-        self.assertEqual(store.get(second.id).progress, 100)  # type: ignore[union-attr]
+        self.assertEqual(store.get(first.id).progress, 100)
+        self.assertEqual(store.get(second.id).progress, 100)
 
     def test_pause_allows_current_item_to_finish_without_starting_next(self) -> None:
         paths = _paths()
         store = QueueStore.for_paths(paths)
-        first = store.add("https://example.test/1", "best-video", False, str(paths.download_dir), "%(title)s.%(ext)s")
-        second = store.add("https://example.test/2", "best-video", False, str(paths.download_dir), "%(title)s.%(ext)s")
+        first = store.add("https://example.test/1", "best-video", str(paths.download_dir), "%(title)s.%(ext)s")
+        second = store.add("https://example.test/2", "best-video", str(paths.download_dir), "%(title)s.%(ext)s")
         service = ControlledService()
         runner = QueueRunner(store, paths, lambda *_args: None, lambda *_args: service)
 
         runner.resume(1)
-        _wait_for(lambda: store.get(first.id).status == "running")  # type: ignore[union-attr]
+        _wait_for(lambda: store.get(first.id).status == "running")
         runner.pause()
         service.release_one()
-        _wait_for(lambda: store.get(first.id).status == "completed")  # type: ignore[union-attr]
+        _wait_for(lambda: store.get(first.id).status == "completed")
 
-        self.assertEqual(store.get(second.id).status, "queued")  # type: ignore[union-attr]
+        self.assertEqual(store.get(second.id).status, "queued")
 
     def test_not_yet_started_items_use_latest_organization_setting(self) -> None:
         paths = _paths()
         store = QueueStore.for_paths(paths)
-        first = store.add("https://example.test/1", "best-video", False, str(paths.download_dir), "%(title)s.%(ext)s")
-        second = store.add("https://example.test/2", "best-video", False, str(paths.download_dir), "%(title)s.%(ext)s")
+        first = store.add("https://example.test/1", "best-video", str(paths.download_dir), "%(title)s.%(ext)s")
+        second = store.add("https://example.test/2", "best-video", str(paths.download_dir), "%(title)s.%(ext)s")
         service = ControlledService()
         organize_by_channel = True
         starts: list[tuple[str, bool]] = []
@@ -175,61 +186,48 @@ class QueueRunnerTests(unittest.TestCase):
         service.release_one()
         _wait_for(lambda: service.started == [first.url, second.url])
         service.release_one()
-        _wait_for(lambda: store.get(second.id).status == "completed")  # type: ignore[union-attr]
+        _wait_for(lambda: store.get(second.id).status == "completed")
 
         self.assertEqual(starts, [(first.url, True), (second.url, False)])
 
     def test_failure_does_not_block_following_items(self) -> None:
         paths = _paths()
         store = QueueStore.for_paths(paths)
-        first = store.add("https://example.test/fail", "best-video", False, str(paths.download_dir), "%(title)s.%(ext)s")
-        second = store.add("https://example.test/ok", "best-video", False, str(paths.download_dir), "%(title)s.%(ext)s")
+        first = store.add("https://example.test/fail", "best-video", str(paths.download_dir), "%(title)s.%(ext)s")
+        second = store.add("https://example.test/ok", "best-video", str(paths.download_dir), "%(title)s.%(ext)s")
         service = ControlledService(fail_urls={first.url})
         logs: list[str] = []
         runner = QueueRunner(store, paths, logs.append, lambda *_args: service)
 
         runner.resume(1)
         service.release_one()
-        _wait_for(lambda: store.get(second.id).status == "running")  # type: ignore[union-attr]
+        _wait_for(lambda: store.get(second.id).status == "running")
         service.release_one()
-        _wait_for(lambda: store.get(second.id).status == "completed")  # type: ignore[union-attr]
+        _wait_for(lambda: store.get(second.id).status == "completed")
 
-        self.assertEqual(store.get(first.id).status, "failed")  # type: ignore[union-attr]
+        self.assertEqual(store.get(first.id).status, "failed")
         self.assertIn("Queue item failed", "\n".join(logs))
-
-    def test_archive_skip_status_is_preserved(self) -> None:
-        paths = _paths()
-        store = QueueStore.for_paths(paths)
-        item = store.add("https://example.test/skip", "best-video", False, str(paths.download_dir), "%(title)s.%(ext)s")
-        service = ControlledService(skip_urls={item.url})
-        runner = QueueRunner(store, paths, lambda *_args: None, lambda *_args: service)
-
-        runner.resume(1)
-        service.release_one()
-        _wait_for(lambda: store.get(item.id).status == "skipped")  # type: ignore[union-attr]
-
-        self.assertEqual(store.get(item.id).progress, None)  # type: ignore[union-attr]
 
     def test_output_path_is_captured_from_download_logs(self) -> None:
         paths = _paths()
         store = QueueStore.for_paths(paths)
-        item = store.add("https://example.test/ok", "best-video", False, str(paths.download_dir), "%(title)s.%(ext)s")
+        item = store.add("https://example.test/ok", "best-video", str(paths.download_dir), "%(title)s.%(ext)s")
         service = ControlledService(final_path=paths.download_dir / "ok.mp4")
         runner = QueueRunner(store, paths, lambda *_args: None, lambda *_args: service)
 
         runner.resume(1)
         service.release_one()
-        _wait_for(lambda: store.get(item.id).status == "completed")  # type: ignore[union-attr]
+        _wait_for(lambda: store.get(item.id).status == "completed")
 
-        self.assertEqual(store.get(item.id).name, "ok.mp4")  # type: ignore[union-attr]
-        self.assertEqual(store.get(item.id).output_path, str(paths.download_dir / "ok.mp4"))  # type: ignore[union-attr]
+        self.assertEqual(store.get(item.id).name, "ok.mp4")
+        self.assertEqual(store.get(item.id).output_path, str(paths.download_dir / "ok.mp4"))
 
     def test_resumed_concurrent_items_share_runtime_tool_resolution(self) -> None:
         paths = _paths()
         _write_runtime_tools(paths)
         store = QueueStore.for_paths(paths)
-        first = store.add("https://example.test/1", "best-video", False, str(paths.download_dir), "%(title)s.%(ext)s")
-        second = store.add("https://example.test/2", "best-video", False, str(paths.download_dir), "%(title)s.%(ext)s")
+        first = store.add("https://example.test/1", "best-video", str(paths.download_dir), "%(title)s.%(ext)s")
+        second = store.add("https://example.test/2", "best-video", str(paths.download_dir), "%(title)s.%(ext)s")
         calls = 0
 
         def fake_ensure(*_args: object) -> None:
@@ -245,8 +243,8 @@ class QueueRunnerTests(unittest.TestCase):
             patch("ytdlp_helper.downloader.subprocess.Popen", return_value=FakeProcess([])),
         ):
             runner.resume(2)
-            _wait_for(lambda: store.get(first.id).status == "completed")  # type: ignore[union-attr]
-            _wait_for(lambda: store.get(second.id).status == "completed")  # type: ignore[union-attr]
+            _wait_for(lambda: store.get(first.id).status == "completed")
+            _wait_for(lambda: store.get(second.id).status == "completed")
 
         self.assertEqual(calls, 1)
 
@@ -255,17 +253,15 @@ class ControlledService:
     def __init__(
         self,
         fail_urls: set[str] | None = None,
-        skip_urls: set[str] | None = None,
         final_path: Path | None = None,
     ) -> None:
         self.started: list[str] = []
         self._releases: list[bool] = []
         self._fail_urls = fail_urls or set()
-        self._skip_urls = skip_urls or set()
         self._final_path = final_path
 
     def download(self, request: object, status_callback: object, log_callback: object) -> None:
-        url = request.url  # type: ignore[attr-defined]
+        url = request.url
         self.started.append(url)
         if self._final_path:
             log_callback(f'[Merger] Merging formats into "{self._final_path}"')
@@ -274,9 +270,6 @@ class ControlledService:
         status_callback("downloading", "Downloading 50%")
         while len(self._releases) < len(self.started):
             time.sleep(0.01)
-        if url in self._skip_urls:
-            status_callback("skipped", "Already downloaded; skipped by archive")
-            return
         if url in self._fail_urls:
             raise RuntimeError("network down")
 
@@ -306,7 +299,6 @@ def _raw_item(item_id: str, status: str) -> dict[str, object]:
         "id": item_id,
         "url": f"https://example.test/{item_id}",
         "preset": "best-video",
-        "playlist": False,
         "download_dir": "downloads",
         "filename_template": "%(title)s.%(ext)s",
         "added_at": "2026-04-24T00:00:00+00:00",

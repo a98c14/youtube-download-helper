@@ -292,7 +292,7 @@ class ConfigTests(unittest.TestCase):
         settings = load_settings(paths)
         self.assertEqual(settings.preset, "best-video")
         self.assertEqual(settings.language, "tr")
-        self.assertEqual(paths.archive_file.read_text(encoding="utf-8"), "")
+        self.assertTrue(paths.data_dir.exists())
 
     def test_factory_reset_preserves_tools(self) -> None:
         paths = _paths()
@@ -352,16 +352,6 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(len(settings.categories), 1)
         self.assertEqual(settings.categories[0].id, "default")
         self.assertEqual(settings.categories[0].name, "Default")
-
-    def test_factory_reset_creates_fresh_archive_file(self) -> None:
-        paths = _paths()
-        paths.data_dir.mkdir(parents=True)
-
-        errors = factory_reset(paths)
-
-        self.assertEqual(errors, [])
-        self.assertTrue(paths.archive_file.exists())
-        self.assertEqual(paths.archive_file.read_text(encoding="utf-8"), "")
 
     def test_factory_reset_returns_empty_errors_on_success(self) -> None:
         paths = _paths()
@@ -437,12 +427,11 @@ class ConfigTests(unittest.TestCase):
         self.assertFalse((paths.data_dir / "queue.json").exists())
         self.assertFalse((paths.data_dir / "queue.json.migrated").exists())
 
-    def test_factory_reset_deletes_settings_cookies_and_archive(self) -> None:
+    def test_factory_reset_deletes_settings_and_cookies(self) -> None:
         paths = _paths()
         paths.data_dir.mkdir(parents=True)
         paths.settings_file.write_text(json.dumps({"preset": "audio-mp3"}))
         paths.cookies_file.write_text("# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tFALSE\t0\tname\tvalue")
-        paths.archive_file.write_text("youtube abc123\n")
 
         errors = factory_reset(paths)
 
@@ -450,7 +439,6 @@ class ConfigTests(unittest.TestCase):
         self.assertFalse(paths.cookies_file.exists())
         settings = load_settings(paths)
         self.assertEqual(settings.preset, "best-video")
-        self.assertNotEqual(paths.archive_file.read_text(encoding="utf-8"), "youtube abc123\n")
 
     def test_find_ffmpeg_location_does_not_use_path_without_ffprobe(self) -> None:
         paths = _paths()

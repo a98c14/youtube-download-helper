@@ -3,7 +3,6 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import json
 from pathlib import Path
 import shutil
 import sqlite3
@@ -13,23 +12,11 @@ from .config import Category, DEFAULT_CATEGORY_ID
 
 
 DATABASE_FILE = "app.db"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-@dataclass(frozen=True)
-class DownloadRecord:
-    id: int
-    completed_at: str
-    title: str
-    category_name: str
-    preset: str
-    output_path: str
-    extractor: str = ""
-    media_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -49,22 +36,18 @@ class TrackedPlaylist:
 
 
 @dataclass(frozen=True)
-class PlaylistCandidate:
-    playlist_id: int
-    entry_id: int
-    video_id: str
+class QueueHistoryRecord:
+    id: str
+    completed_at: str
     title: str
-    position: int | None
-    upload_date: str
+    category_name: str
+    preset: str
+    output_path: str
+    extractor: str = ""
+    media_id: str = ""
 
 
 class Database:
-    """SQLite owner for durable domain state.
-
-    Connections are deliberately short-lived. This makes the object safe to use
-    from Tk and download worker threads while WAL handles readers during writes.
-    """
-
     def __init__(self, path: Path) -> None:
         self.path = path
 
@@ -76,18 +59,14 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
             current_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            connection.executescript(_SCHEMA)
-            self._migrate(connection, current_version)
+            connection.executescript(_SCHEMA_V3)
+            if current_version < 3:
+                try:
+                    connection.executescript(_SCHEMA_V3_MIGRATION)
+                except sqlite3.OperationalError:
+                    pass
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             connection.commit()
-
-    @staticmethod
-    def _migrate(connection: sqlite3.Connection, from_version: int) -> None:
-        if from_version < 2:
-            try:
-                connection.execute("ALTER TABLE queue_items ADD COLUMN playlist_title TEXT")
-            except sqlite3.OperationalError:
-                pass
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -161,39 +140,6 @@ class Database:
             )
             connection.commit()
 
-    def add_download_record(
-        self, *, title: str, category_name: str, preset: str, output_path: str,
-        extractor: str = "", media_id: str = "", queue_item_id: str | None = None,
-    ) -> int:
-        with self.connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            video_pk = None
-            if extractor and media_id:
-                connection.execute(
-                    "INSERT INTO videos(extractor,media_id,title) VALUES(?,?,?) "
-                    "ON CONFLICT(extractor,media_id) DO UPDATE SET title=excluded.title",
-                    (extractor, media_id, title),
-                )
-                video_pk = connection.execute(
-                    "SELECT id FROM videos WHERE extractor=? AND media_id=?", (extractor, media_id)
-                ).fetchone()[0]
-            cursor = connection.execute(
-                "INSERT INTO download_records(video_id,queue_item_id,completed_at,title,category_name,preset,output_path) "
-                "VALUES(?,?,?,?,?,?,?)",
-                (video_pk, queue_item_id, utc_now(), title, category_name, preset, output_path),
-            )
-            connection.commit()
-            return int(cursor.lastrowid)
-
-    def download_history(self) -> list[DownloadRecord]:
-        with self.connect() as connection:
-            rows = connection.execute(
-                "SELECT d.*, COALESCE(v.extractor,'') extractor, COALESCE(v.media_id,'') media_id "
-                "FROM download_records d LEFT JOIN videos v ON v.id=d.video_id ORDER BY d.completed_at DESC,d.id DESC"
-            ).fetchall()
-        return [DownloadRecord(row["id"], row["completed_at"], row["title"], row["category_name"],
-                               row["preset"], row["output_path"], row["extractor"], row["media_id"]) for row in rows]
-
     def add_tracker(self, playlist_id: str, url: str, title: str, preset: str, category_id: str) -> int:
         with self.connect() as connection:
             order = connection.execute("SELECT COALESCE(MAX(display_order),-1)+1 FROM tracked_playlists").fetchone()[0]
@@ -206,9 +152,11 @@ class Database:
     def trackers(self) -> list[TrackedPlaylist]:
         with self.connect() as connection:
             rows = connection.execute(
-                "SELECT p.*, COALESCE(c.attempted_at,'') last_attempt_at,COALESCE(c.outcome,'') last_outcome,"
+                "SELECT p.*, COALESCE(c.attempted_at,'') last_attempt_at,"
+                "COALESCE(c.outcome,'') last_outcome,"
                 "COALESCE(p.last_success_at,'') last_success_at,COALESCE(c.error,'') last_error "
-                "FROM tracked_playlists p LEFT JOIN playlist_checks c ON c.id=(SELECT id FROM playlist_checks "
+                "FROM tracked_playlists p "
+                "LEFT JOIN tracker_checks c ON c.id=(SELECT id FROM tracker_checks "
                 "WHERE tracked_playlist_id=p.id ORDER BY attempted_at DESC,id DESC LIMIT 1) "
                 "ORDER BY p.display_order,p.id"
             ).fetchall()
@@ -225,104 +173,71 @@ class Database:
         with self.connect() as connection:
             connection.execute("UPDATE tracked_playlists SET active=? WHERE id=?", (active, tracker_id))
 
-    def reset_tracker(self, tracker_id: int) -> None:
-        with self.connect() as connection:
-            connection.execute("UPDATE playlist_entries SET decision='pending' WHERE tracked_playlist_id=?", (tracker_id,))
-
-    def record_playlist_check(self, tracker_id: int, entries: Iterable[dict[str, object]] | None,
-                              error: str = "", playlist_title: str = "") -> None:
+    def record_tracker_check(self, tracker_id: int, *, entry_count: int = 0, new_count: int = 0,
+                             error: str = "", playlist_title: str = "") -> None:
         attempted = utc_now()
-        values = list(entries or [])
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             if playlist_title.strip():
                 connection.execute("UPDATE tracked_playlists SET title=? WHERE id=?", (playlist_title.strip(), tracker_id))
-            if error:
-                connection.execute(
-                    "INSERT INTO playlist_checks(tracked_playlist_id,attempted_at,outcome,entry_count,new_count,error) VALUES(?,?,'failed',0,0,?)",
-                    (tracker_id, attempted, error),
-                )
-            else:
-                connection.execute("UPDATE playlist_entries SET is_current=0 WHERE tracked_playlist_id=?", (tracker_id,))
-                for entry in values:
-                    connection.execute(
-                        "INSERT INTO playlist_entries(tracked_playlist_id,video_id,title,position,upload_date,is_current,decision) "
-                        "VALUES(?,?,?,?,?,1,'pending') ON CONFLICT(tracked_playlist_id,video_id) DO UPDATE SET "
-                        "title=excluded.title,position=excluded.position,upload_date=excluded.upload_date,is_current=1",
-                        (tracker_id, str(entry["video_id"]), str(entry.get("title", "")), entry.get("position"), str(entry.get("upload_date", ""))),
-                    )
-                pending = connection.execute(
-                    "SELECT COUNT(*) FROM playlist_entries WHERE tracked_playlist_id=? AND is_current=1 AND decision='pending'", (tracker_id,)
-                ).fetchone()[0]
-                connection.execute(
-                    "INSERT INTO playlist_checks(tracked_playlist_id,attempted_at,outcome,entry_count,new_count,error) VALUES(?,?,'success',?,?, '')",
-                    (tracker_id, attempted, len(values), pending),
-                )
+            outcome = "failed" if error else "success"
+            connection.execute(
+                "INSERT INTO tracker_checks(tracked_playlist_id,attempted_at,outcome,entry_count,new_count,error) "
+                "VALUES(?,?,?,?,?,?)",
+                (tracker_id, attempted, outcome, entry_count, new_count, error),
+            )
+            if not error:
                 connection.execute("UPDATE tracked_playlists SET last_success_at=? WHERE id=?", (attempted, tracker_id))
             connection.commit()
 
-    def pending_candidates(self) -> list[PlaylistCandidate]:
+    def queue_history(self) -> list[QueueHistoryRecord]:
         with self.connect() as connection:
             rows = connection.execute(
-                "SELECT e.tracked_playlist_id,e.id,e.video_id,e.title,e.position,COALESCE(e.upload_date,'') upload_date "
-                "FROM playlist_entries e JOIN tracked_playlists p ON p.id=e.tracked_playlist_id "
-                "WHERE p.active=1 AND e.is_current=1 AND e.decision='pending' "
-                "ORDER BY CASE WHEN e.upload_date='' THEN 1 ELSE 0 END,e.upload_date,p.display_order,e.position,e.id"
+                "SELECT id, completed_at, name, category_name, preset, output_path, "
+                "COALESCE(extractor,'') extractor, COALESCE(media_id,'') media_id "
+                "FROM queue_items WHERE status='completed' AND output_path!='' "
+                "ORDER BY completed_at DESC, id DESC"
             ).fetchall()
-        return [PlaylistCandidate(row[0], row[1], row[2], row[3], row[4], row[5]) for row in rows]
-
-    def decide_entries(self, entry_ids: Iterable[int], decision: str) -> None:
-        ids = list(entry_ids)
-        if not ids:
-            return
-        if decision not in {"queued", "dismissed", "pending"}:
-            raise ValueError("Invalid Playlist Entry decision")
-        with self.connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
-                f"UPDATE playlist_entries SET decision=? WHERE id IN ({','.join('?' for _ in ids)})",
-                [decision, *ids],
-            )
-            connection.commit()
+        return [QueueHistoryRecord(row["id"], row["completed_at"], row["name"], row["category_name"],
+                                   row["preset"], row["output_path"], row["extractor"], row["media_id"])
+                for row in rows]
 
 
-_SCHEMA = """
+_SCHEMA_V3 = """
 CREATE TABLE IF NOT EXISTS categories(
  id TEXT PRIMARY KEY, name TEXT NOT NULL, download_dir TEXT NOT NULL,
  display_order INTEGER NOT NULL, is_default INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS queue_items(
  id TEXT PRIMARY KEY, position INTEGER NOT NULL, url TEXT NOT NULL, preset TEXT NOT NULL,
- playlist INTEGER NOT NULL, download_dir TEXT NOT NULL, filename_template TEXT NOT NULL,
+ download_dir TEXT NOT NULL, filename_template TEXT NOT NULL, organize_by_channel INTEGER NOT NULL DEFAULT 1,
  added_at TEXT NOT NULL, category_id TEXT NOT NULL, category_name TEXT NOT NULL,
  status TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', progress INTEGER, speed TEXT NOT NULL DEFAULT '',
- error TEXT NOT NULL DEFAULT '', output_path TEXT NOT NULL DEFAULT '', warning TEXT NOT NULL DEFAULT '',
+ error TEXT NOT NULL DEFAULT '', output_path TEXT NOT NULL DEFAULT '',
+ previous_output_path TEXT NOT NULL DEFAULT '', warning TEXT NOT NULL DEFAULT '',
  source_type TEXT NOT NULL DEFAULT 'manual', playlist_id TEXT, playlist_position INTEGER,
- playlist_title TEXT
-);
-CREATE TABLE IF NOT EXISTS videos(
- id INTEGER PRIMARY KEY, extractor TEXT NOT NULL, media_id TEXT NOT NULL, title TEXT NOT NULL DEFAULT '',
- UNIQUE(extractor,media_id)
-);
-CREATE TABLE IF NOT EXISTS download_records(
- id INTEGER PRIMARY KEY, video_id INTEGER REFERENCES videos(id), queue_item_id TEXT,
- completed_at TEXT NOT NULL, title TEXT NOT NULL, category_name TEXT NOT NULL,
- preset TEXT NOT NULL, output_path TEXT NOT NULL
+ playlist_title TEXT, extractor TEXT NOT NULL DEFAULT '', media_id TEXT NOT NULL DEFAULT '',
+ completed_at TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS tracked_playlists(
  id INTEGER PRIMARY KEY, playlist_id TEXT NOT NULL UNIQUE, url TEXT NOT NULL, title TEXT NOT NULL DEFAULT '',
  preset TEXT NOT NULL, category_id TEXT NOT NULL REFERENCES categories(id), active INTEGER NOT NULL DEFAULT 1,
  display_order INTEGER NOT NULL, created_at TEXT NOT NULL, last_success_at TEXT
 );
-CREATE TABLE IF NOT EXISTS playlist_entries(
- id INTEGER PRIMARY KEY, tracked_playlist_id INTEGER NOT NULL REFERENCES tracked_playlists(id) ON DELETE CASCADE,
- video_id TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', position INTEGER, upload_date TEXT NOT NULL DEFAULT '',
- is_current INTEGER NOT NULL DEFAULT 1, decision TEXT NOT NULL DEFAULT 'pending',
- UNIQUE(tracked_playlist_id,video_id)
-);
-CREATE TABLE IF NOT EXISTS playlist_checks(
+CREATE TABLE IF NOT EXISTS tracker_checks(
  id INTEGER PRIMARY KEY, tracked_playlist_id INTEGER NOT NULL REFERENCES tracked_playlists(id) ON DELETE CASCADE,
  attempted_at TEXT NOT NULL, outcome TEXT NOT NULL, entry_count INTEGER NOT NULL,
  new_count INTEGER NOT NULL, error TEXT NOT NULL DEFAULT ''
 );
+"""
+
+_SCHEMA_V3_MIGRATION = """
+DROP TABLE IF EXISTS playlist_entries;
+DROP TABLE IF EXISTS playlist_checks;
+DROP TABLE IF EXISTS download_records;
+ALTER TABLE queue_items ADD COLUMN organize_by_channel INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE queue_items ADD COLUMN previous_output_path TEXT NOT NULL DEFAULT '';
+ALTER TABLE queue_items ADD COLUMN extractor TEXT NOT NULL DEFAULT '';
+ALTER TABLE queue_items ADD COLUMN media_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE queue_items ADD COLUMN completed_at TEXT NOT NULL DEFAULT '';
 """

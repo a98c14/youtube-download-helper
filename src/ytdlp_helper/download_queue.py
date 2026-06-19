@@ -17,10 +17,9 @@ from .downloader import DownloadCompletion, DownloadRequest, DownloadService
 from .worker_status import StatusEvent, event_percent
 
 
-QUEUE_SCHEMA_VERSION = 2
 QUEUE_FILE = "queue.json"
-QUEUE_STATUSES = ("queued", "running", "completed", "failed", "skipped")
-QueueStatus = Literal["queued", "running", "completed", "failed", "skipped"]
+QUEUE_STATUSES = ("queued", "running", "completed", "failed")
+QueueStatus = Literal["queued", "running", "completed", "failed"]
 
 
 @dataclass(frozen=True)
@@ -28,10 +27,10 @@ class QueueItem:
     id: str
     url: str
     preset: str
-    playlist: bool
     download_dir: str
     filename_template: str
-    added_at: str
+    organize_by_channel: bool = True
+    added_at: str = ""
     category_id: str = "default"
     category_name: str = "Default"
     status: QueueStatus = "queued"
@@ -40,11 +39,15 @@ class QueueItem:
     speed: str = ""
     error: str = ""
     output_path: str = ""
+    previous_output_path: str = ""
     warning: str = ""
     source_type: str = "manual"
     playlist_id: str = ""
     playlist_position: int | None = None
     playlist_title: str = ""
+    extractor: str = ""
+    media_id: str = ""
+    completed_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -56,7 +59,6 @@ class QueueEvent:
 
 class QueueStore:
     def __init__(self, path: Path, database_path: Path | None = None) -> None:
-        # `path` remains the legacy queue path for API compatibility and one-time import.
         self.path = path
         self.database = Database(database_path or path.parent / DATABASE_FILE)
         self._items: list[QueueItem] = []
@@ -77,8 +79,6 @@ class QueueStore:
         with self._lock:
             self._ensure_database()
             if self._legacy_loaded:
-                # Compatibility for callers that deliberately replace the legacy file
-                # during one process; production imports it only once at startup.
                 self._items = self._read_items()
                 self._write_all()
                 return list(self._items)
@@ -97,9 +97,9 @@ class QueueStore:
         self,
         url: str,
         preset: str,
-        playlist: bool,
         download_dir: str,
         filename_template: str,
+        organize_by_channel: bool = True,
         category_id: str = "default",
         category_name: str = "Default",
         *,
@@ -107,14 +107,16 @@ class QueueStore:
         playlist_id: str = "",
         playlist_position: int | None = None,
         playlist_title: str = "",
+        media_id: str = "",
+        extractor: str = "",
     ) -> QueueItem:
         item = QueueItem(
             id=str(uuid4()),
             url=url.strip(),
             preset=preset,
-            playlist=playlist,
             download_dir=download_dir,
             filename_template=filename_template,
+            organize_by_channel=organize_by_channel,
             added_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
             category_id=category_id,
             category_name=category_name,
@@ -123,23 +125,30 @@ class QueueStore:
             playlist_id=playlist_id,
             playlist_position=playlist_position,
             playlist_title=playlist_title,
+            media_id=media_id,
+            extractor=extractor,
         )
         with self._lock:
             self._items.append(item)
             self._write_all()
         return item
 
-    def add_many(self, items: list[dict[str, object]], playlist_entry_ids: list[int] | None = None) -> list[QueueItem]:
-        """Append tracker results atomically, preserving the supplied order."""
+    def add_many(self, items: list[dict[str, object]]) -> list[QueueItem]:
         created = [QueueItem(
             id=str(uuid4()), url=str(raw["url"]).strip(), preset=str(raw["preset"]),
-            playlist=bool(raw.get("playlist", False)), download_dir=str(raw["download_dir"]),
-            filename_template=str(raw["filename_template"]), added_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            category_id=str(raw.get("category_id", "default")), category_name=str(raw.get("category_name", "Default")),
-            name=_fallback_name(str(raw["url"])), source_type=str(raw.get("source_type", "tracker")),
+            download_dir=str(raw["download_dir"]),
+            filename_template=str(raw["filename_template"]),
+            organize_by_channel=bool(raw.get("organize_by_channel", True)),
+            added_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            category_id=str(raw.get("category_id", "default")),
+            category_name=str(raw.get("category_name", "Default")),
+            name=_fallback_name(str(raw["url"])),
+            source_type=str(raw.get("source_type", "tracker")),
             playlist_id=str(raw.get("playlist_id", "")),
             playlist_position=int(raw["playlist_position"]) if raw.get("playlist_position") is not None else None,
             playlist_title=str(raw.get("playlist_title", "")),
+            media_id=str(raw.get("media_id", "")),
+            extractor=str(raw.get("extractor", "")),
         ) for raw in items]
         with self._lock:
             previous = list(self._items)
@@ -149,11 +158,6 @@ class QueueStore:
                 with self.database.connect() as connection:
                     connection.execute("BEGIN IMMEDIATE")
                     self._write_all_to_connection(connection)
-                    if playlist_entry_ids:
-                        connection.execute(
-                            f"UPDATE playlist_entries SET decision='queued' WHERE id IN ({','.join('?' for _ in playlist_entry_ids)})",
-                            playlist_entry_ids,
-                        )
                     connection.commit()
             except Exception:
                 self._items = previous
@@ -175,9 +179,22 @@ class QueueStore:
                     return item
         return None
 
-    def has_duplicate_url(self, url: str) -> bool:
-        normalized = url.strip()
-        return any(item.url == normalized for item in self.items())
+    def find_existing(self, media_id: str, preset: str, download_dir: str,
+                      filename_template: str, organize_by_channel: bool,
+                      playlist_id: str) -> QueueItem | None:
+        normalized = media_id.strip()
+        if not normalized:
+            return None
+        with self._lock:
+            for item in self._items:
+                if (item.media_id.strip() == normalized
+                        and item.preset == preset
+                        and item.download_dir == download_dir
+                        and item.filename_template == filename_template
+                        and item.organize_by_channel == organize_by_channel
+                        and item.playlist_id == playlist_id):
+                    return item
+        return None
 
     def remove(self, item_id: str) -> bool:
         with self._lock:
@@ -190,17 +207,18 @@ class QueueStore:
 
     def clear_completed(self) -> None:
         with self._lock:
-            self._items = [
-                item for item in self._items if item.status not in {"completed", "skipped"}
-            ]
+            self._items = [item for item in self._items if item.status not in {"completed"}]
             self._write_all()
 
     def retry(self, item_id: str) -> bool:
         with self._lock:
             item = self.get(item_id)
-            if not item or item.status not in {"failed", "skipped"}:
+            if not item or item.status not in {"failed", "completed"}:
                 return False
-            self.replace(replace(item, status="queued", progress=None, speed="", error="", output_path=""))
+            self.replace(replace(
+                item, status="queued", progress=None, speed="", error="",
+                previous_output_path=item.output_path, output_path="",
+            ))
             return True
 
     def move(self, item_id: str, direction: int) -> bool:
@@ -229,24 +247,34 @@ class QueueStore:
             connection.commit()
 
     def _write_all_to_connection(self, connection: object) -> None:
-        connection.execute("DELETE FROM queue_items")  # type: ignore[attr-defined]
+        connection.execute("DELETE FROM queue_items")
         for position, item in enumerate(self._items):
-                connection.execute(  # type: ignore[attr-defined]
-                    "INSERT INTO queue_items(id,position,url,preset,playlist,download_dir,filename_template,added_at,"
-                    "category_id,category_name,status,name,progress,speed,error,output_path,warning,source_type,playlist_id,playlist_position,playlist_title) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (item.id, position, item.url, item.preset, item.playlist, item.download_dir, item.filename_template,
-                     item.added_at, item.category_id, item.category_name, item.status, item.name, item.progress,
-                     item.speed, item.error, item.output_path, item.warning, item.source_type,
-                     item.playlist_id or None, item.playlist_position, item.playlist_title or None),
-                )
+            connection.execute(
+                "INSERT INTO queue_items(id,position,url,preset,download_dir,filename_template,"
+                "organize_by_channel,added_at,category_id,category_name,status,name,progress,speed,"
+                "error,output_path,previous_output_path,warning,source_type,playlist_id,"
+                "playlist_position,playlist_title,extractor,media_id,completed_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (item.id, position, item.url, item.preset, item.download_dir, item.filename_template,
+                 int(item.organize_by_channel), item.added_at, item.category_id, item.category_name,
+                 item.status, item.name, item.progress, item.speed, item.error, item.output_path,
+                 item.previous_output_path, item.warning, item.source_type,
+                 item.playlist_id or None,                  item.playlist_position, item.playlist_title or None,
+                 item.extractor or "", item.media_id or "", item.completed_at or ""),
+            )
 
     def _read_database_items(self) -> list[QueueItem]:
         self._ensure_database()
         names = {field.name for field in fields(QueueItem)}
         with self.database.connect() as connection:
             rows = connection.execute("SELECT * FROM queue_items ORDER BY position").fetchall()
-        return [QueueItem(**{name: row[name] for name in names if name in row.keys()}) for row in rows]
+        result = []
+        for row in rows:
+            row_dict = dict(row)
+            row_dict["organize_by_channel"] = bool(row_dict.get("organize_by_channel", 1))
+            kwargs = {name: row_dict[name] for name in names if name in row_dict}
+            result.append(QueueItem(**kwargs))
+        return result
 
     def _import_legacy_once(self) -> None:
         self._ensure_database()
@@ -254,17 +282,18 @@ class QueueStore:
             if connection.execute("SELECT COUNT(*) FROM queue_items").fetchone()[0] or not self.path.exists():
                 return
         imported = self._read_items()
+        if not imported:
+            return
         self._legacy_loaded = True
         self._items = imported
         self._write_all()
-        # Retain a readable normalized source and a verbatim migration backup.
         backup = self.path.with_suffix(self.path.suffix + ".migrated")
         if not backup.exists():
             try:
                 backup.write_bytes(self.path.read_bytes())
             except OSError:
                 pass
-        self.path.write_text(json.dumps({"version": QUEUE_SCHEMA_VERSION, "items": [asdict(i) for i in imported]}, indent=2), encoding="utf-8")
+        self.path.write_text(json.dumps({"items": [asdict(i) for i in imported]}, indent=2), encoding="utf-8")
 
     def _read_items(self) -> list[QueueItem]:
         if not self.path.exists():
@@ -272,8 +301,6 @@ class QueueStore:
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            return []
-        if data.get("version") not in {1, QUEUE_SCHEMA_VERSION}:
             return []
 
         items = []
@@ -367,13 +394,14 @@ class QueueRunner:
     def _run_item(self, item: QueueItem) -> None:
         final_status: QueueStatus = "completed"
         error = ""
+        completed_download: DownloadCompletion | None = None
         try:
             paths = replace(self._paths, download_dir=Path(item.download_dir).expanduser())
             if self._uses_default_downloader_factory:
                 service = DownloadService(
                     paths,
                     item.filename_template,
-                    self._organize_by_channel_provider(),
+                    item.organize_by_channel,
                     self._runtime_tools,
                 )
             else:
@@ -383,21 +411,20 @@ class QueueRunner:
                     self._organize_by_channel_provider(),
                 )
             callbacks = (
-                DownloadRequest(
-                    item.url, item.preset, item.playlist,
-                    playlist_context=item.playlist_title if item.source_type == "tracker" else "",
-                ),
+                DownloadRequest(item.url, item.preset),
                 lambda status, message: self._handle_status(item.id, status, message),
                 lambda message: self._handle_log(item.id, message),
             )
             if self._uses_default_downloader_factory:
-                service.download(*callbacks, lambda completed: self._record_completion(item, completed))
+                service.download(*callbacks, lambda completed: (setattr(service, '_last_completion', completed)))
             else:
                 service.download(*callbacks)
             latest = self._store.get(item.id)
-            if latest and latest.status == "skipped":
-                final_status = "skipped"
-        except Exception as exc:  # noqa: BLE001
+            if latest:
+                last_completion = getattr(service, '_last_completion', None)
+                if last_completion:
+                    completed_download = last_completion
+        except Exception as exc:
             final_status = "failed"
             error = str(exc)
             self._log_callback(f"Queue item failed for {item.url}: {error}")
@@ -406,32 +433,23 @@ class QueueRunner:
             latest = self._store.get(item.id)
             if latest:
                 progress = 100 if final_status == "completed" else latest.progress
-                self._store.replace(
-                    replace(latest, status=final_status, progress=progress, speed="", error=error)
-                )
+                updated = replace(latest, status=final_status, progress=progress, speed="", error=error)
+                if completed_download:
+                    path = Path(completed_download.output_path)
+                    if not path.is_absolute():
+                        path = Path(item.download_dir).expanduser() / path
+                    updated = replace(
+                        updated,
+                        name=completed_download.title or path.name,
+                        output_path=str(path),
+                        extractor=completed_download.extractor,
+                        media_id=completed_download.media_id,
+                        completed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    )
+                self._store.replace(updated)
             self._running.discard(item.id)
             self._events.put(QueueEvent("item", item.id))
         self._schedule()
-
-    def _record_completion(self, item: QueueItem, completed: DownloadCompletion) -> None:
-        path = Path(completed.output_path)
-        if not path.is_absolute():
-            path = Path(item.download_dir).expanduser() / path
-        latest = self._store.get(item.id)
-        if latest:
-            self._store.replace(replace(latest, name=completed.title or path.name, output_path=str(path)))
-        try:
-            self._store.database.add_download_record(
-                title=completed.title or path.stem, category_name=item.category_name,
-                preset=item.preset, output_path=str(path), extractor=completed.extractor,
-                media_id=completed.media_id, queue_item_id=item.id,
-            )
-        except Exception as exc:  # noqa: BLE001
-            warning = f"File downloaded, but Download History could not be saved: {exc}"
-            current = self._store.get(item.id)
-            if current:
-                self._store.replace(replace(current, warning=warning, output_path=str(path)))
-            self._log_callback(warning)
 
     def _handle_status(self, item_id: str, phase: str, event: StatusEvent | str) -> None:
         item = self._store.get(item_id)
@@ -441,8 +459,6 @@ class QueueRunner:
             updated = replace(item, speed=str(event) if isinstance(event, str) else "")
         elif phase == "name":
             updated = replace(item, name=str(event) if isinstance(event, str) else item.name)
-        elif phase == "skipped":
-            updated = replace(item, status="skipped", progress=None, speed="")
         else:
             progress = None
             if not isinstance(event, str):
@@ -485,9 +501,9 @@ def _parse_item(raw_item: object) -> QueueItem | None:
             id=str(raw_item["id"]),
             url=str(raw_item["url"]),
             preset=str(raw_item["preset"]),
-            playlist=bool(raw_item.get("playlist", False)),
             download_dir=str(raw_item["download_dir"]),
             filename_template=str(raw_item["filename_template"]),
+            organize_by_channel=bool(raw_item.get("organize_by_channel", True)),
             added_at=str(raw_item["added_at"]),
             category_id=str(raw_item.get("category_id", "default")) or "default",
             category_name=str(raw_item.get("category_name", "Default")) or "Default",
@@ -497,11 +513,15 @@ def _parse_item(raw_item: object) -> QueueItem | None:
             speed=str(raw_item.get("speed", "")),
             error=str(raw_item.get("error", "")),
             output_path=str(raw_item.get("output_path", "")),
+            previous_output_path=str(raw_item.get("previous_output_path", "")),
             warning=str(raw_item.get("warning", "")),
             source_type=str(raw_item.get("source_type", "manual")),
             playlist_id=str(raw_item.get("playlist_id", "")),
             playlist_position=(int(raw_item["playlist_position"]) if raw_item.get("playlist_position") is not None else None),
             playlist_title=str(raw_item.get("playlist_title", "")),
+            extractor=str(raw_item.get("extractor", "")),
+            media_id=str(raw_item.get("media_id", "")),
+            completed_at=str(raw_item.get("completed_at", "")),
         )
     except KeyError:
         return None

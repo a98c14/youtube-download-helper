@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
 import sys
 import tempfile
 import unittest
@@ -26,28 +25,30 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
             self.assertEqual(connection.execute("PRAGMA foreign_keys").fetchone()[0], 1)
 
-    def test_history_keeps_repeated_downloads(self) -> None:
-        values = dict(title="Title", category_name="Default", preset="best-video", output_path="x.mp4",
-                      extractor="youtube", media_id="abc")
-        self.database.add_download_record(**values)
-        self.database.add_download_record(**values)
-        self.assertEqual(len(self.database.download_history()), 2)
+    def test_queue_history_returns_completed_items(self) -> None:
+        with self.database.connect() as connection:
+            connection.execute(
+                "INSERT INTO queue_items(id,position,url,preset,download_dir,filename_template,"
+                "added_at,category_id,category_name,status,name,output_path,completed_at,"
+                "extractor,media_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                ("1", 0, "https://youtube.com/watch?v=abc", "best-video", "downloads",
+                 "%(title)s.%(ext)s", "2026-04-24T00:00:00", "default", "Default",
+                 "completed", "Test Video", "output.mp4", "2026-04-24T00:01:00",
+                 "youtube", "abc"),
+            )
+        history = self.database.queue_history()
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0].title, "Test Video")
 
-    def test_tracker_lifecycle_pending_recovery_and_reset(self) -> None:
+    def test_tracker_lifecycle_and_checks(self) -> None:
         tracker_id = self.database.add_tracker("PL1234567890", canonical_playlist_url("PL1234567890"),
                                                "List", "best-video", "default")
-        entries = [{"video_id": "a", "title": "A", "position": 2, "upload_date": "20260102"},
-                   {"video_id": "b", "title": "B", "position": 1, "upload_date": "20260101"}]
-        self.database.record_playlist_check(tracker_id, entries)
-        candidates = self.database.pending_candidates()
-        self.assertEqual([candidate.video_id for candidate in candidates], ["b", "a"])
-        self.database.decide_entries([candidate.entry_id for candidate in candidates], "queued")
-        self.database.record_playlist_check(tracker_id, None, "offline")
-        self.assertEqual(self.database.pending_candidates(), [])
-        self.database.reset_tracker(tracker_id)
-        self.assertEqual(len(self.database.pending_candidates()), 2)
-        self.database.set_tracker_active(tracker_id, False)
-        self.assertEqual(self.database.pending_candidates(), [])
+        self.database.record_tracker_check(tracker_id, entry_count=5, new_count=3)
+        self.database.record_tracker_check(tracker_id, error="offline")
+        trackers = self.database.trackers()
+        self.assertEqual(len(trackers), 1)
+        self.assertEqual(trackers[0].last_outcome, "failed")
+        self.assertIn("offline", trackers[0].last_error)
 
     def test_category_deletion_reassigns_tracker(self) -> None:
         self.database.replace_categories([Category("default", "Default", "d"), Category("work", "Work", "w")])
@@ -66,19 +67,20 @@ class DatabaseTests(unittest.TestCase):
         self.assertFalse(tracker.active)
         self.assertEqual((tracker.preset, tracker.category_id), ("audio-mp3", "work"))
 
-    def test_playlist_title_is_persisted_from_playlist_check(self) -> None:
+    def test_playlist_title_is_persisted_from_tracker_check(self) -> None:
         tracker_id = self.database.add_tracker("PL1234567890", canonical_playlist_url("PL1234567890"),
                                                 "List", "best-video", "default")
-        entries = [{"video_id": "a", "title": "A", "position": 1, "upload_date": "20260101"}]
-        self.database.record_playlist_check(tracker_id, entries, playlist_title="My Real Playlist")
+        self.database.record_tracker_check(tracker_id, entry_count=3, new_count=1, playlist_title="My Real Playlist")
         trackers = self.database.trackers()
         self.assertEqual(trackers[0].title, "My Real Playlist")
+
+    def test_initialize_with_recovery(self) -> None:
         path = self.root / "broken.db"
         path.write_bytes(b"not sqlite")
         database = Database(path)
         backup = database.initialize_with_recovery()
         self.assertIsNotNone(backup)
-        self.assertTrue((backup / "broken.db").exists())  # type: ignore[operator]
+        self.assertTrue((backup / "broken.db").exists())
         with database.connect() as connection:
             self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
 

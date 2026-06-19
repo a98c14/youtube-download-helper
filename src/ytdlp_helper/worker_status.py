@@ -16,7 +16,6 @@ WorkerPhase = Literal[
     "postprocessing",
     "completed",
     "failed",
-    "skipped",
     "speed",
 ]
 WorkerKind = Literal["download", "update"]
@@ -58,10 +57,8 @@ class RuntimeToolStatus:
 class DownloadPhase(Enum):
     PREPARING = "preparing"
     RESOLVING_VIDEO = "resolving_video"
-    RESOLVING_PLAYLIST = "resolving_playlist"
     DOWNLOADING = "downloading"
     FINALIZING = "finalizing"
-    ARCHIVE_SKIPPED = "archive_skipped"
 
 
 @dataclass(frozen=True)
@@ -272,7 +269,7 @@ class WorkerStatusPipeline:
             self._ui.show_progress(100)
             self._ui.show_speed(None)
             return
-        if phase in {"failed", "skipped"}:
+        if phase == "failed":
             self._ui.show_progress(0)
             self._ui.show_speed(None)
             return
@@ -321,10 +318,8 @@ def _runtime_tool_status_key(event: RuntimeToolStatus) -> tuple[str, dict[str, o
 _DOWNLOAD_PHASE_KEYS = {
     DownloadPhase.PREPARING: "status.preparing_download",
     DownloadPhase.RESOLVING_VIDEO: "status.resolving_video",
-    DownloadPhase.RESOLVING_PLAYLIST: "status.resolving_playlist",
     DownloadPhase.DOWNLOADING: "status.downloading_percent",
     DownloadPhase.FINALIZING: "status.finalizing_file",
-    DownloadPhase.ARCHIVE_SKIPPED: "status.archive_skipped",
 }
 
 

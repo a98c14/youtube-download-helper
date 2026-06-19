@@ -44,7 +44,7 @@ class QueueItemControllerTests(unittest.TestCase):
 
     def test_add_item_and_items(self) -> None:
         item = self.controller.add_item(
-            "https://youtube.com/watch?v=test1", "best-video", False,
+            "https://youtube.com/watch?v=test1", "best-video",
             str(self.paths.download_dir), "%(title)s.%(ext)s",
             "default", "Default",
         )
@@ -53,18 +53,26 @@ class QueueItemControllerTests(unittest.TestCase):
         self.assertEqual(items[0].id, item.id)
         self.assertEqual(items[0].url, "https://youtube.com/watch?v=test1")
 
-    def test_has_duplicate_url(self) -> None:
+    def test_find_existing(self) -> None:
         self.controller.add_item(
-            "https://youtube.com/watch?v=dup", "best-video", False,
+            "https://youtube.com/watch?v=dup", "best-video",
             str(self.paths.download_dir), "%(title)s.%(ext)s",
-            "default", "Default",
+            "default", "Default", media_id="dup",
         )
-        self.assertTrue(self.controller.has_duplicate_url("https://youtube.com/watch?v=dup"))
-        self.assertFalse(self.controller.has_duplicate_url("https://youtube.com/watch?v=other"))
+        found = self.controller.find_existing(
+            "dup", "best-video", str(self.paths.download_dir),
+            "%(title)s.%(ext)s", True, "",
+        )
+        self.assertIsNotNone(found)
+        not_found = self.controller.find_existing(
+            "other", "best-video", str(self.paths.download_dir),
+            "%(title)s.%(ext)s", True, "",
+        )
+        self.assertIsNone(not_found)
 
     def test_retry_only_failed_items(self) -> None:
         self.controller.add_item(
-            "https://youtube.com/watch?v=retry", "best-video", False,
+            "https://youtube.com/watch?v=retry", "best-video",
             str(self.paths.download_dir), "%(title)s.%(ext)s",
             "default", "Default",
         )
@@ -73,7 +81,7 @@ class QueueItemControllerTests(unittest.TestCase):
 
     def test_remove_item(self) -> None:
         item = self.controller.add_item(
-            "https://youtube.com/watch?v=remove", "best-video", False,
+            "https://youtube.com/watch?v=remove", "best-video",
             str(self.paths.download_dir), "%(title)s.%(ext)s",
             "default", "Default",
         )
@@ -82,12 +90,12 @@ class QueueItemControllerTests(unittest.TestCase):
 
     def test_move_item(self) -> None:
         item1 = self.controller.add_item(
-            "https://youtube.com/watch?v=first", "best-video", False,
+            "https://youtube.com/watch?v=first", "best-video",
             str(self.paths.download_dir), "%(title)s.%(ext)s",
             "default", "Default",
         )
         item2 = self.controller.add_item(
-            "https://youtube.com/watch?v=second", "best-video", False,
+            "https://youtube.com/watch?v=second", "best-video",
             str(self.paths.download_dir), "%(title)s.%(ext)s",
             "default", "Default",
         )
@@ -99,7 +107,7 @@ class QueueItemControllerTests(unittest.TestCase):
 
     def test_clear_completed(self) -> None:
         self.controller.add_item(
-            "https://youtube.com/watch?v=c1", "best-video", False,
+            "https://youtube.com/watch?v=c1", "best-video",
             str(self.paths.download_dir), "%(title)s.%(ext)s",
             "default", "Default",
         )
@@ -111,7 +119,7 @@ class QueueItemControllerTests(unittest.TestCase):
 
     def test_items_matching_filter_all(self) -> None:
         self.controller.add_item(
-            "https://youtube.com/watch?v=f1", "best-video", False,
+            "https://youtube.com/watch?v=f1", "best-video",
             str(self.paths.download_dir), "%(title)s.%(ext)s",
             "default", "Default",
         )

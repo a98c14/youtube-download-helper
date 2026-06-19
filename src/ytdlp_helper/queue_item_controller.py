@@ -25,27 +25,43 @@ class QueueItemController:
     def get_item(self, item_id: str) -> QueueItem | None:
         return self._store.get(item_id)
 
-    def has_duplicate_url(self, url: str) -> bool:
-        return self._store.has_duplicate_url(url)
+    def find_existing(self, media_id: str, preset: str, download_dir: str,
+                      filename_template: str, organize_by_channel: bool,
+                      playlist_id: str) -> QueueItem | None:
+        return self._store.find_existing(
+            media_id, preset, download_dir, filename_template,
+            organize_by_channel, playlist_id,
+        )
 
     def add_item(
         self,
         url: str,
         preset: str,
-        playlist: bool,
         download_dir: str,
         filename_template: str,
         category_id: str,
         category_name: str,
+        *,
+        organize_by_channel: bool = True,
+        source_type: str = "manual",
+        playlist_id: str = "",
+        playlist_position: int | None = None,
+        playlist_title: str = "",
+        media_id: str = "",
+        extractor: str = "",
     ) -> QueueItem:
         return self._store.add(
-            url, preset, playlist, download_dir,
+            url, preset, download_dir,
             filename_template.strip() or DEFAULT_FILENAME_TEMPLATE,
+            organize_by_channel,
             category_id, category_name,
+            source_type=source_type,
+            playlist_id=playlist_id,
+            playlist_position=playlist_position,
+            playlist_title=playlist_title,
+            media_id=media_id,
+            extractor=extractor,
         )
-
-    def add_many(self, items: list[dict[str, object]], entry_ids: list[int] | None = None) -> list[QueueItem]:
-        return self._store.add_many(items, entry_ids)
 
     def retry(self, item_id: str) -> bool:
         return self._store.retry(item_id)
