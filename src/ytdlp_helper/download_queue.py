@@ -462,11 +462,15 @@ class QueueRunner:
         elif phase == "name":
             updated = replace(item, name=str(event) if isinstance(event, str) else item.name)
         else:
-            progress = None
+            progress = item.progress
             if not isinstance(event, str):
-                progress = event_percent(event)
+                event_progress = event_percent(event)
+                if event_progress is not None:
+                    progress = event_progress
             elif event:
-                progress = _percent_from_message(event)
+                event_progress = _percent_from_message(event)
+                if event_progress is not None:
+                    progress = event_progress
             updated = replace(item, progress=progress)
         try:
             self._store.replace(updated)

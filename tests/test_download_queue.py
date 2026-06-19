@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ytdlp_helper.config import AppPaths
 from ytdlp_helper.download_queue import QueueItem, QueueRunner, QueueStore
+from ytdlp_helper.worker_status import DownloadPhase, DownloadStatus
 
 
 class QueueStoreTests(unittest.TestCase):
@@ -207,6 +208,21 @@ class QueueRunnerTests(unittest.TestCase):
 
         self.assertEqual(store.get(first.id).status, "failed")
         self.assertIn("Queue item failed", "\n".join(logs))
+
+    def test_non_percent_status_does_not_clear_existing_progress(self) -> None:
+        paths = _paths()
+        store = QueueStore.for_paths(paths)
+        item = store.add("https://example.test/ok", "best-video", str(paths.download_dir), "%(title)s.%(ext)s")
+        store.replace(replace(item, status="running", progress=42))
+        runner = QueueRunner(store, paths, lambda *_args: None)
+
+        runner._handle_status(
+            item.id,
+            "postprocessing",
+            DownloadStatus(DownloadPhase.FINALIZING),
+        )
+
+        self.assertEqual(store.get(item.id).progress, 42)
 
     def test_output_path_is_captured_from_download_logs(self) -> None:
         paths = _paths()

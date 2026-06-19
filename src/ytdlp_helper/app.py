@@ -1199,8 +1199,9 @@ class YtDlpHelperApp:
 
     def _poll_queue_runner(self) -> None:
         try:
-            self.queue_runner.poll_events()
-            self._refresh_queue_table()
+            events = self.queue_runner.poll_events()
+            if events:
+                self._refresh_queue_table()
         except Exception:
             self._append_log("Queue runner poll error")
         self.root.after(150, self._poll_queue_runner)
@@ -1291,34 +1292,48 @@ class YtDlpHelperApp:
             selected = self._selected_queue_item()
             selected_id = selected.id if selected else None
 
-        for row_id in self.queue_table.get_children():
-            self.queue_table.delete(row_id)
-        self.queue_item_ids.clear()
-
         filter_key = self.queue_filter_var.get()
+        existing_rows_by_item_id = {
+            item_id: row_id for row_id, item_id in self.queue_item_ids.items()
+            if row_id in self.queue_table.get_children()
+        }
+        visible_row_ids = set()
         selected_row = ""
-        for item in self.queue_controller.items_matching_filter(filter_key):
-            row_id = self.queue_table.insert(
-                "",
-                "end",
-                values=(
-                    item.name or item.url,
-                    item.category_name,
-                    f"{item.progress}%" if item.progress is not None else "",
-                    item.speed if item.status == "running" else "",
-                    item.added_at[:19].replace("T", " "),
-                    self._t(f"queue.status.{item.status}"),
-                ),
-            )
+        refreshed_ids = {}
+        for index, item in enumerate(self.queue_controller.items_matching_filter(filter_key)):
+            values = self._queue_item_row_values(item)
+            row_id = existing_rows_by_item_id.get(item.id)
+            if row_id:
+                self.queue_table.item(row_id, values=values)
+                self.queue_table.move(row_id, "", index)
+            else:
+                row_id = self.queue_table.insert("", index, values=values)
+            visible_row_ids.add(row_id)
+            refreshed_ids[row_id] = item.id
             self.queue_item_ids[row_id] = item.id
             if item.id == selected_id:
                 selected_row = row_id
+
+        for row_id in self.queue_table.get_children():
+            if row_id not in visible_row_ids:
+                self.queue_table.delete(row_id)
+        self.queue_item_ids = refreshed_ids
 
         if selected_row:
             self.queue_table.selection_set(selected_row)
         self._update_queue_summary()
         self._update_queue_action_state()
         self._update_queue_state()
+
+    def _queue_item_row_values(self, item: QueueItem) -> tuple[str, str, str, str, str, str]:
+        return (
+            item.name or item.url,
+            item.category_name,
+            f"{item.progress}%" if item.progress is not None else "",
+            item.speed if item.status == "running" else "",
+            item.added_at[:19].replace("T", " "),
+            self._t(f"queue.status.{item.status}"),
+        )
 
     def _update_queue_summary(self) -> None:
         counts = {status: 0 for status in ("queued", "running", "completed", "failed")}

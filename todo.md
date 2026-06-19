@@ -6,6 +6,7 @@
 
 ## features
 - [x] Queue Item-owned playlist expansion and download history (#21)
+- [x] Queue progress stays visible while running and context menu remains stable
 
 ## planned
 - [ ] Channel tracking feature. Very similar to playlist tracking but it tracks the channel with a configurable cutoff date.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import sys
 import tempfile
 import unittest
@@ -197,6 +198,47 @@ class FakeMenu:
 
     def entryconfigure(self, index: int, **kwargs: object) -> None:
         self.entries.setdefault(index, {}).update(kwargs)
+
+
+class FakeQueueTable:
+    def __init__(self) -> None:
+        self.rows: dict[str, tuple[object, ...]] = {}
+        self.order: list[str] = []
+        self.selected: tuple[str, ...] = ()
+        self.next_id = 1
+        self.deleted: list[str] = []
+
+    def get_children(self) -> tuple[str, ...]:
+        return tuple(self.order)
+
+    def insert(self, parent: str, index: object, values: tuple[object, ...]) -> str:
+        row_id = f"row-{self.next_id}"
+        self.next_id += 1
+        self.rows[row_id] = values
+        if isinstance(index, int):
+            self.order.insert(index, row_id)
+        else:
+            self.order.append(row_id)
+        return row_id
+
+    def item(self, row_id: str, **kwargs: object) -> None:
+        if "values" in kwargs:
+            self.rows[row_id] = kwargs["values"]  # type: ignore[assignment]
+
+    def move(self, row_id: str, parent: str, index: int) -> None:
+        self.order.remove(row_id)
+        self.order.insert(index, row_id)
+
+    def delete(self, row_id: str) -> None:
+        self.deleted.append(row_id)
+        self.order.remove(row_id)
+        self.rows.pop(row_id, None)
+
+    def selection(self) -> tuple[str, ...]:
+        return self.selected
+
+    def selection_set(self, row_id: str) -> None:
+        self.selected = (row_id,)
 
 
 class FakeRoot:
@@ -400,6 +442,43 @@ class AppStatusTests(unittest.TestCase):
 
         self.assertEqual(app.queue_filter_var.value, "completed")
         self.assertEqual(refresh_calls, [True])
+
+    def test_refresh_queue_table_updates_existing_rows_without_recreating_them(self) -> None:
+        app = YtDlpHelperApp.__new__(YtDlpHelperApp)
+        app.language = "en"
+        app.queue_table = FakeQueueTable()
+        app.queue_item_ids = {}
+        app.queue_filter_var = FakeVar("all")
+        app.queue_summary_var = FakeVar()
+        app.queue_state_var = FakeVar()
+        app.queue_user_paused = False
+        app.queue_controller = FakeQueueController()
+        app._t = lambda key, **params: translate("en", key, **params)
+        item = QueueItem(
+            id="item-1",
+            url="https://example.test/video",
+            preset="best-video",
+            download_dir="downloads",
+            filename_template="%(title)s.%(ext)s",
+            added_at="2026-04-24T00:00:00+00:00",
+            status="running",
+            name="Video",
+            progress=10,
+            speed="1MiB/s",
+        )
+        app.queue_controller._items = [item]
+
+        app._refresh_queue_table()
+        row_id = app.queue_table.get_children()[0]
+        app.queue_controller._items = [replace(item, progress=42, speed="2MiB/s")]
+
+        app._refresh_queue_table(selected_id=item.id)
+
+        self.assertEqual(app.queue_table.get_children(), (row_id,))
+        self.assertEqual(app.queue_table.deleted, [])
+        self.assertEqual(app.queue_table.rows[row_id][2], "42%")
+        self.assertEqual(app.queue_table.rows[row_id][3], "2MiB/s")
+        self.assertEqual(app.queue_table.selection(), (row_id,))
 
     def test_copy_activity_log_copies_visible_log_contents(self) -> None:
         app = YtDlpHelperApp.__new__(YtDlpHelperApp)
