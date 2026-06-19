@@ -16,6 +16,14 @@ class BuildScriptTests(unittest.TestCase):
         self.assertNotIn("ffmpeg.exe", script)
         self.assertNotIn("ffprobe.exe", script)
 
+    def test_build_script_bundles_app_resources(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "scripts" / "build_portable.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("--add-data $resourceData", script)
+        self.assertIn("src\\ytdlp_helper\\resources", script)
+        self.assertIn("ytdlp_helper\\resources", script)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -110,7 +110,10 @@ class FakeQueueRunner:
 
 class FakeQueueStore:
     def __init__(self) -> None:
-        self.items: list[QueueItem] = []
+        self._items: list[QueueItem] = []
+
+    def items(self) -> list[QueueItem]:
+        return list(self._items)
 
     def has_duplicate_url(self, _url: str) -> bool:
         return False
@@ -126,7 +129,7 @@ class FakeQueueStore:
         category_name: str = "Default",
     ) -> QueueItem:
         item = QueueItem(
-            id=f"item-{len(self.items) + 1}",
+            id=f"item-{len(self._items) + 1}",
             url=url,
             preset=preset,
             playlist=playlist,
@@ -136,7 +139,7 @@ class FakeQueueStore:
             category_id=category_id,
             category_name=category_name,
         )
-        self.items.append(item)
+        self._items.append(item)
         return item
 
 
@@ -420,8 +423,8 @@ class AppStatusTests(unittest.TestCase):
 
         app._start_download_request(playlist=False)  # noqa: SLF001
 
-        self.assertEqual(len(app.queue_store.items), 1)
-        self.assertFalse(app.queue_store.items[0].playlist)
+        self.assertEqual(len(app.queue_store.items()), 1)
+        self.assertFalse(app.queue_store.items()[0].playlist)
         self.assertEqual(app.queue_runner.resumed_with, [2])
         self.assertEqual(app.queue_runner.notify_count, 0)
 
@@ -433,7 +436,7 @@ class AppStatusTests(unittest.TestCase):
 
         app._start_download_request(playlist=False)  # noqa: SLF001
 
-        item = app.queue_store.items[0]
+        item = app.queue_store.items()[0]
         self.assertEqual((item.category_id, item.category_name), ("work", "Work"))
         self.assertEqual(item.download_dir, str(category_dir))
 
@@ -443,8 +446,8 @@ class AppStatusTests(unittest.TestCase):
 
         app._start_download_request(playlist=True)  # noqa: SLF001
 
-        self.assertEqual(len(app.queue_store.items), 1)
-        self.assertTrue(app.queue_store.items[0].playlist)
+        self.assertEqual(len(app.queue_store.items()), 1)
+        self.assertTrue(app.queue_store.items()[0].playlist)
         self.assertEqual(app.queue_runner.resumed_with, [])
         self.assertEqual(app.queue_runner.notify_count, 1)
 
@@ -478,6 +481,65 @@ class AppStatusTests(unittest.TestCase):
 
         self.assertFalse(app.queue_user_paused)
         self.assertEqual(app.queue_runner.resumed_with, [2])
+
+    def test_queue_state_idle_when_empty_and_not_paused(self) -> None:
+        app = _app_for_start_download()
+
+        app._update_queue_state()  # noqa: SLF001
+
+        self.assertIn("Idle", app.queue_state_var.value)
+
+    def test_queue_state_paused_when_user_paused_and_empty(self) -> None:
+        app = _app_for_start_download()
+        app.queue_user_paused = True
+
+        app._update_queue_state()  # noqa: SLF001
+
+        self.assertIn("Paused", app.queue_state_var.value)
+
+    def test_queue_state_waiting_when_queued_and_not_paused(self) -> None:
+        app = _app_for_start_download()
+        app.queue_store._items = [_queue_item("queued", "")]
+        app.queue_user_paused = False
+
+        app._update_queue_state()  # noqa: SLF001
+
+        self.assertIn("Waiting", app.queue_state_var.value)
+
+    def test_queue_state_running_when_item_running(self) -> None:
+        app = _app_for_start_download()
+        app.queue_store._items = [_queue_item("running", "")]
+        app.queue_user_paused = False
+
+        app._update_queue_state()  # noqa: SLF001
+
+        self.assertIn("Running", app.queue_state_var.value)
+
+    def test_queue_state_pausing_when_running_and_user_paused(self) -> None:
+        app = _app_for_start_download()
+        app.queue_store._items = [_queue_item("running", "")]
+        app.queue_user_paused = True
+
+        app._update_queue_state()  # noqa: SLF001
+
+        self.assertIn("Pausing", app.queue_state_var.value)
+
+    def test_queue_state_updates_after_pause(self) -> None:
+        app = _app_for_start_download()
+
+        app._pause_queue()  # noqa: SLF001
+
+        self.assertTrue(app.queue_user_paused)
+        self.assertIn("Paused", app.queue_state_var.value)
+
+    def test_queue_state_updates_after_resume(self) -> None:
+        app = _app_for_start_download()
+        app.queue_user_paused = True
+
+        app._resume_queue()  # noqa: SLF001
+
+        self.assertFalse(app.queue_user_paused)
+        self.assertIn("Idle", app.queue_state_var.value)
 
     def test_about_message_includes_app_and_ytdlp_versions(self) -> None:
         app = YtDlpHelperApp.__new__(YtDlpHelperApp)
@@ -630,6 +692,7 @@ def _app_for_start_download() -> YtDlpHelperApp:
     app.progress_var = FakeVar()
     app.status_key = "status.ready"
     app.status_params = {}
+    app.queue_state_var = FakeVar()
     app.queue_user_paused = False
     app.queue_runner = FakeQueueRunner()
     app.queue_store = FakeQueueStore()

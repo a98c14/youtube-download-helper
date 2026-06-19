@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from importlib import resources
 import os
 from pathlib import Path
 import subprocess
@@ -119,6 +120,7 @@ class YtDlpHelperApp:
         self.queue_filter_var = tk.StringVar(value="all")
         self.queue_filter_label_var = tk.StringVar(value=self._queue_filter_label("all"))
         self.queue_summary_var = tk.StringVar()
+        self.queue_state_var = tk.StringVar()
         self.progress_var = tk.IntVar(value=0)
         self.queue_item_ids: dict[str, str] = {}
         self.tracker_check_running = False
@@ -241,10 +243,13 @@ class YtDlpHelperApp:
 
         queue_bar = ttk.Frame(container)
         queue_bar.grid(row=4, column=0, sticky="ew", pady=(0, 8))
-        self.resume_button = ttk.Button(queue_bar, text=self._t("button.resume"), command=self._resume_queue)
-        self.resume_button.pack(side="left", padx=(0, 8))
-        self.pause_button = ttk.Button(queue_bar, text=self._t("button.pause"), command=self._pause_queue)
+        self._resume_icon = self._create_resume_icon()
+        self.resume_button = ttk.Button(queue_bar, image=self._resume_icon, command=self._resume_queue)
+        self.resume_button.pack(side="left", padx=(0, 4))
+        self._pause_icon = self._create_pause_icon()
+        self.pause_button = ttk.Button(queue_bar, image=self._pause_icon, command=self._pause_queue)
         self.pause_button.pack(side="left", padx=(0, 8))
+        ttk.Label(queue_bar, textvariable=self.queue_state_var).pack(side="left", padx=(0, 8))
         ttk.Label(queue_bar, text=self._t("field.concurrency")).pack(side="left", padx=(8, 4))
         ttk.Spinbox(
             queue_bar,
@@ -988,6 +993,17 @@ class YtDlpHelperApp:
         icon.put("#4b5563", to=(12, 5, 13, 6))
         return icon
 
+    def _create_resume_icon(self) -> tk.BitmapImage:
+        return self._load_bitmap_icon("play.xbm", "#22c55e")
+
+    def _create_pause_icon(self) -> tk.BitmapImage:
+        return self._load_bitmap_icon("pause.xbm", "#d9a441")
+
+    def _load_bitmap_icon(self, filename: str, foreground: str) -> tk.BitmapImage:
+        resource = resources.files(__package__).joinpath("resources", filename)
+        with resources.as_file(resource) as icon_path:
+            return tk.BitmapImage(file=str(icon_path), foreground=foreground)
+
     def _on_preset_changed(self, _event: object) -> None:
         selected_label = self.preset_combo.get()
         for key in PRESET_KEYS:
@@ -1100,16 +1116,33 @@ class YtDlpHelperApp:
             self.queue_runner.resume(self._validate_queue_concurrency(self.queue_concurrency_var.get()))
         self._refresh_queue_table()
 
+    def _update_queue_state(self) -> None:
+        running_count = sum(1 for item in self.queue_store.items() if item.status == "running")
+        queued_count = sum(1 for item in self.queue_store.items() if item.status == "queued")
+
+        if self.queue_user_paused:
+            state = "pausing" if running_count > 0 else "paused"
+        elif running_count > 0:
+            state = "running"
+        elif queued_count > 0:
+            state = "waiting"
+        else:
+            state = "idle"
+
+        self.queue_state_var.set(self._t("queue.state", state=self._t(f"queue.state.{state}")))
+
     def _resume_queue(self) -> None:
         self._persist_settings()
         self.queue_user_paused = False
         self.queue_runner.resume(self._validate_queue_concurrency(self.queue_concurrency_var.get()))
         self._refresh_queue_table()
+        self._update_queue_state()
 
     def _pause_queue(self) -> None:
         self.queue_user_paused = True
         self.queue_runner.pause()
         self._refresh_queue_table()
+        self._update_queue_state()
 
     def _poll_queue_runner(self) -> None:
         events = self.queue_runner.poll_events()
@@ -1232,6 +1265,7 @@ class YtDlpHelperApp:
             self.queue_table.selection_set(selected_row)
         self._update_queue_summary()
         self._update_queue_action_state()
+        self._update_queue_state()
 
     def _queue_item_matches_filter(self, item: QueueItem, filter_key: str) -> bool:
         if filter_key == "ongoing":
