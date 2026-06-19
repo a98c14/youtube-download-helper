@@ -70,6 +70,21 @@ class I18nTests(unittest.TestCase):
             "Takip ayarları güncellenemedi: disk full",
         )
 
+    def test_queue_state_labels_are_translated(self) -> None:
+        self.assertEqual(translate("en", "queue.state.pausing"), "Pausing")
+        self.assertEqual(translate("en", "queue.state.paused"), "Paused")
+        self.assertEqual(translate("en", "queue.state.running"), "Running")
+        self.assertEqual(translate("en", "queue.state.waiting"), "Waiting")
+        self.assertEqual(translate("en", "queue.state.idle"), "Idle")
+        self.assertEqual(translate("en", "queue.state", state="Running"), "Queue: Running")
+
+        self.assertEqual(translate("tr", "queue.state.pausing"), "Duraklatılıyor")
+        self.assertEqual(translate("tr", "queue.state.paused"), "Duraklatıldı")
+        self.assertEqual(translate("tr", "queue.state.running"), "Çalışıyor")
+        self.assertEqual(translate("tr", "queue.state.waiting"), "Bekliyor")
+        self.assertEqual(translate("tr", "queue.state.idle"), "Boşta")
+        self.assertEqual(translate("tr", "queue.state", state="Çalışıyor"), "Kuyruk: Çalışıyor")
+
 
 if __name__ == "__main__":
     unittest.main()
