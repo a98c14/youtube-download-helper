@@ -430,25 +430,27 @@ class QueueRunner:
             self._log_callback(f"Queue item failed for {item.url}: {error}")
 
         with self._lock:
-            latest = self._store.get(item.id)
-            if latest:
-                progress = 100 if final_status == "completed" else latest.progress
-                updated = replace(latest, status=final_status, progress=progress, speed="", error=error)
-                if completed_download:
-                    path = Path(completed_download.output_path)
-                    if not path.is_absolute():
-                        path = Path(item.download_dir).expanduser() / path
-                    updated = replace(
-                        updated,
-                        name=completed_download.title or path.name,
-                        output_path=str(path),
-                        extractor=completed_download.extractor,
-                        media_id=completed_download.media_id,
-                        completed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                    )
-                self._store.replace(updated)
-            self._running.discard(item.id)
-            self._events.put(QueueEvent("item", item.id))
+            try:
+                latest = self._store.get(item.id)
+                if latest:
+                    progress = 100 if final_status == "completed" else latest.progress
+                    updated = replace(latest, status=final_status, progress=progress, speed="", error=error)
+                    if completed_download:
+                        path = Path(completed_download.output_path)
+                        if not path.is_absolute():
+                            path = Path(item.download_dir).expanduser() / path
+                        updated = replace(
+                            updated,
+                            name=completed_download.title or path.name,
+                            output_path=str(path),
+                            extractor=completed_download.extractor,
+                            media_id=completed_download.media_id,
+                            completed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                        )
+                    self._store.replace(updated)
+            finally:
+                self._running.discard(item.id)
+                self._events.put(QueueEvent("item", item.id))
         self._schedule()
 
     def _handle_status(self, item_id: str, phase: str, event: StatusEvent | str) -> None:
@@ -466,8 +468,10 @@ class QueueRunner:
             elif event:
                 progress = _percent_from_message(event)
             updated = replace(item, progress=progress)
-        self._store.replace(updated)
-        self._events.put(QueueEvent("item", item_id))
+        try:
+            self._store.replace(updated)
+        finally:
+            self._events.put(QueueEvent("item", item_id))
 
     def _handle_log(self, item_id: str, message: str) -> None:
         self._log_callback(message)
@@ -486,8 +490,10 @@ class QueueRunner:
             if not path.is_absolute():
                 path = Path(item.download_dir).expanduser() / path
             updated = replace(updated, output_path=str(path))
-        self._store.replace(updated)
-        self._events.put(QueueEvent("item", item_id))
+        try:
+            self._store.replace(updated)
+        finally:
+            self._events.put(QueueEvent("item", item_id))
 
 
 def _parse_item(raw_item: object) -> QueueItem | None:
