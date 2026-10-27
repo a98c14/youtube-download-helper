@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Throwaway spike for issue #32. Not part of the solution. -->
+  <PropertyGroup>
+    <!-- WinExe: no console window, like the real headless engine. -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Engine</AssemblyName>
+    <RootNamespace>VelopackSpike.Engine</RootNamespace>
+  </PropertyGroup>
+
+</Project>
