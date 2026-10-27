@@ -55,7 +55,7 @@ around a headless engine that any UI or program can drive. Primary differentiato
 | Updates | Tools update silently with rollback; app updates prompt first. Velopack + GitHub Releases (public repo). |
 | yt-dlp channel | Stable by default; Settings toggle to switch to nightly (e.g. when stable misses a critical fix) and back. |
 | Live/upcoming URLs | No special handling in v1: treated like any video; yt-dlp's behavior or error is shown. |
-| Session longevity | **Keep the login alive as long as possible; re-login is the last resort.** Engine owns a single cookie lineage: yt-dlp writebacks merged in, periodic keep-alive pings, periodic hidden-browser refresh, last-known-good rollback (§5.7). |
+| Session longevity | **Keep the login alive as long as possible; re-login is the last resort.** Engine owns a single cookie lineage: yt-dlp writebacks merged in, periodic keep-alive pings, periodic hidden-browser refresh, one-step rollback (§5.7). |
 | UI language | Turkish (default) and English from day one; switchable in Settings. The engine API is language-neutral (codes + args) (§7.5). |
 | "Best" preset | yt-dlp's default format selection and container choice (simplest). |
 | Plan location | This file. |
@@ -255,11 +255,12 @@ FFmpeg builds).
 3. The app detects that login finished when `CookieManager.GetCookiesAsync("https://www.youtube.com/")` returns
    both `LOGIN_INFO` and `SAPISID` on `.youtube.com`. It checks after every `NavigationCompleted` and on a short
    timer, then waits a few seconds for the redirect chain to settle.
-4. It reads all cookies for `youtube.com` / `google.com` via `CoreWebView2.CookieManager`, **closes the window**
-   (no YouTube tab stays open, which avoids cookie rotation), and sends them to the engine:
-   `PUT /api/v1/auth/cookies`. Sign-in also sets cookies on the account's country Google domain (e.g.
-   `.google.com.tr`); yt-dlp doesn't need them, and spike #35 decides whether a browser refresh does.
-   yt-dlp itself needs only the core `.youtube.com` cookies (the merge-guard list in "Session longevity" (2) below).
+4. It reads the cookies on `youtube.com` and its subdomains via `CoreWebView2.CookieManager` (deduplicated by
+   domain + path + name), **closes the window** (no YouTube tab stays open, which avoids cookie rotation), deletes
+   all cookies from the profile (`DeleteAllCookies()`, so the profile never holds a live copy of the session, see
+   "Session longevity" below), and sends them to the engine: `PUT /api/v1/auth/cookies`. `.google.com` and
+   country-domain cookies (e.g. `.google.com.tr`) are not stored: neither yt-dlp nor a browser refresh needs them,
+   and a YouTube visit never rotates them (M0 spike, `docs/spikes/cookie-refresh.md`).
 5. Fallback: **Import cookies.txt…** (Netscape format), via the same endpoint.
 
 **Engine side:**
@@ -270,18 +271,34 @@ FFmpeg builds).
 
 #### Session longevity (goal: the user almost never has to log in again)
 
-Google rotates session cookies (e.g. `__Secure-*PSIDTS`). When **two clients share one session and rotate it
-independently**, each one invalidates the other. That's why exported cookies die when a browser tab stays open.
+Google rotates session cookies: every YouTube page visit calls `accounts.youtube.com/RotateCookies`, which replaces
+`__Secure-1PSIDTS` / `__Secure-3PSIDTS`. Google accepts only the **current value and the one it replaced**; one
+rotation later the older jar is dead, however young it is (M0 spike, `docs/spikes/cookie-refresh.md`). That's why
+exported cookies die when a browser tab stays open. yt-dlp never rotates them.
 The design therefore has **exactly one cookie lineage**, owned by the engine. Every refresher starts from the
-engine's latest jar and hands its result back.
+engine's latest jar and hands its result back, and nothing else (the WebView2 profile included) keeps a copy that
+could rotate.
 
 1. **Versioned jar.** The engine stores the jar as numbered *generations* (DPAPI-encrypted) and keeps the
    current one plus the last 3 known-good ones. Every change creates a new generation through the queue actor,
-   so updates are serialized.
-2. **Writeback merge (every yt-dlp run).** Each job gets the current generation. After it exits, the engine reads
-   the cookie file yt-dlp saved and merges it **per cookie, last writer wins**. Guards: never merge after an
-   Auth-category failure; never let a writeback delete or blank the core login cookies (`SID`, `HSID`, `SSID`,
-   `APISID`, `SAPISID`, `__Secure-*PSID*`, `LOGIN_INFO`); ignore cookies for unrelated domains.
+   so updates are serialized. Generations older than the last browser refresh hold a dead `*PSIDTS`; they are
+   kept for diagnostics, not as rollback targets.
+2. **Writeback merge (every yt-dlp run), three-way.** Each job gets the current generation, and the engine
+   remembers which one. After the job exits, the engine reads the cookie file yt-dlp saved and takes **only the
+   cookies whose value differs from the generation the job was given**, applying their value and expiry onto the
+   engine's *current* jar. A whole-file "last writer wins" would let a job that started before a browser refresh
+   write the pre-refresh `*PSIDTS` back. Guards:
+   - never merge after an Auth-category failure;
+   - never let a writeback blank the core login cookies on `.youtube.com`: `SID`, `HSID`, `SSID`, `APISID`,
+     `SAPISID`, `__Secure-1PSID`, `__Secure-3PSID`, `__Secure-1PAPISID`, `__Secure-3PAPISID`,
+     `__Secure-1PSIDTS`, `__Secure-3PSIDTS`, `LOGIN_INFO`;
+   - ignore removals (yt-dlp drops expired cookies);
+   - keep the stored attributes (yt-dlp loses every HttpOnly flag and saves some cookies as session cookies);
+   - skip `PREF` (yt-dlp rewrites it with `hl=en` / `tz=UTC`);
+   - ignore cookies outside `youtube.com`.
+
+   In practice a writeback only refreshes `SIDCC` / `__Secure-*PSIDCC` and some expiry dates. yt-dlp never
+   changes a core cookie (M0 spike).
 3. **Keep-alive ping (engine, every 6 h, even when idle).** The verification request (flat fetch of the
    subscriptions feed with the cookies) runs on a timer, and its writebacks are merged like a job's. The session
    stays "in use" during quiet periods, and the engine learns about expiry before a download hits it.
@@ -290,13 +307,19 @@ engine's latest jar and hands its result back.
    it in the background while it's running, which is most of the time thanks to tray + autostart:
    - `POST /auth/refresh/begin` → the engine returns the current jar and **holds new cookie-using job starts**
      (lease, max 2 min). Running jobs continue with their copies.
-   - Hidden WebView2 (same isolated profile): inject the jar via `CookieManager.AddOrUpdateCookie`, load
-     `youtube.com`, wait until the page is idle (~20 s), export the cookies, dispose the WebView2.
+   - Hidden WebView2 (same isolated profile): `DeleteAllCookies()`, inject the jar via `CreateCookie` +
+     `AddOrUpdateCookie` (Netscape has no SameSite: Secure → `None`, else `Lax`), load `youtube.com`, wait until
+     the page is idle (~20 s; `RotateCookies` returns ~2–5 s after load), export the cookies, `DeleteAllCookies()`,
+     dispose the WebView2. Confirmed in the M0 spike: the page stays logged in and rotates `*PSIDTS`.
    - `PUT /auth/refresh/complete` with the new jar → the engine verifies it and keeps it only if verification
-     passes. Either way it releases the lease.
+     passes. Either way it releases the lease. A rejected or lost result is safe: the stored jar is still the
+     "previous" value, and the next refresh can start from it.
+   - Each refresh moves the lineage, so a running job's cookie copy survives one refresh but not two. Refresh
+     only on the schedule or on recovery, never in a loop.
 5. **Recovery ladder before bothering the user.** When verification fails or a job hits an Auth error:
-   (a) retry verification once, in case it was a transient glitch → (b) roll back to the previous known-good
-   generation and verify → (c) ask the UI (`auth.refreshRequested` event) for a browser refresh, if a UI is connected
+   (a) retry verification once, in case it was a transient glitch → (b) if the current generation came from a
+   browser refresh, roll back to the generation that refresh started from and verify (anything older is dead)
+   → (c) ask the UI (`auth.refreshRequested` event) for a browser refresh, if a UI is connected
    → (d) only then: status `Expired`, the `WaitingAuth` flow, and the "log in again" toast.
 6. **Telemetry (local logs only):** each generation records its source (login / writeback / ping / browser
    refresh / rollback) and timestamps. Session lifetime and the recovery step that saved it are logged, so the
@@ -542,8 +565,8 @@ watcher_id?, account_id) · `item_events` · `archive` (extractor, video_id, ite
 | YouTube changes break yt-dlp | High / Medium | Auto-update, forced update on extractor errors, nightly channel, rollback |
 | Bot checks / PO-token requirements tighten | Medium / High | Cookies + Deno by default; tool manager can add the plugin; classifier routes these errors to Auth/ToolBroken |
 | Account flagged for automated downloading | Low / High | Concurrency 2, start jitter, watcher interval ≥30 min, staggered polls |
-| Cookies invalidated by rotation | Medium / Medium | Single engine-owned cookie lineage; writeback merge; keep-alive pings; browser refresh; last-known-good rollback; one-click re-login as the last resort |
-| Two refreshers fork the session (browser + yt-dlp rotate independently) | Medium / High | Browser refresh starts from the engine's current jar and holds new cookie-using job starts under a lease; only verified results are kept |
+| Cookies invalidated by rotation | Medium / Medium | Single engine-owned cookie lineage; three-way writeback merge; keep-alive pings; browser refresh; one-step rollback; one-click re-login as the last resort |
+| A second rotator moves the session two steps past the engine's jar (M0 spike: Google accepts only the current and previous `*PSIDTS`; yt-dlp never rotates) | Medium / High | Browser refresh starts from the engine's current jar under a lease; the WebView2 profile's cookies are deleted after every login/refresh, so nothing else holds a live copy; only verified results are kept |
 | Turkish-I / culture bugs | Medium / Medium | Ordinal/invariant rules enforced by analyzers; Core tests under `tr-TR`; engine runs invariant |
 | Antivirus quarantines yt-dlp.exe (PyInstaller build) | Medium / Medium | Health check → `ToolsMissing` → reinstall; a note for the friends |
 | Long or Unicode paths, odd titles | Medium / Low | yt-dlp Windows filename sanitizing + title trimming; tests with real titles |
@@ -552,6 +575,7 @@ watcher_id?, account_id) · `item_events` · `archive` (extractor, video_id, ite
 ## 14. Open questions
 
 None blocking. To be tuned during beta: keep-alive ping and browser-refresh intervals (6 h / 24 h starting values).
+How long an unused jar stays valid over days is still being measured (`docs/spikes/cookie-refresh.md`, "Multi-day check").
 
 Resolved 2026-10-27: app name, yt-dlp channel, "Best" preset, session longevity, live URL handling, UI language.
 See the decisions log (§3).
