@@ -239,8 +239,9 @@ FFmpeg builds).
 - **Rollback:** automatic when the smoke test fails; manual "Roll back yt-dlp" in Settings → Updates.
 - Health check at startup: if a binary is missing (e.g. quarantined by antivirus) → queue block `ToolsMissing`
   and reinstall.
-- PO-token provider plugin: **not planned**. M0 checks whether cookies + Deno are enough. If not, the tool
-  manager gains a "plugin" tool type.
+- PO-token provider plugin: **not planned**. The M0 spike confirmed that cookies + Deno are enough (yt-dlp
+  2026.10.26, members-only download, no PO-token warnings; `docs/spikes/webview2-login.md`). If that changes,
+  the tool manager gains a "plugin" tool type.
 
 ### 5.7 Auth (cookies)
 
@@ -248,11 +249,17 @@ FFmpeg builds).
 1. The user clicks **Log in to YouTube** (wizard or Settings → Account). `App.exe` opens a WPF window with
    WebView2, using a **dedicated user-data folder** (`data\webview-profile\`, separate from the user's real browser).
 2. It navigates to the Google sign-in page with `continue=https://www.youtube.com`. The user signs in normally
-   (2FA, passkeys, etc. are handled by Google's own pages).
-3. The app detects that login finished when the YouTube session cookies appear (e.g. `LOGIN_INFO`, `SAPISID` on `.youtube.com`).
+   (2FA, passkeys, etc. are handled by Google's own pages). Google may insert interstitials (e.g. "add recovery
+   options" on `gds.google.com`), so the window must not assume a fixed page sequence. The default WebView2 user
+   agent works; no override is needed (M0 spike, `docs/spikes/webview2-login.md`).
+3. The app detects that login finished when `CookieManager.GetCookiesAsync("https://www.youtube.com/")` returns
+   both `LOGIN_INFO` and `SAPISID` on `.youtube.com`. It checks after every `NavigationCompleted` and on a short
+   timer, then waits a few seconds for the redirect chain to settle.
 4. It reads all cookies for `youtube.com` / `google.com` via `CoreWebView2.CookieManager`, **closes the window**
    (no YouTube tab stays open, which avoids cookie rotation), and sends them to the engine:
-   `PUT /api/v1/auth/cookies`.
+   `PUT /api/v1/auth/cookies`. Sign-in also sets cookies on the account's country Google domain (e.g.
+   `.google.com.tr`); yt-dlp doesn't need them, and spike #35 decides whether a browser refresh does.
+   yt-dlp itself needs only the core `.youtube.com` cookies (the merge-guard list in "Session longevity" (2) below).
 5. Fallback: **Import cookies.txt…** (Netscape format), via the same endpoint.
 
 **Engine side:**
@@ -531,7 +538,7 @@ watcher_id?, account_id) · `item_events` · `archive` (extractor, video_id, ite
 
 | Risk | Likelihood / impact | Mitigation |
 |---|---|---|
-| Google blocks sign-in in embedded WebView2 ("browser may not be secure") | Medium / High | **M0 spike first.** Fallbacks: cookies.txt import (always available); optional `--cookies-from-browser firefox` import. |
+| Google blocks sign-in in embedded WebView2 ("browser may not be secure") | Low / High (M0 spike: sign-in works with the default user agent, `docs/spikes/webview2-login.md`) | Fallbacks if Google starts blocking it: cookies.txt import (always available); optional `--cookies-from-browser firefox` import. |
 | YouTube changes break yt-dlp | High / Medium | Auto-update, forced update on extractor errors, nightly channel, rollback |
 | Bot checks / PO-token requirements tighten | Medium / High | Cookies + Deno by default; tool manager can add the plugin; classifier routes these errors to Auth/ToolBroken |
 | Account flagged for automated downloading | Low / High | Concurrency 2, start jitter, watcher interval ≥30 min, staggered polls |
