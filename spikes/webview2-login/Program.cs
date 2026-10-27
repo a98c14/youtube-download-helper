@@ -1,4 +1,5 @@
-// Throwaway spike for issue #31: Google sign-in inside WebView2 and Netscape cookies.txt export.
+// Throwaway spike for issues #31 and #35: Google sign-in inside WebView2 and Netscape cookies.txt export (#31),
+// and injecting an exported jar into a fresh profile to see whether a page visit refreshes it (#35).
 // See README.md in this folder. Cookie VALUES are written only to the cookies file, never to logs.
 
 using System.Globalization;
@@ -43,15 +44,21 @@ internal sealed record Options(
     bool Fresh,
     bool Manual,
     bool KeepOpen,
-    int SettleSeconds)
+    int SettleSeconds,
+    string? InjectFile,
+    int WaitSeconds)
 {
     public const string DefaultStartUrl =
         "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F";
 
+    public const string InjectStartUrl = "https://www.youtube.com/";
+
+    public bool IsInject => InjectFile is not null;
+
     public static Options? Parse(string[] args)
     {
-        var o = new Options("profile", Path.Combine("out", "cookies.txt"), "logs", DefaultStartUrl,
-            null, null, Fresh: false, Manual: false, KeepOpen: false, SettleSeconds: 3);
+        var o = new Options(null!, null!, "logs", null!,
+            null, null, Fresh: false, Manual: false, KeepOpen: false, SettleSeconds: 3, InjectFile: null, WaitSeconds: 20);
         for (var i = 0; i < args.Length; i++)
         {
             string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"{args[i]} needs a value");
@@ -69,6 +76,8 @@ internal sealed record Options(
                     "--fresh" => o with { Fresh = true },
                     "--manual" => o with { Manual = true },
                     "--keep-open" => o with { KeepOpen = true },
+                    "--inject" => o with { InjectFile = Next() },
+                    "--wait" => o with { WaitSeconds = int.Parse(Next(), CultureInfo.InvariantCulture) },
                     _ => throw new ArgumentException($"Unknown argument {args[i]}"),
                 };
             }
@@ -79,14 +88,21 @@ internal sealed record Options(
             }
         }
 
-        return o;
+        // Inject mode always starts from an empty profile of its own, so the #31 sign-in profile is never touched.
+        return o with
+        {
+            ProfileDir = o.ProfileDir ?? (o.IsInject ? "profile-inject" : "profile"),
+            OutFile = o.OutFile ?? Path.Combine("out", o.IsInject ? "cookies-refreshed.txt" : "cookies.txt"),
+            StartUrl = o.StartUrl ?? (o.IsInject ? InjectStartUrl : DefaultStartUrl),
+            Fresh = o.Fresh || o.IsInject,
+        };
     }
 
     public static void PrintUsage() => Console.Error.WriteLine("""
         Usage: dotnet run -- [options]
           --fresh                 Delete the profile folder first (clean sign-in).
-          --profile DIR           WebView2 user-data folder (default: profile).
-          --out FILE              Netscape cookies file (default: out\cookies.txt).
+          --profile DIR           WebView2 user-data folder (default: profile, or profile-inject with --inject).
+          --out FILE              Netscape cookies file (default: out\cookies.txt, or out\cookies-refreshed.txt).
           --logs DIR              Log folder (default: logs).
           --start-url URL         Page to open (default: Google sign-in, continue=youtube.com).
           --user-agent UA         Override the user agent.
@@ -94,6 +110,10 @@ internal sealed record Options(
           --settle SECONDS        Wait after login is detected before exporting (default: 3).
           --manual                Don't export on detection; use the "Export now" button.
           --keep-open             Don't close the WebView2 after exporting.
+
+        Refresh mode (#35):
+          --inject FILE           Fresh profile, inject this Netscape jar, open youtube.com, wait, export.
+          --wait SECONDS          Wait after the first youtube.com load before exporting (default: 20).
         """);
 }
 
@@ -106,13 +126,15 @@ internal sealed class LoginWindow : Window
     private readonly WebView2 _webView = new();
     private readonly TextBlock _status = new() { Margin = new Thickness(8, 4, 8, 4), VerticalAlignment = VerticalAlignment.Center };
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromSeconds(2) };
+    private readonly Dictionary<string, string> _seenValues = new(StringComparer.Ordinal);
     private bool _loginLogged;
     private bool _exporting;
+    private bool _refreshStarted;
 
     public LoginWindow(Options options)
     {
         _options = options;
-        Title = "Spike #31: WebView2 sign-in";
+        Title = options.IsInject ? "Spike #35: cookie refresh in a fresh profile" : "Spike #31: WebView2 sign-in";
         Width = 1100;
         Height = 850;
 
@@ -131,7 +153,7 @@ internal sealed class LoginWindow : Window
         Content = root;
 
         Loaded += async (_, _) => await GuardAsync(InitializeAsync);
-        _poll.Tick += async (_, _) => await GuardAsync(CheckLoginAsync);
+        _poll.Tick += async (_, _) => await GuardAsync(options.IsInject ? LogCookieChangesAsync : CheckLoginAsync);
     }
 
     public int ExitCode { get; private set; } = 1;
@@ -166,14 +188,133 @@ internal sealed class LoginWindow : Window
         core.NavigationCompleted += async (_, e) =>
         {
             Log.Write($"nav done   {Redact(core.Source)} ok={e.IsSuccess} http={e.HttpStatusCode} err={e.WebErrorStatus}");
-            await GuardAsync(CheckLoginAsync);
+            await GuardAsync(_options.IsInject ? () => OnRefreshNavigationAsync(e.IsSuccess) : CheckLoginAsync);
         };
         core.NewWindowRequested += (_, e) => Log.Write($"popup      {Redact(e.Uri)}");
         core.ProcessFailed += (_, e) => Log.Write($"PROCESS FAILED: {e.ProcessFailedKind} {e.Reason}");
 
+        if (_options.IsInject)
+        {
+            // Google's account endpoints (RotateCookies, SetSID, ...) are where session cookies get rotated.
+            core.WebResourceResponseReceived += (_, e) =>
+            {
+                if (Uri.TryCreate(e.Request.Uri, UriKind.Absolute, out var u) && u.Host.StartsWith("accounts.", StringComparison.OrdinalIgnoreCase))
+                {
+                    Log.Write($"request    {e.Request.Method} {Redact(e.Request.Uri)} -> {e.Response.StatusCode}");
+                }
+            };
+            Inject(core);
+            await LogCookieChangesAsync();
+        }
+
         _poll.Start();
         Log.Write($"Navigating to {Redact(_options.StartUrl)}");
         core.Navigate(_options.StartUrl);
+    }
+
+    private void Inject(CoreWebView2 core)
+    {
+        var file = Path.GetFullPath(_options.InjectFile!);
+        var injected = 0;
+        foreach (var c in ReadNetscape(file))
+        {
+            // CreateCookie: a leading dot makes a domain cookie, no dot a host-only cookie (same as the export).
+            var cookie = core.CookieManager.CreateCookie(c.Name, c.Value, c.Domain, c.Path);
+            cookie.IsSecure = c.Secure;
+            cookie.IsHttpOnly = c.HttpOnly;
+            // Netscape files carry no SameSite; None (allowed only on Secure cookies) is the most permissive choice.
+            cookie.SameSite = c.Secure ? CoreWebView2CookieSameSiteKind.None : CoreWebView2CookieSameSiteKind.Lax;
+            if (c.ExpiresUnix != 0)
+            {
+                cookie.Expires = DateTimeOffset.FromUnixTimeSeconds(c.ExpiresUnix).UtcDateTime;
+            }
+
+            core.CookieManager.AddOrUpdateCookie(cookie);
+            injected++;
+        }
+
+        Log.Write($"Injected {injected} cookies from {file}");
+    }
+
+    private async Task OnRefreshNavigationAsync(bool success)
+    {
+        await LogCookieChangesAsync();
+        if (_refreshStarted || !success || !IsUnder(new Uri(_webView.CoreWebView2.Source).Host, "youtube.com"))
+        {
+            return;
+        }
+
+        _refreshStarted = true;
+        Log.Write($"youtube.com loaded; waiting {_options.WaitSeconds}s for page scripts to run");
+        _status.Text = $"Waiting {_options.WaitSeconds}s on youtube.com...";
+        await Task.Delay(TimeSpan.FromSeconds(_options.WaitSeconds));
+        await LogPageLoginStateAsync();
+        await LogCookieChangesAsync();
+        await ExportAsync("refresh");
+    }
+
+    // ytcfg LOGGED_IN is what YouTube's own page thinks: true only if the injected session was accepted.
+    private async Task LogPageLoginStateAsync()
+    {
+        var core = _webView.CoreWebView2;
+        var loggedIn = await core.ExecuteScriptAsync("window.ytcfg ? ytcfg.get('LOGGED_IN') : null");
+        var avatar = await core.ExecuteScriptAsync("!!document.querySelector('#avatar-btn, ytd-topbar-menu-button-renderer img#img')");
+        var signIn = await core.ExecuteScriptAsync("!!document.querySelector('a[href*=\"ServiceLogin\"]')");
+        Log.Write($"Page login state: ytcfg LOGGED_IN={loggedIn}, avatar button={avatar}, sign-in link={signIn}");
+        _status.Text = $"LOGGED_IN={loggedIn}";
+    }
+
+    // Logs which cookies appeared, changed or disappeared since the last check. Names only, never values.
+    private async Task LogCookieChangesAsync()
+    {
+        if (_exporting || _webView.CoreWebView2 is null)
+        {
+            return;
+        }
+
+        var all = await _webView.CoreWebView2.CookieManager.GetCookiesAsync(string.Empty);
+        // The same domain/path/name can appear twice (e.g. an injected cookie next to one the server set with
+        // different attributes); number the copies instead of failing.
+        var current = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var c in all)
+        {
+            var key = $"{c.Domain}{c.Path} {c.Name}";
+            for (var n = 2; current.ContainsKey(key); n++)
+            {
+                key = $"{c.Domain}{c.Path} {c.Name} (copy {n}, sameSite={c.SameSite}, secure={c.IsSecure}, httpOnly={c.IsHttpOnly})";
+            }
+
+            current[key] = c.Value;
+        }
+
+        var first = _seenValues.Count == 0;
+        foreach (var (key, value) in current)
+        {
+            if (!_seenValues.TryGetValue(key, out var old))
+            {
+                if (!first)
+                {
+                    Log.Write($"cookie +   {key}");
+                }
+            }
+            else if (!string.Equals(old, value, StringComparison.Ordinal))
+            {
+                Log.Write($"cookie ~   {key}");
+            }
+
+            _seenValues[key] = value;
+        }
+
+        foreach (var key in _seenValues.Keys.Where(k => !current.ContainsKey(k)).ToList())
+        {
+            Log.Write($"cookie -   {key}");
+            _seenValues.Remove(key);
+        }
+
+        if (first)
+        {
+            Log.Write($"Cookie baseline: {current.Count} cookies in the profile");
+        }
     }
 
     private async Task CheckLoginAsync()
@@ -295,6 +436,33 @@ internal sealed class LoginWindow : Window
         return sb.ToString();
     }
 
+    private static IEnumerable<NetscapeCookie> ReadNetscape(string path)
+    {
+        foreach (var raw in File.ReadLines(path))
+        {
+            var line = raw;
+            var httpOnly = line.StartsWith("#HttpOnly_", StringComparison.Ordinal);
+            if (httpOnly)
+            {
+                line = line["#HttpOnly_".Length..];
+            }
+            else if (line.StartsWith('#') || string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            var f = line.Split('\t');
+            if (f.Length < 7)
+            {
+                continue;
+            }
+
+            yield return new NetscapeCookie(
+                f[0], f[2], string.Equals(f[3], "TRUE", StringComparison.OrdinalIgnoreCase),
+                long.Parse(f[4], CultureInfo.InvariantCulture), f[5], string.Join('\t', f[6..]), httpOnly);
+        }
+    }
+
     private static long ExpiresUnix(CoreWebView2Cookie c) =>
         c.IsSession ? 0 : new DateTimeOffset(c.Expires.ToUniversalTime()).ToUnixTimeSeconds();
 
@@ -321,6 +489,8 @@ internal sealed class LoginWindow : Window
         }
     }
 }
+
+internal sealed record NetscapeCookie(string Domain, string Path, bool Secure, long ExpiresUnix, string Name, string Value, bool HttpOnly);
 
 internal static class Log
 {
