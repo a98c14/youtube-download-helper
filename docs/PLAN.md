@@ -575,7 +575,8 @@ watcher_id?, account_id) · `item_events` · `archive` (extractor, video_id, ite
 ## 14. Open questions
 
 None blocking. To be tuned during beta: keep-alive ping and browser-refresh intervals (6 h / 24 h starting values).
-How long an unused jar stays valid over days is still being measured (`docs/spikes/cookie-refresh.md`, "Multi-day check").
+How long an unused jar stays valid over days is measured in the soak test (#65; questions in
+`docs/spikes/cookie-refresh.md`, "Multi-day check").
 
 Resolved 2026-10-27: app name, yt-dlp channel, "Best" preset, session longevity, live URL handling, UI language.
 See the decisions log (§3).

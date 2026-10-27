@@ -15,7 +15,7 @@ Plan references: §5.7 "Session longevity", §13 (risks), §12 M0 (e).
 | What happens to the old jar? | **It survives exactly one rotation.** Google accepts the current `*PSIDTS` and the one it replaced. The rotation after that kills the old jar, however young it is. |
 | What does yt-dlp write back? | It **never** touches `*PSIDTS` or any core login cookie. It updates `SIDCC` / `__Secure-*PSIDCC` (value + expiry) and extends `VISITOR_*`. It also rewrites `PREF` with its own locale, drops all HttpOnly flags, drops expired cookies, and collapses duplicates. |
 | Are `.google.com` / country-domain cookies needed for a refresh? | **No.** A `.youtube.com`-only jar (23 cookies) refreshes and stays logged in. `RotateCookies` only touches `.youtube.com`. |
-| Multi-day lifetime | **Pending.** See [Multi-day check](#multi-day-check). |
+| Multi-day lifetime | **Deferred to the soak test (#65).** It only tunes intervals; see [Multi-day check](#multi-day-check-deferred-to-the-soak-test). |
 
 Environment is the same as #31 (`docs/spikes/webview2-login.md`): WebView2 runtime 155.0.4283.62, SDK 1.0.4314.35,
 yt-dlp 2026.10.26 + Deno 2.9.6, same account. Members-only test video: the same as #31. "Members OK" means
@@ -158,20 +158,23 @@ All five runs agree:
    every 24 h" has no minimum spacing to respect, but it must not run more often than needed (each refresh moves
    the lineage, see 2).
 
-## Multi-day check
+## Multi-day check (deferred to the soak test)
 
-Not done yet. Procedure (human, ~2 days):
+Not done in this spike. None of the decisions above depend on it: they follow from the rotation rule, which
+was measured here. What multi-day data would tune is the 6 h keep-alive / 24 h refresh intervals, which PLAN §14
+already leaves to beta. Measuring it with the real app is more useful than with spike jars, because the
+engine logs each generation's source and the session lifetime (PLAN §5.7 (6)). It is therefore part of the soak
+test (#65). Questions to answer there:
 
-1. Leave gen4 as the head and don't refresh. Delete `profile/` (#31) and `profile-inject/`, which hold copies of
-   the session.
-2. A few times a day, run
-   `./lifetime-check.ps1 -MembersUrl <members-only url>`
-   (tests every `out\cookies-genN.txt` on a throwaway copy and appends to `logs\lifetime.csv`).
-3. Questions to answer: how long does an **unused** current jar (gen4) stay valid? Does the previous one (gen3)
-   expire on its own over time? After ~2 days, refresh gen4 → gen5: does a refresh still work from an old jar?
-4. Add the table here and adjust the refresh / keep-alive intervals in PLAN §5.7 if needed.
+- How long does an **unused** current jar stay valid (no jobs, no ping, no refresh)?
+- Does the previous `*PSIDTS` expire on its own over time, or only on the next rotation?
+- Does a refresh still work from a jar that is days old?
+
+The harness still supports a quick manual check: keep the newest `out\cookies-genN.txt`, don't refresh, and run
+`./lifetime-check.ps1 -MembersUrl <members-only url>` now and then. It tests every saved jar on a throwaway copy and
+appends to `logs\lifetime.csv`.
 
 ## Cleanup
 
-`spikes/webview2-login/out/` and both profile folders hold live session cookies. Delete them when the multi-day
-check is done.
+`spikes/webview2-login/out/`, `profile/` and `profile-inject/` hold copies of the session (only gen3/gen4 are still
+valid). Delete them once they are no longer needed.
