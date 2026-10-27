@@ -443,6 +443,10 @@ output is passed through untranslated (Details/Log only).
 
 - Closing the window minimizes to the tray (configurable). Tray menu: Open, Pause all / Resume all, Add from
   clipboard, Exit.
+- Toast library: `Microsoft.Toolkit.Uwp.Notifications` (`ToastContentBuilder`, `ToastNotificationManagerCompat`).
+  It works unpackaged under Velopack and needs a Windows TFM for `Ydh.App` (`net10.0-windows10.0.19041.0`). It
+  registers the Velopack AUMID with the display name "Youtube İndirgeç" and a COM activator on `current\App.exe`
+  (spike: `docs/spikes/velopack.md`).
 - Toasts come from `notify` events: download finished (click → open folder), failed, login expired (click →
   login), watcher found new videos, app update available.
 
@@ -484,8 +488,10 @@ output is passed through untranslated (Details/Log only).
 
 ## 8. Data storage
 
-Per-Windows-user data folder `%LOCALAPPDATA%\YoutubeDownloadHelper\`, separate from Velopack's install folder,
-so it survives reinstalls and updates:
+Per-Windows-user data folder `%LOCALAPPDATA%\YoutubeDownloadHelperData\`. It must stay **outside** Velopack's
+install root `%LOCALAPPDATA%\YoutubeDownloadHelper\`: Velopack's uninstall deletes the whole root, and its
+updater kills every process running from it (M0 spike, `docs/spikes/velopack.md`). Kept separate, the data
+survives updates, uninstall and reinstall:
 
 ```
 state.db            SQLite, WAL mode, EF Core migrations (run by the engine at startup, after a DB backup)
@@ -507,17 +513,30 @@ watcher_id?, account_id) · `item_events` · `archive` (extractor, video_id, ite
 
 ## 9. Distribution and updates
 
-- **Packaging:** Velopack. A single package contains `App.exe`, `Engine.exe`, and dependencies, published
-  self-contained for win-x64. `Setup.exe` installs per user (no admin). Pack ID `YoutubeDownloadHelper`, pack
-  title / shortcut name "Youtube İndirgeç" (verify in M0 that non-ASCII titles work in shortcuts and toasts).
+- **Packaging:** Velopack. A single package contains `App.exe`, `Engine.exe`, and dependencies, both published
+  self-contained for win-x64 into one folder (`vpk pack --mainExe App.exe`). `Setup.exe` installs per user (no
+  admin) to `%LOCALAPPDATA%\YoutubeDownloadHelper\` (Velopack's install root: `current\`, `packages\`,
+  `Update.exe`). Pack ID `YoutubeDownloadHelper`, pack title / shortcut name "Youtube İndirgeç". The M0 spike
+  confirmed the non-ASCII title in shortcuts, Add/Remove Programs and toasts (`docs/spikes/velopack.md`).
+  Shortcuts point to `current\App.exe` and carry the AUMID `velopack.YoutubeDownloadHelper`, which
+  `VelopackApp.Run()` also sets on the process.
+- **vpk and the non-ASCII title:** vpk 1.2.161 cannot build delta packages when the title is non-ASCII
+  (velopack#1105, fixed upstream but only in a prerelease so far). Until a stable vpk includes the fix, pack with
+  `--delta none` (full ~75 MB download per update). Keep the `Velopack` library and `vpk` on the same pinned
+  version.
 - **Release pipeline (GitHub Actions):** PR → build + test. Tag `v*` → publish → `vpk pack` →
   `vpk upload github` (public repo, Releases as the update feed).
 - **App updates:** the UI checks at startup and every 6 h. If an update is available, a banner/toast offers
-  "Restart to update". On accept: download → `POST /engine/shutdown` → apply and restart.
+  "Restart to update". On accept: download → `POST /engine/shutdown` → **wait for the engine process to exit** →
+  `ApplyUpdatesAndRestart`. The graceful stop is required: before swapping `current\`, Velopack's `Update.exe`
+  hard-kills every process whose image is under the install root (no shutdown code runs). That kill is only a
+  safety net. The restarted app starts the new `Engine.exe` as usual (§7.4).
 - **WebView2 runtime:** present on Windows 11 and on most Windows 10 machines. The wizard detects it and
   runs the Evergreen bootstrapper if it's missing.
-- **Autostart:** `HKCU\…\Run` → `App.exe --minimized`. Velopack uninstall hook removes it and asks whether to
-  delete the data folder.
+- **Autostart:** `HKCU\…\Run` → `…\current\App.exe --minimized` (stable across updates).
+- **Uninstall:** Velopack deletes the whole install root. The `OnBeforeUninstallFastCallback` hook (killed after
+  30 s, no UI; uninstall may be silent) removes the Run key and calls `ToastNotificationManagerCompat.Uninstall()`.
+  The data folder (§8) is outside the install root and is **kept**, so a reinstall picks it up.
 - **Code signing:** none in v1. The friends get a short "More info → Run anyway" note for SmartScreen. Azure
   Trusted Signing is an option later.
 
