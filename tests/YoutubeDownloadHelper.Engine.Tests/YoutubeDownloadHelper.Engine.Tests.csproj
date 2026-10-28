@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\YoutubeDownloadHelper.Contracts\YoutubeDownloadHelper.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\YoutubeDownloadHelper.Core\YoutubeDownloadHelper.Core.csproj" />
+    <ProjectReference Include="..\..\src\YoutubeDownloadHelper.Engine\YoutubeDownloadHelper.Engine.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\CultureCanaryTests.cs" Link="Shared\CultureCanaryTests.cs" />
+  </ItemGroup>
+
+</Project>

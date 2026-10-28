@@ -3,9 +3,11 @@
 Status: **Draft v1** · Created 2026-10-27 · Supersedes the prototype in `.archive/` (not used as a reference)
 
 Naming: **"Youtube İndirgeç"** is the only user-facing name (window titles, shortcuts, installer, toasts, tray).
-Internally (namespaces, data folder, Velopack pack ID, repo) we use `YoutubeDownloadHelper` /
-`youtube-download-helper` / `Ydh`. Keep the display name in one constant/resource; never derive paths or IDs
-from it (it contains non-ASCII characters).
+Internally we use `YoutubeDownloadHelper` (projects, assemblies, namespaces `YoutubeDownloadHelper.*`, data folder,
+Velopack pack ID, executables `YoutubeDownloadHelper.exe` and `YoutubeDownloadHelper.Engine.exe`) and
+`youtube-download-helper` (repo). All of these live in `YoutubeDownloadHelper.Contracts.AppIdentity`; never derive
+paths or IDs from the display name (it contains non-ASCII characters). The `YDH1 ` prefix on yt-dlp progress lines
+(§5.4) is a wire marker, not a project name.
 
 A Windows-native, qBittorrent-style download manager for YouTube (and other yt-dlp–supported sites), built
 around a headless engine that any UI or program can drive. Primary differentiator: reliable downloads of
@@ -39,9 +41,9 @@ around a headless engine that any UI or program can drive. Primary differentiato
 
 | Area | Decision |
 |---|---|
-| Name | User-facing "Youtube İndirgeç"; internal `YoutubeDownloadHelper` / `Ydh`. |
+| Name | User-facing "Youtube İndirgeç"; internal `YoutubeDownloadHelper` (namespaces `YoutubeDownloadHelper.*`). |
 | Stack | C# / .NET 10, WPF with the built-in Fluent theme (follows system light/dark). Windows 10 + 11, x64. |
-| Process model | **Separate headless engine process** (`Engine.exe`) + WPF client (`App.exe`). |
+| Process model | **Separate headless engine process** (`YoutubeDownloadHelper.Engine.exe`) + WPF client (`YoutubeDownloadHelper.exe`). |
 | Transport | **Localhost HTTP (REST/JSON) + Server-Sent Events**, `127.0.0.1` only, bearer token. |
 | Audience | Me + a few non-technical friends. One YouTube account per Windows user. |
 | Cookies | Embedded WebView2 login in an isolated profile; cookies pushed to the engine; manual `cookies.txt` import as a fallback. |
@@ -67,7 +69,7 @@ around a headless engine that any UI or program can drive. Primary differentiato
 ### 4.1 Process model
 
 ```
-┌──────────── App.exe (WPF) ────────────┐        ┌──────────────── Engine.exe (headless) ────────────────┐
+┌─── YoutubeDownloadHelper.exe (WPF) ────┐        ┌───── YoutubeDownloadHelper.Engine.exe (headless) ─────┐
 │ Main window · tray · toasts            │  HTTP  │ API layer (Kestrel, 127.0.0.1, bearer token)          │
 │ WebView2 login window                  │ ─────> │   └─> Core application services                       │
 │ Velopack app-update prompts            │  SSE   │        Queue actor · Scheduler · Job runner           │
@@ -85,26 +87,44 @@ Hard rules:
 ### 4.2 Solution layout
 
 ```
+YoutubeDownloadHelper.slnx
+global.json        SDK 10.0.403 (latestFeature), test runner Microsoft.Testing.Platform (xUnit v3).
 src/
-  Ydh.Contracts/   DTOs, enums, event types, API route constants. No dependencies. Shared by engine + .NET clients.
-  Ydh.Core/        Engine logic: queue actor, state machine, scheduler, runner, classifier, watchers, tools,
-                   auth store, persistence (EF Core + SQLite). No ASP.NET, no UI.
-  Ydh.Engine/      Executable host: generic host, Kestrel minimal-API endpoints → Core services, SSE,
-                   discovery file, single-instance mutex, logging.
-  Ydh.Client/      Typed .NET API client (HttpClient + SSE reader, reconnect/resync logic).
-  Ydh.App/         WPF app (CommunityToolkit.Mvvm): windows, view models, tray, toasts, WebView2 login,
-                   engine supervisor, Velopack integration.
+  YoutubeDownloadHelper.Contracts/  net10.0. DTOs, enums, event types, API route constants, AppIdentity.
+                                    No dependencies. Shared by engine + .NET clients.
+  YoutubeDownloadHelper.Core/       net10.0-windows. Engine logic: queue actor, state machine, scheduler, runner,
+                                    classifier, watchers, tools, auth store, persistence (EF Core + SQLite).
+                                    No ASP.NET, no UI.
+  YoutubeDownloadHelper.Engine/     net10.0-windows, Web SDK WinExe → YoutubeDownloadHelper.Engine.exe. Generic
+                                    host, Kestrel minimal-API endpoints → Core services, SSE, discovery file,
+                                    single-instance mutex, logging.
+  YoutubeDownloadHelper.Client/     net10.0. Typed .NET API client (HttpClient + SSE reader, reconnect/resync).
+  YoutubeDownloadHelper.App/        net10.0-windows10.0.19041.0, WPF → YoutubeDownloadHelper.exe
+                                    (CommunityToolkit.Mvvm): windows, view models, tray, toasts, WebView2 login,
+                                    engine supervisor, Velopack integration.
 tests/
-  Ydh.Core.Tests/        Unit tests: state machine, classifier, retry policy, argument builder, watcher diffing.
-  Ydh.Engine.Tests/      API integration tests via ASP.NET TestServer + fake yt-dlp.
-  Ydh.App.Tests/         View-model tests against a fake client.
-  Ydh.ArchTests/         Dependency-rule tests (App ↛ Core, Core ↛ ASP.NET, etc.).
+  YoutubeDownloadHelper.Core.Tests/    Unit tests: state machine, classifier, retry policy, argument builder,
+                                       watcher diffing.
+  YoutubeDownloadHelper.Engine.Tests/  API integration tests via ASP.NET TestServer + fake yt-dlp.
+  YoutubeDownloadHelper.Client.Tests/  API client tests (SSE reconnect/resync) against fake HTTP.
+  YoutubeDownloadHelper.App.Tests/     View-model tests against a fake client.
+  YoutubeDownloadHelper.ArchTests/     Dependency-rule tests (App ↛ Core, Core ↛ ASP.NET, etc.).
 tools/
-  Ydh.FakeYtDlp/   Console app that mimics yt-dlp output/exit codes per scenario (progress, auth error, 429,
-                   extractor failure, disk full, slow, hang). Used by integration tests and for UI development.
+  YoutubeDownloadHelper.FakeYtDlp/  Console app that mimics yt-dlp output/exit codes per scenario (progress, auth
+                                    error, 429, extractor failure, disk full, slow, hang). Used by integration tests
+                                    and for UI development.
 ```
 
-Build conventions: central package management, nullable enabled, warnings as errors, `Directory.Build.props`.
+Core and Engine target `net10.0-windows` because Job Objects, DPAPI, file ACLs and named mutexes are Windows-only.
+Test projects use the TFM of the project under test.
+
+References: App → Contracts + Client only. Engine → Core + Contracts. Core → Contracts (Core may use Contracts
+types such as enums, codes and the DTOs it returns; EF entities never become Contracts types). Client →
+Contracts. Test projects may reference anything. The architecture tests check this against the restore graph,
+transitive references included.
+
+Build conventions: central package management (transitive pinning, no lock files), nullable enabled, warnings as
+errors, `Directory.Build.props`. Details and code organisation: `CLAUDE.md`.
 
 ### 4.3 Engine internals
 
@@ -258,7 +278,7 @@ FFmpeg builds).
 ### 5.7 Auth (cookies)
 
 **Login flow (UI side):**
-1. The user clicks **Log in to YouTube** (wizard or Settings → Account). `App.exe` opens a WPF window with
+1. The user clicks **Log in to YouTube** (wizard or Settings → Account). `YoutubeDownloadHelper.exe` opens a WPF window with
    WebView2, using a **dedicated user-data folder** (`data\webview-profile\`, separate from the user's real browser).
 2. It navigates to the Google sign-in page with `continue=https://www.youtube.com`. The user signs in normally
    (2FA, passkeys, etc. are handled by Google's own pages). Google may insert interstitials (e.g. "add recovery
@@ -314,7 +334,7 @@ could rotate.
 3. **Keep-alive ping (engine, every 6 h, even when idle).** The verification request (flat fetch of the
    subscriptions feed with the cookies) runs on a timer, and its writebacks are merged like a job's. The session
    stays "in use" during quiet periods, and the engine learns about expiry before a download hits it.
-4. **Browser refresh (App.exe, every 24 h and on demand).** Google's own page scripts rotate cookies in a way
+4. **Browser refresh (YoutubeDownloadHelper.exe, every 24 h and on demand).** Google's own page scripts rotate cookies in a way
    yt-dlp never does, so a real browser visit is the most faithful way to keep a session healthy. The UI runs
    it in the background while it's running, which is most of the time thanks to tray + autostart:
    - `POST /auth/refresh/begin` → the engine returns the current jar and **holds new cookie-using job starts**
@@ -456,22 +476,22 @@ output is passed through untranslated (Details/Log only).
 - Closing the window minimizes to the tray (configurable). Tray menu: Open, Pause all / Resume all, Add from
   clipboard, Exit.
 - Toast library: `Microsoft.Toolkit.Uwp.Notifications` (`ToastContentBuilder`, `ToastNotificationManagerCompat`).
-  It works unpackaged under Velopack and needs a Windows TFM for `Ydh.App` (`net10.0-windows10.0.19041.0`). It
-  registers the Velopack AUMID with the display name "Youtube İndirgeç" and a COM activator on `current\App.exe`
+  It works unpackaged under Velopack and needs a Windows TFM for `YoutubeDownloadHelper.App` (`net10.0-windows10.0.19041.0`). It
+  registers the Velopack AUMID with the display name "Youtube İndirgeç" and a COM activator on `current\YoutubeDownloadHelper.exe`
   (spike: `docs/spikes/velopack.md`).
 - Toasts come from `notify` events: download finished (click → open folder), failed, login expired (click →
   login), watcher found new videos, app update available.
 
-### 7.4 Engine supervision (in App.exe)
+### 7.4 Engine supervision (in YoutubeDownloadHelper.exe)
 
-- At startup: read the discovery file → `GET /info`. If it fails, start `Engine.exe` (hidden, from the install
+- At startup: read the discovery file → `GET /info`. If it fails, start `YoutubeDownloadHelper.Engine.exe` (hidden, from the install
   folder) and wait up to 15 s for it to be ready.
 - Connection lost: "Reconnecting…" banner; restart the engine with backoff (3 attempts), then an error panel with
   **Open logs** / **Export diagnostics**.
 - **Exit:** `POST /engine/shutdown`, then quit. With "keep downloading after Exit" on, only the UI quits.
 - If the UI crashes, the engine keeps running and the next UI launch reconnects. When "keep downloading after
   Exit" is off, the engine exits on its own after **10 minutes with no connected client and an idle queue**.
-- App single instance: a second `App.exe` launch activates the existing window and exits.
+- App single instance: a second `YoutubeDownloadHelper.exe` launch activates the existing window and exits.
 - Background duties while running: the 24 h browser cookie refresh and answering `auth.refreshRequested` (§5.7).
 
 ### 7.5 Localization (Turkish default, English)
@@ -489,10 +509,11 @@ output is passed through untranslated (Details/Log only).
 - **The Turkish-I rule (critical):** under `tr-TR`, `"file".ToUpper()` gives `"FİLE"` and `"FILE".ToLower()`
   gives `"fıle"`, which silently breaks comparisons. Rules: all non-display string operations (URL/host checks,
   file extensions, classifier patterns, cookie names, config keys) use `Ordinal`/`OrdinalIgnoreCase` or the
-  invariant culture. Analyzers CA1304/CA1305/CA1309/CA1310/CA1311 are set to *error*. `Engine.exe` runs
+  invariant culture. Analyzers CA1304/CA1305/CA1307/CA1309/CA1310/CA1311 are set to *error*. `YoutubeDownloadHelper.Engine.exe` runs
   with `CultureInfo.InvariantCulture`. The UI culture is applied only to display.
 - **Tests:** resource parity (every key exists in both languages, with matching format placeholders), and the
-  Core test suite runs under `tr-TR` as well as invariant culture to catch Turkish-I bugs.
+  Core, Engine and Client test suites run under `tr-TR` (xUnit v3 `--culture`) as well as the default culture to
+  catch Turkish-I bugs. A canary test proves the culture switch took effect.
 - **Paths:** the default download folder `%USERPROFILE%\Downloads\Youtube İndirgeç` contains non-ASCII
   characters on purpose, so Unicode-path problems (yt-dlp, ffmpeg, Deno) surface early. M0 spike: works with
   non-ASCII tools, work and destination folders, given `--encoding utf-8` (`docs/spikes/progress-and-paths.md`).
@@ -510,7 +531,7 @@ survives updates, uninstall and reinstall:
 state.db            SQLite, WAL mode, EF Core migrations (run by the engine at startup, after a DB backup)
 engine.json         discovery file (user-only ACL)
 auth\cookies.bin    DPAPI-encrypted cookies
-webview-profile\    WebView2 login profile (owned by App.exe)
+webview-profile\    WebView2 login profile (owned by YoutubeDownloadHelper.exe)
 tools\<tool>\<ver>\ managed binaries
 work\<itemId>\      partial downloads, per-job cookies file
 logs\               engine-*.log, app-*.log (rolling, 14 days), jobs\<itemId>-<attempt>.log
@@ -526,12 +547,12 @@ watcher_id?, account_id) · `item_events` · `archive` (extractor, video_id, ite
 
 ## 9. Distribution and updates
 
-- **Packaging:** Velopack. A single package contains `App.exe`, `Engine.exe`, and dependencies, both published
-  self-contained for win-x64 into one folder (`vpk pack --mainExe App.exe`). `Setup.exe` installs per user (no
+- **Packaging:** Velopack. A single package contains `YoutubeDownloadHelper.exe`, `YoutubeDownloadHelper.Engine.exe`, and dependencies, both published
+  self-contained for win-x64 into one folder (`vpk pack --mainExe YoutubeDownloadHelper.exe`). `Setup.exe` installs per user (no
   admin) to `%LOCALAPPDATA%\YoutubeDownloadHelper\` (Velopack's install root: `current\`, `packages\`,
   `Update.exe`). Pack ID `YoutubeDownloadHelper`, pack title / shortcut name "Youtube İndirgeç". The M0 spike
   confirmed the non-ASCII title in shortcuts, Add/Remove Programs and toasts (`docs/spikes/velopack.md`).
-  Shortcuts point to `current\App.exe` and carry the AUMID `velopack.YoutubeDownloadHelper`, which
+  Shortcuts point to `current\YoutubeDownloadHelper.exe` and carry the AUMID `velopack.YoutubeDownloadHelper`, which
   `VelopackApp.Run()` also sets on the process.
 - **vpk and the non-ASCII title:** vpk 1.2.161 cannot build delta packages when the title is non-ASCII
   (velopack#1105, fixed upstream but only in a prerelease so far). Until a stable vpk includes the fix, pack with
@@ -543,10 +564,10 @@ watcher_id?, account_id) · `item_events` · `archive` (extractor, video_id, ite
   "Restart to update". On accept: download → `POST /engine/shutdown` → **wait for the engine process to exit** →
   `ApplyUpdatesAndRestart`. The graceful stop is required: before swapping `current\`, Velopack's `Update.exe`
   hard-kills every process whose image is under the install root (no shutdown code runs). That kill is only a
-  safety net. The restarted app starts the new `Engine.exe` as usual (§7.4).
+  safety net. The restarted app starts the new `YoutubeDownloadHelper.Engine.exe` as usual (§7.4).
 - **WebView2 runtime:** present on Windows 11 and on most Windows 10 machines. The wizard detects it and
   runs the Evergreen bootstrapper if it's missing.
-- **Autostart:** `HKCU\…\Run` → `…\current\App.exe --minimized` (stable across updates).
+- **Autostart:** `HKCU\…\Run` → `…\current\YoutubeDownloadHelper.exe --minimized` (stable across updates).
 - **Uninstall:** Velopack deletes the whole install root. The `OnBeforeUninstallFastCallback` hook (killed after
   30 s, no UI; uninstall may be silent) removes the Run key and calls `ToastNotificationManagerCompat.Uninstall()`.
   The data folder (§8) is outside the install root and is **kept**, so a reinstall picks it up.
@@ -565,8 +586,8 @@ watcher_id?, account_id) · `item_events` · `archive` (extractor, video_id, ite
 
 - **Unit:** state machine transitions (table-driven), error classifier against captured stderr fixtures, retry
   scheduling with a fake clock, preset → argument snapshots, watcher diffing, progress parsing, cookie merge
-  guards and the recovery ladder, resource parity. Core tests also run under the `tr-TR` culture.
-- **Integration:** the real engine via `TestServer` with `Ydh.FakeYtDlp` scenarios: progress, pause/resume,
+  guards and the recovery ladder, resource parity. Core, Engine and Client tests also run under `tr-TR`.
+- **Integration:** the real engine via `TestServer` with `YoutubeDownloadHelper.FakeYtDlp` scenarios: progress, pause/resume,
   crash recovery (kill mid-download, restart, resumes), auth → WaitingAuth → re-login, 429 backoff, tool broken →
   update → requeue, disk full block, SSE reconnect/resync.
 - **Contract:** OpenAPI snapshot test, so API changes are deliberate.
@@ -599,7 +620,7 @@ watcher_id?, account_id) · `item_events` · `archive` (extractor, video_id, ite
 | Account flagged for automated downloading | Low / High | Concurrency 2, start jitter, watcher interval ≥30 min, staggered polls |
 | Cookies invalidated by rotation | Medium / Medium | Single engine-owned cookie lineage; three-way writeback merge; keep-alive pings; browser refresh; one-step rollback; one-click re-login as the last resort |
 | A second rotator moves the session two steps past the engine's jar (M0 spike: Google accepts only the current and previous `*PSIDTS`; yt-dlp never rotates) | Medium / High | Browser refresh starts from the engine's current jar under a lease; the WebView2 profile's cookies are deleted after every login/refresh, so nothing else holds a live copy; only verified results are kept |
-| Turkish-I / culture bugs | Medium / Medium | Ordinal/invariant rules enforced by analyzers; Core tests under `tr-TR`; engine runs invariant |
+| Turkish-I / culture bugs | Medium / Medium | Ordinal/invariant rules enforced by analyzers; Core/Engine/Client tests under `tr-TR`; engine runs invariant |
 | Antivirus quarantines yt-dlp.exe (PyInstaller build) | Medium / Medium | Health check → `ToolsMissing` → reinstall; a note for the friends |
 | Long or Unicode paths, odd titles | Medium / Low | yt-dlp Windows filename sanitizing + title trimming; tests with real titles |
 | Local malware calls the API | Low / Medium | Token, user-only ACLs; same-user malware is out of scope (it could read browser cookies anyway) |

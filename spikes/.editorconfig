@@ -1,0 +1,2 @@
+# Spike harnesses are throwaway code: don't apply the repo's analyzer severities.
+root = true
