@@ -1,0 +1,3 @@
+YDH1 {"k":"pp","p":{"status": "started", "postprocessor": "MetadataParser"},"i":{"id": "jNQXAC9IVRw"}}
+YDH1 {"k":"pp","p":{"status": "finished", "postprocessor": "MetadataParser"},"i":{"id": "jNQXAC9IVRw"}}
+ERROR: Unable to create directory: [WinError 3] The system cannot find the path specified: 'C:\\Users\\a98c14\\source\\projects\\youtube-download-helper\\spikes\\progress-and-paths\\work\\Kullanıcı İ 😀 用户\\engel İ 東\\alt'

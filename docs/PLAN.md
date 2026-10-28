@@ -177,7 +177,7 @@ Presets live in the engine (`PresetId` → yt-dlp format/sort/merge arguments); 
 
 | Preset | Intent |
 |---|---|
-| Best quality (default) | yt-dlp's default format selection and container (no custom sort): highest quality available, including Premium formats when logged in; output may be MKV/WebM |
+| Best quality (default) | yt-dlp's default format selection and container (no custom sort): highest quality available, including Premium formats when logged in; output may be MKV (with `--embed-thumbnail`, yt-dlp turns a WebM merge into MKV) |
 | 1080p | ≤1080p, prefers MP4/H.264 for compatibility with any player |
 | 720p | ≤720p, MP4 |
 | Audio (M4A) | Best audio, no re-encode |
@@ -190,14 +190,26 @@ The exact format strings are decided in M1 and covered by argument-builder snaps
 - Every invocation runs inside a **Windows Job Object** (`KILL_ON_JOB_CLOSE`), so yt-dlp and its ffmpeg children
   die with the engine. Cancel or pause kills the whole tree.
 - Fixed arguments on every run: `--ignore-config` (the user's global yt-dlp config can never interfere),
-  `--no-playlist` for single items, `--newline`, a machine-readable `--progress-template` (JSON with a prefix), and
-  `--print after_move:filepath`. Also a private cache directory, explicit `--ffmpeg-location`, an explicit JS
-  runtime pointing at the managed Deno, `--embed-metadata --embed-thumbnail --embed-chapters`, and UTF-8 output.
+  `--no-playlist` for single items, `--newline`, `--progress` (required: `--print` implies `--quiet`, which
+  otherwise hides all progress), `--progress-delta 0.25`, machine-readable `--progress-template`s for `download:`
+  and `postprocess:`, and `--print` lines for `before_dl:` (format plan) and `after_move:` (final path). Also a
+  private `--cache-dir`, `--ffmpeg-location <ffmpeg dir>`, `--js-runtimes deno:<managed deno.exe>`,
+  `--embed-metadata --embed-thumbnail --embed-chapters`, and `--encoding utf-8`.
+- **Machine-readable lines** (M0 spike, `docs/spikes/progress-and-paths.md`; exact strings there): prefix `YDH1 `
+  + one JSON object with kind `k` = `plan` | `dl` | `pp` | `moved`. `%(…)j` escapes non-ASCII, so these lines are
+  pure ASCII. `pp` lines arrive on **stderr** and the others on stdout, so the runner parses both streams. Lines
+  without the prefix are raw output (`WARNING:`/`ERROR:`) for the classifier. The final path comes from `moved`.
+- **Encoding:** `--encoding utf-8` is required. Without it `yt-dlp.exe` writes cp1252 and silently drops `İ`, `ı`,
+  emoji and CJK from raw output; `PYTHONUTF8` / `PYTHONIOENCODING` have no effect on the exe. Both streams are
+  decoded as UTF-8 (with replacement). Inherited `PYTHON*` variables are removed from the child environment.
 - **Paths:** temporary/partial files go to `data\work\<itemId>\` (`-P temp:`); the finished file moves to the
   destination. If the destination filename already exists, the engine adds ` [<videoId>]` to the output template.
+  The engine checks this **before** starting yt-dlp: when the final file already exists, yt-dlp skips the
+  download, re-runs the embeds and reports success (M0 spike).
 - Progress lines are parsed and coalesced into **at most 4 updates per second per item**. Progress is kept in
   memory and checkpointed to the DB at most every 10 s.
-- The last 200 lines of output are kept per attempt (DB) for the details pane; full logs go to `logs\jobs\`.
+- The last 200 lines of output are kept per attempt (DB) for the details pane, excluding `dl` progress lines;
+  full logs go to `logs\jobs\`.
 - **Our own archive** in SQLite (key: `extractor + video id`, matching yt-dlp's archive format) replaces
   `--download-archive`, so the archive is queryable and shared with watchers and the Add dialog.
 
@@ -482,7 +494,8 @@ output is passed through untranslated (Details/Log only).
 - **Tests:** resource parity (every key exists in both languages, with matching format placeholders), and the
   Core test suite runs under `tr-TR` as well as invariant culture to catch Turkish-I bugs.
 - **Paths:** the default download folder `%USERPROFILE%\Downloads\Youtube İndirgeç` contains non-ASCII
-  characters on purpose, so Unicode-path problems (yt-dlp, ffmpeg, Deno) surface early. The M0 spike checks it.
+  characters on purpose, so Unicode-path problems (yt-dlp, ffmpeg, Deno) surface early. M0 spike: works with
+  non-ASCII tools, work and destination folders, given `--encoding utf-8` (`docs/spikes/progress-and-paths.md`).
 
 ---
 
