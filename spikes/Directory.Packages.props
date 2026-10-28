@@ -1,0 +1,6 @@
+<Project>
+  <!-- Stops inheritance of the repo's central package management: spikes pin versions in their own csproj. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>

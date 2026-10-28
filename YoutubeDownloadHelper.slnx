@@ -1,0 +1,28 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path=".github/workflows/ci.yml" />
+    <File Path="CLAUDE.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="tests/Directory.Build.props" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/YoutubeDownloadHelper.App/YoutubeDownloadHelper.App.csproj" />
+    <Project Path="src/YoutubeDownloadHelper.Client/YoutubeDownloadHelper.Client.csproj" />
+    <Project Path="src/YoutubeDownloadHelper.Contracts/YoutubeDownloadHelper.Contracts.csproj" />
+    <Project Path="src/YoutubeDownloadHelper.Core/YoutubeDownloadHelper.Core.csproj" />
+    <Project Path="src/YoutubeDownloadHelper.Engine/YoutubeDownloadHelper.Engine.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/YoutubeDownloadHelper.App.Tests/YoutubeDownloadHelper.App.Tests.csproj" />
+    <Project Path="tests/YoutubeDownloadHelper.ArchTests/YoutubeDownloadHelper.ArchTests.csproj" />
+    <Project Path="tests/YoutubeDownloadHelper.Client.Tests/YoutubeDownloadHelper.Client.Tests.csproj" />
+    <Project Path="tests/YoutubeDownloadHelper.Core.Tests/YoutubeDownloadHelper.Core.Tests.csproj" />
+    <Project Path="tests/YoutubeDownloadHelper.Engine.Tests/YoutubeDownloadHelper.Engine.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/YoutubeDownloadHelper.FakeYtDlp/YoutubeDownloadHelper.FakeYtDlp.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- WPF app. Depends only on Contracts + Client (arch-tested). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- Windows SDK TFM for the toast APIs (PLAN.md §7.3, docs/spikes/velopack.md). -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- Must match AppIdentity.AppExecutableName (tested). -->
+    <AssemblyName>YoutubeDownloadHelper</AssemblyName>
+    <RootNamespace>YoutubeDownloadHelper.App</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\YoutubeDownloadHelper.Contracts\YoutubeDownloadHelper.Contracts.csproj" />
+    <ProjectReference Include="..\YoutubeDownloadHelper.Client\YoutubeDownloadHelper.Client.csproj" />
+  </ItemGroup>
+
+</Project>

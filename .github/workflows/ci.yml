@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [rewrite, main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      # No lock files (parallel PRs would conflict on them), so key the cache on the inputs that pick versions.
+      - uses: actions/cache@v6
+        with:
+          path: ${{ env.NUGET_PACKAGES }}
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', 'src/**/*.csproj', 'tests/**/*.csproj', 'tools/**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore -c Release
+
+      - name: Test
+        run: dotnet test --no-build -c Release
+
+      # Turkish-I bugs (PLAN.md §7.5). The canary test fails if the culture switch stops taking effect.
+      - name: Test (tr-TR)
+        shell: pwsh
+        env:
+          EXPECTED_TEST_CULTURE: tr-TR
+        run: |
+          foreach ($p in 'Core', 'Engine', 'Client') {
+            dotnet test --no-build -c Release --project "tests/YoutubeDownloadHelper.$p.Tests" --culture tr-TR
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }

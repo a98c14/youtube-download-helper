@@ -1,0 +1,3 @@
+<Project>
+  <!-- Stops inheritance of the repo's Directory.Build.props: spike harnesses keep their own settings. -->
+</Project>

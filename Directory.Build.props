@@ -1,0 +1,27 @@
+<Project>
+
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- A newly published advisory must not break unrelated PRs: NuGet audit findings stay warnings.
+         NuGet honours WarningsNotAsErrors on SDK 10.0.403 (verified with a vulnerable package). -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- Required for IDE0005 (unused usings) to run in the build. Missing XML docs are not an error. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Overridden by the release pipeline (#61). -->
+    <Version>0.1.0</Version>
+    <!-- Shown in Task Manager and file properties. Must equal AppIdentity.DisplayName (tested). -->
+    <Product>Youtube İndirgeç</Product>
+    <Company>a98c14</Company>
+  </PropertyGroup>
+
+</Project>

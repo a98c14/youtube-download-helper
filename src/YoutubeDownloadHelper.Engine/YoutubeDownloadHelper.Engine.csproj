@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- Headless engine host. WinExe: no console window. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\YoutubeDownloadHelper.Contracts\YoutubeDownloadHelper.Contracts.csproj" />
+    <ProjectReference Include="..\YoutubeDownloadHelper.Core\YoutubeDownloadHelper.Core.csproj" />
+  </ItemGroup>
+
+</Project>

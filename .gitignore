@@ -1,0 +1,22 @@
+# Build output
+bin/
+obj/
+artifacts/
+publish/
+
+# Test output
+TestResults/
+*.received.*
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.DotSettings.user
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
