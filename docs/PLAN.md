@@ -160,7 +160,7 @@ automatically), `DiskFull` (free space below the item's estimated size + margin)
             │  └─ update ─ WaitingToolFix    ← extractor broken (yt-dlp update triggered)
             └──── Retry ── Failed            ← permanent (removed/private/geo) or retries exhausted
                            Skipped           ← already in the archive (unless forced)
- Removed (soft-deleted; stays in history)
+ Removed (from any state; file deleted or left untracked; out of the queue, history and archive)
  Reserved for v2: WaitingForStream, Recording
 ```
 
@@ -171,8 +171,8 @@ automatically), `DiskFull` (free space below the item's estimated size + margin)
   message, run through the normal classifier. Known v1 limitation: pausing a live recording cannot resume it.
 - **Pause:** kills the yt-dlp process tree and keeps the partial files. **Resume** reruns yt-dlp, which continues the download.
 - **Crash recovery:** at engine start, items in `Resolving`/`Downloading`/`PostProcessing` go back to `Queued`
-  (marked "interrupted") and resume from their partial files. Orphaned work folders with no matching item are cleaned up.
-- Every transition is written to `item_events` (timestamp, from, to, reason, error category, attempt), which
+  (the event's reason says why) and resume from their partial files. Orphaned work folders with no matching item are cleaned up.
+- Every transition is written to `item_events` (timestamp, from, to, reason, error category), which
   powers the details pane and diagnostics.
 
 ### 5.2 Error classification and retry policy
@@ -227,11 +227,13 @@ The exact format strings are decided in M1 and covered by argument-builder snaps
   The engine checks this **before** starting yt-dlp: when the final file already exists, yt-dlp skips the
   download, re-runs the embeds and reports success (M0 spike).
 - Progress lines are parsed and coalesced into **at most 4 updates per second per item**. Progress is kept in
-  memory and checkpointed to the DB at most every 10 s.
-- The last 200 lines of output are kept per attempt (DB) for the details pane, excluding `dl` progress lines;
+  memory only; the DB stores the size estimate and, at the end, the final size.
+- The last 200 lines of output are kept per run (DB, on the `item_events` row that ends the run) for the details
+  pane, excluding `dl` progress lines;
   full logs go to `logs\jobs\`.
 - **Our own archive** in SQLite (key: `extractor + video id`, matching yt-dlp's archive format) replaces
-  `--download-archive`, so the archive is queryable and shared with watchers and the Add dialog.
+  `--download-archive`, so the archive is queryable and shared with watchers and the Add dialog. It is not a
+  table: a video is archived while an item for it is `Completed`. Removing the item takes it out of the archive.
 
 ### 5.5 Watchers
 
@@ -398,14 +400,14 @@ non-.NET clients.
 | `GET /items/{id}` | Detail incl. attempts and the output tail |
 | `POST /items/{id}/pause` · `/resume` · `/retry` | Item control |
 | `POST /items/{id}/move` `{to: "top"\|"bottom"\|"before", beforeId?}` | Reorder |
-| `DELETE /items/{id}?deleteFiles=` | Remove (soft-delete to history) |
+| `DELETE /items/{id}?deleteFiles=` | Remove → `Removed`; also deletes the downloaded file when `deleteFiles` |
 | `POST /queue/pause` · `/queue/resume` | Global control |
 | `GET/POST /watchers` · `PATCH/DELETE /watchers/{id}` · `POST /watchers/{id}/check` | Watchers |
 | `GET /auth` · `PUT /auth/cookies` · `DELETE /auth/cookies` · `POST /auth/verify` | Auth (status, import, log out, verify) |
 | `POST /auth/refresh/begin` · `PUT /auth/refresh/complete` | Browser-refresh lease (§5.7). `begin` returns the cookie jar: any token holder can read it, which is no new exposure, since same-user processes can already decrypt DPAPI data |
 | `GET /settings` · `PATCH /settings` | Settings (stored in the DB) |
 | `GET /tools` · `POST /tools/check` · `POST /tools/{tool}/rollback` | Tools |
-| `GET /history?search=&cursor=` | Completed/removed items, archive |
+| `GET /history?search=&cursor=` | Completed and skipped items, archive |
 | `GET /events` | SSE stream (below) |
 | `POST /engine/shutdown` | Graceful shutdown (pause running jobs, keep partial files, flush the DB) |
 
@@ -529,6 +531,7 @@ survives updates, uninstall and reinstall:
 
 ```
 state.db            SQLite, WAL mode, EF Core migrations (run by the engine at startup, after a DB backup)
+backups\            state-<utc>-before-<migration>.db, taken only when a migration is pending (last 5 kept)
 engine.json         discovery file (user-only ACL)
 auth\cookies.bin    DPAPI-encrypted cookies
 webview-profile\    WebView2 login profile (owned by YoutubeDownloadHelper.exe)
@@ -538,10 +541,16 @@ logs\               engine-*.log, app-*.log (rolling, 14 days), jobs\<itemId>-<a
 ```
 
 Tables: `items` (id, url, extractor, video_id, title, channel, upload_date, availability, preset_id, folder,
-state, position, attempt, next_attempt_at, error_category, error_message, file_path, size, timestamps,
-watcher_id?, account_id) · `item_events` · `archive` (extractor, video_id, item_id, file_path, downloaded_at) ·
-`watchers` · `watcher_seen` · `settings` (key → JSON) · `tools` (tool, current, previous, channel, last_check) ·
-`schema_info`.
+state, position, attempt, next_attempt_at, error_category, error_message, file_path, size, timestamps, removed_at,
+watcher_id?, account_id) · `item_events` (transitions; the event that ends a yt-dlp run also has its exit code
+and last 200 output lines) · `watchers` · `watcher_seen` · `settings` (key → JSON) · `tools` (tool, current,
+previous, channel, last_check) · `schema_info`. The download archive is a query over `items` (§5.4), not a
+table. Items are never hard-deleted: removing one sets `state = Removed` and `removed_at`, clears `file_path`, and
+writes an `item_events` row.
+
+Names are snake_case. Enums are stored by name (reordering an enum never touches data). Timestamps are UTC Unix
+milliseconds, so SQLite can compare and sort them; EF Core cannot order `DateTimeOffset` stored as text.
+Settings the user never changed are not stored, so they follow the current default.
 
 ---
 
