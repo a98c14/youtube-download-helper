@@ -529,7 +529,7 @@ survives updates, uninstall and reinstall:
 
 ```
 state.db            SQLite, WAL mode, EF Core migrations (run by the engine at startup, after a DB backup)
-backups\           state-<utc>-before-<migration>.db, taken only when a migration is pending (last 5 kept)
+backups\            state-<utc>-before-<migration>.db, taken only when a migration is pending (last 5 kept)
 engine.json         discovery file (user-only ACL)
 auth\cookies.bin    DPAPI-encrypted cookies
 webview-profile\    WebView2 login profile (owned by YoutubeDownloadHelper.exe)
