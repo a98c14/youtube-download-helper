@@ -7,6 +7,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\YoutubeDownloadHelper.Contracts\YoutubeDownloadHelper.Contracts.csproj" />
     <ProjectReference Include="..\..\src\YoutubeDownloadHelper.Core\YoutubeDownloadHelper.Core.csproj" />
+    <!-- Copies YoutubeDownloadHelper.FakeYtDlp.exe next to the tests. -->
+    <ProjectReference Include="..\..\tools\YoutubeDownloadHelper.FakeYtDlp\YoutubeDownloadHelper.FakeYtDlp.csproj" />
   </ItemGroup>
 
   <ItemGroup>
