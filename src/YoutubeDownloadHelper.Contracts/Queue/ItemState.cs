@@ -17,7 +17,6 @@ public enum ItemState
     WaitingToolFix,
     Failed,
     Skipped,
-    Removed,
 
     /// <summary>Reserved for v2 (live streams); never entered in v1.</summary>
     WaitingForStream,

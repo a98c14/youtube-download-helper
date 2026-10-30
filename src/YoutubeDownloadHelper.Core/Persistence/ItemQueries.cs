@@ -13,18 +13,18 @@ public static class ItemQueries
 {
     public const int DefaultHistoryPageSize = 50;
 
-    /// <summary>States shown in history rather than in the queue (PLAN.md §5.1, §6.2).</summary>
+    /// <summary>States shown in history rather than in the queue (PLAN.md §5.1, §6.2), unless the item was removed.</summary>
     public static IReadOnlyList<ItemState> HistoryStates => HistoryStateArray;
 
     // An array, because EF translates Contains on arrays (to IN) but not on sets.
-    private static readonly ItemState[] HistoryStateArray = [ItemState.Completed, ItemState.Skipped, ItemState.Removed];
+    private static readonly ItemState[] HistoryStateArray = [ItemState.Completed, ItemState.Skipped];
 
     private const string LikeEscape = "\\";
 
-    /// <summary>Every item not in history, in queue order. Loaded once at startup by the queue actor.</summary>
+    /// <summary>Every item not removed or in history, in queue order. Loaded once at startup by the queue actor.</summary>
     public static Task<List<ItemEntity>> LoadActiveAsync(this StateDbContext db, CancellationToken cancellationToken = default) =>
         db.Items
-            .Where(i => !HistoryStateArray.Contains(i.State))
+            .Where(i => i.RemovedAt == null && !HistoryStateArray.Contains(i.State))
             .OrderBy(i => i.Position)
             .ToListAsync(cancellationToken);
 
@@ -41,7 +41,7 @@ public static class ItemQueries
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(pageSize, 1);
 
-        var query = db.Items.AsNoTracking().Where(i => HistoryStateArray.Contains(i.State) && i.FinishedAt != null);
+        var query = db.Items.AsNoTracking().Where(i => i.RemovedAt == null && HistoryStateArray.Contains(i.State) && i.FinishedAt != null);
 
         if (!string.IsNullOrWhiteSpace(search))
         {

@@ -49,9 +49,6 @@ public sealed class ItemEntity
 
     public DateTimeOffset? NextAttemptAt { get; set; }
 
-    /// <summary>Set by crash recovery when an in-flight item was put back in the queue.</summary>
-    public bool Interrupted { get; set; }
-
     /// <summary>The error category name (#39 owns the enum).</summary>
     public string? ErrorCategory { get; set; }
 
@@ -79,6 +76,12 @@ public sealed class ItemEntity
 
     /// <summary>When the item entered a history state (<see cref="ItemQueries.HistoryStates"/>); the history sort key.</summary>
     public DateTimeOffset? FinishedAt { get; set; }
+
+    /// <summary>
+    /// When the user removed the item. Removing hides it from the queue and history without changing its state; the
+    /// actor stops a running item first. The row stays, so a downloaded video stays in the archive.
+    /// </summary>
+    public DateTimeOffset? RemovedAt { get; set; }
 
     public Guid? WatcherId { get; set; }
 

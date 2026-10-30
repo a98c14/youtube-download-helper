@@ -160,7 +160,7 @@ automatically), `DiskFull` (free space below the item's estimated size + margin)
             │  └─ update ─ WaitingToolFix    ← extractor broken (yt-dlp update triggered)
             └──── Retry ── Failed            ← permanent (removed/private/geo) or retries exhausted
                            Skipped           ← already in the archive (unless forced)
- Removed (soft-deleted; stays in history)
+ Remove: hides the item from the queue and history (removed_at); its state is unchanged
  Reserved for v2: WaitingForStream, Recording
 ```
 
@@ -171,7 +171,7 @@ automatically), `DiskFull` (free space below the item's estimated size + margin)
   message, run through the normal classifier. Known v1 limitation: pausing a live recording cannot resume it.
 - **Pause:** kills the yt-dlp process tree and keeps the partial files. **Resume** reruns yt-dlp, which continues the download.
 - **Crash recovery:** at engine start, items in `Resolving`/`Downloading`/`PostProcessing` go back to `Queued`
-  (marked "interrupted") and resume from their partial files. Orphaned work folders with no matching item are cleaned up.
+  (the event's reason says why) and resume from their partial files. Orphaned work folders with no matching item are cleaned up.
 - Every transition is written to `item_events` (timestamp, from, to, reason, error category), which
   powers the details pane and diagnostics.
 
@@ -401,14 +401,14 @@ non-.NET clients.
 | `GET /items/{id}` | Detail incl. attempts and the output tail |
 | `POST /items/{id}/pause` · `/resume` · `/retry` | Item control |
 | `POST /items/{id}/move` `{to: "top"\|"bottom"\|"before", beforeId?}` | Reorder |
-| `DELETE /items/{id}?deleteFiles=` | Remove (soft-delete to history) |
+| `DELETE /items/{id}?deleteFiles=` | Remove (soft-delete: hidden from the queue and history) |
 | `POST /queue/pause` · `/queue/resume` | Global control |
 | `GET/POST /watchers` · `PATCH/DELETE /watchers/{id}` · `POST /watchers/{id}/check` | Watchers |
 | `GET /auth` · `PUT /auth/cookies` · `DELETE /auth/cookies` · `POST /auth/verify` | Auth (status, import, log out, verify) |
 | `POST /auth/refresh/begin` · `PUT /auth/refresh/complete` | Browser-refresh lease (§5.7). `begin` returns the cookie jar: any token holder can read it, which is no new exposure, since same-user processes can already decrypt DPAPI data |
 | `GET /settings` · `PATCH /settings` | Settings (stored in the DB) |
 | `GET /tools` · `POST /tools/check` · `POST /tools/{tool}/rollback` | Tools |
-| `GET /history?search=&cursor=` | Completed/removed items, archive |
+| `GET /history?search=&cursor=` | Completed and skipped items, archive |
 | `GET /events` | SSE stream (below) |
 | `POST /engine/shutdown` | Graceful shutdown (pause running jobs, keep partial files, flush the DB) |
 
@@ -542,7 +542,7 @@ logs\               engine-*.log, app-*.log (rolling, 14 days), jobs\<itemId>-<a
 ```
 
 Tables: `items` (id, url, extractor, video_id, title, channel, upload_date, availability, preset_id, folder,
-state, position, attempt, next_attempt_at, error_category, error_message, file_path, size, timestamps,
+state, position, attempt, next_attempt_at, error_category, error_message, file_path, size, timestamps, removed_at,
 watcher_id?, account_id) · `item_events` (transitions; the event that ends a yt-dlp run also has its exit code
 and last 200 output lines) · `watchers` · `watcher_seen` · `settings` (key → JSON) · `tools` (tool, current,
 previous, channel, last_check) · `schema_info`. The download archive is a query over `items` (§5.4), not a

@@ -89,10 +89,6 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("force");
 
-                    b.Property<bool>("Interrupted")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("interrupted");
-
                     b.Property<string>("LiveStatus")
                         .HasColumnType("TEXT")
                         .HasColumnName("live_status");
@@ -109,6 +105,10 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("preset_id");
+
+                    b.Property<long?>("RemovedAt")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("removed_at");
 
                     b.Property<long?>("SizeBytes")
                         .HasColumnType("INTEGER")

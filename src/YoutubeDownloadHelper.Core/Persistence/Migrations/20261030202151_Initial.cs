@@ -103,7 +103,6 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                     position = table.Column<long>(type: "INTEGER", nullable: false),
                     attempt = table.Column<int>(type: "INTEGER", nullable: false),
                     next_attempt_at = table.Column<long>(type: "INTEGER", nullable: true),
-                    interrupted = table.Column<bool>(type: "INTEGER", nullable: false),
                     error_category = table.Column<string>(type: "TEXT", nullable: true),
                     error_code = table.Column<string>(type: "TEXT", nullable: true),
                     error_args_json = table.Column<string>(type: "TEXT", nullable: true),
@@ -113,6 +112,7 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                     created_at = table.Column<long>(type: "INTEGER", nullable: false),
                     updated_at = table.Column<long>(type: "INTEGER", nullable: false),
                     finished_at = table.Column<long>(type: "INTEGER", nullable: true),
+                    removed_at = table.Column<long>(type: "INTEGER", nullable: true),
                     watcher_id = table.Column<Guid>(type: "TEXT", nullable: true),
                     account_id = table.Column<string>(type: "TEXT", nullable: false)
                 },

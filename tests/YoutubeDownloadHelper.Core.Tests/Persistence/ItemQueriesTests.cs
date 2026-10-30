@@ -21,7 +21,7 @@ public sealed class ItemQueriesTests
             Item("done", ItemState.Completed, finishedAt: T0),
             Item("b", ItemState.Failed, position: 2),
             Item("skipped", ItemState.Skipped, finishedAt: T0),
-            Item("removed", ItemState.Removed, finishedAt: T0));
+            Removed(Item("removed", ItemState.Queued, position: 4)));
 
         await using var db = root.CreateContext();
         Assert.Equal(["a", "b", "c"], (await db.LoadActiveAsync(Ct)).Select(i => i.Title));
@@ -34,7 +34,7 @@ public sealed class ItemQueriesTests
         var items = Enumerable.Range(0, 7)
             .Select(i => Item($"h{i}", ItemState.Completed, finishedAt: T0.AddMinutes(i / 2)))
             .ToArray();
-        await SeedAsync(root, [.. items, Item("active", ItemState.Queued)]);
+        await SeedAsync(root, [.. items, Item("active", ItemState.Queued), Removed(Item("removed", ItemState.Completed, finishedAt: T0))]);
 
         var seen = new List<Guid>();
         HistoryCursor? cursor = null;
@@ -134,10 +134,10 @@ public sealed class ItemQueriesTests
         await SeedAsync(
             root,
             Video("completed", ItemState.Completed, downloaded: true),
-            Video("removedAfterCompleting", ItemState.Removed, downloaded: true),
+            Removed(Video("removedAfterCompleting", ItemState.Completed, downloaded: true)),
             Video("requeuedAfterCompleting", ItemState.Queued, downloaded: true),
             Video("failed", ItemState.Failed),
-            Video("removedBeforeCompleting", ItemState.Removed),
+            Removed(Video("removedBeforeCompleting", ItemState.Failed)),
             Video("skipped", ItemState.Skipped),
             Video("ABCdef", ItemState.Completed, downloaded: true),
             Video("otherExtractor", ItemState.Completed, downloaded: true, extractor: "vimeo"));
@@ -213,6 +213,12 @@ public sealed class ItemQueriesTests
         item.Extractor = extractor;
         item.VideoId = videoId;
         item.FilePath = downloaded ? $@"C:\Downloads\{videoId}.mkv" : null;
+        return item;
+    }
+
+    private static ItemEntity Removed(ItemEntity item)
+    {
+        item.RemovedAt = T0;
         return item;
     }
 
