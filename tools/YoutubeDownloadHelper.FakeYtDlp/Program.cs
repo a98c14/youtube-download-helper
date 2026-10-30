@@ -1,2 +1,3 @@
-// Scenarios land in #36.
-return 0;
+using YoutubeDownloadHelper.FakeYtDlp;
+
+return FakeRun.Execute(args);
