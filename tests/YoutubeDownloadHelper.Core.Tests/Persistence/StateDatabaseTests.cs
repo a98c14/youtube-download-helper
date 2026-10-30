@@ -25,7 +25,7 @@ public sealed class StateDatabaseTests
         Assert.Empty(await db.Database.GetPendingMigrationsAsync(Ct));
         Assert.Equal("wal", await ScalarAsync(db, "PRAGMA journal_mode;"));
         Assert.Equal(
-            ["archive", "item_attempts", "item_events", "items", "schema_info", "settings", "tools", "watcher_seen", "watchers"],
+            ["item_events", "items", "schema_info", "settings", "tools", "watcher_seen", "watchers"],
             await TablesAsync(db));
         Assert.Equal(2, await db.SchemaInfo.CountAsync(Ct));
     }

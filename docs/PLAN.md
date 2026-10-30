@@ -228,10 +228,13 @@ The exact format strings are decided in M1 and covered by argument-builder snaps
   download, re-runs the embeds and reports success (M0 spike).
 - Progress lines are parsed and coalesced into **at most 4 updates per second per item**. Progress is kept in
   memory and checkpointed to the DB at most every 10 s.
-- The last 200 lines of output are kept per attempt (DB) for the details pane, excluding `dl` progress lines;
+- The last 200 lines of output are kept per run (DB, on the `item_events` row that ends the run) for the details
+  pane, excluding `dl` progress lines;
   full logs go to `logs\jobs\`.
 - **Our own archive** in SQLite (key: `extractor + video id`, matching yt-dlp's archive format) replaces
-  `--download-archive`, so the archive is queryable and shared with watchers and the Add dialog.
+  `--download-archive`, so the archive is queryable and shared with watchers and the Add dialog. It is not a
+  table: a video is archived when any item for it has an `item_events` row into `Completed`, which stays true
+  after the item is removed or re-queued. Items and events are therefore never hard-deleted.
 
 ### 5.5 Watchers
 
@@ -540,9 +543,10 @@ logs\               engine-*.log, app-*.log (rolling, 14 days), jobs\<itemId>-<a
 
 Tables: `items` (id, url, extractor, video_id, title, channel, upload_date, availability, preset_id, folder,
 state, position, attempt, next_attempt_at, error_category, error_message, file_path, size, timestamps,
-watcher_id?, account_id) · `item_events` · `item_attempts` (item_id, attempt, started/ended, exit code, last
-200 output lines) · `archive` (extractor, video_id, item_id, file_path, downloaded_at) · `watchers` ·
-`watcher_seen` · `settings` (key → JSON) · `tools` (tool, current, previous, channel, last_check) · `schema_info`.
+watcher_id?, account_id) · `item_events` (transitions; the event that ends a yt-dlp run also has its exit code
+and last 200 output lines) · `watchers` · `watcher_seen` · `settings` (key → JSON) · `tools` (tool, current,
+previous, channel, last_check) · `schema_info`. The download archive is a query over `items` + `item_events`
+(§5.4), not a table.
 
 Names are snake_case. Enums are stored by name (reordering an enum never touches data). Timestamps are UTC Unix
 milliseconds, so SQLite can compare and sort them; EF Core cannot order `DateTimeOffset` stored as text.

@@ -74,6 +74,29 @@ public static class ItemQueries
         return new HistoryPage(items, new HistoryCursor(last.FinishedAt!.Value, last.Id));
     }
 
+    /// <summary>
+    /// The download archive (PLAN.md §5.4): which of <paramref name="videoIds"/> some item has downloaded, i.e. has
+    /// an event into <see cref="ItemState.Completed"/>. It still counts after the item is removed or re-queued.
+    /// Ids compare ordinally, like yt-dlp's archive.
+    /// </summary>
+    public static async Task<HashSet<string>> GetDownloadedVideoIdsAsync(
+        this StateDbContext db,
+        string extractor,
+        IEnumerable<string> videoIds,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = videoIds.Distinct(StringComparer.Ordinal).ToArray();
+        var downloaded = await db.Items
+            .Where(i => i.Extractor == extractor
+                && ids.Contains(i.VideoId!)
+                && db.ItemEvents.Any(e => e.ItemId == i.Id && e.ToState == ItemState.Completed))
+            .Select(i => i.VideoId!)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        return downloaded.ToHashSet(StringComparer.Ordinal);
+    }
+
     private static string EscapeLike(string value) =>
         value.Replace("\\", "\\\\", StringComparison.Ordinal)
             .Replace("%", "\\%", StringComparison.Ordinal)

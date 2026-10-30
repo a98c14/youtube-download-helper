@@ -10,7 +10,7 @@ public sealed class ItemEntity
 
     public required string Url { get; set; }
 
-    /// <summary>yt-dlp's extractor key, lowercase (e.g. <c>youtube</c>); with <see cref="VideoId"/> the archive key.</summary>
+    /// <summary>yt-dlp's extractor key, lowercase (e.g. <c>youtube</c>); with <see cref="VideoId"/> it identifies the video (<see cref="ItemQueries.GetDownloadedVideoIdsAsync"/>).</summary>
     public string? Extractor { get; set; }
 
     public string? VideoId { get; set; }
@@ -36,7 +36,7 @@ public sealed class ItemEntity
     /// <summary>The destination folder, or null for the download folder setting.</summary>
     public string? Folder { get; set; }
 
-    /// <summary>Download even when the archive already has this video.</summary>
+    /// <summary>Download even when this video was downloaded before.</summary>
     public bool Force { get; set; }
 
     public ItemState State { get; set; }
@@ -86,6 +86,4 @@ public sealed class ItemEntity
     public WatcherEntity? Watcher { get; set; }
 
     public List<ItemEventEntity> Events { get; } = [];
-
-    public List<ItemAttemptEntity> Attempts { get; } = [];
 }

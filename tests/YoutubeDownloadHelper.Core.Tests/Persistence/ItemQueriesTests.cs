@@ -98,8 +98,9 @@ public sealed class ItemQueriesTests
         item.ErrorCategory = "Transient";
         item.ErrorCode = "error.transient.rateLimited";
         item.ErrorArgsJson = """{"retryIn":30}""";
-        item.Attempts.Add(new ItemAttemptEntity { Attempt = 1, StartedAt = T0, ExitCode = 1 });
-        item.Events.Add(new ItemEventEntity { At = T0, FromState = ItemState.Downloading, ToState = ItemState.WaitingRetry, Attempt = 1 });
+        var runEnded = new ItemEventEntity { At = T0, FromState = ItemState.Downloading, ToState = ItemState.WaitingRetry, Attempt = 1, ExitCode = 1 };
+        runEnded.SetOutputTail(["ERROR: HTTP Error 429: Too Many Requests", "İndirme başarısız"]);
+        item.Events.Add(runEnded);
         await using (var db = root.CreateContext())
         {
             db.Watchers.Add(watcher);
@@ -108,15 +109,17 @@ public sealed class ItemQueriesTests
         }
 
         await using var check = root.CreateContext();
-        var loaded = await check.Items.Include(i => i.Events).Include(i => i.Attempts).SingleAsync(Ct);
+        var loaded = await check.Items.Include(i => i.Events).SingleAsync(Ct);
         Assert.Equal(item.Title, loaded.Title);
         Assert.Equal(item.UploadDate, loaded.UploadDate);
         Assert.Equal(item.NextAttemptAt, loaded.NextAttemptAt);
         Assert.Equal(TimeSpan.Zero, loaded.NextAttemptAt!.Value.Offset);
         Assert.Equal(watcher.Id, loaded.WatcherId);
         Assert.Equal(Accounts.Default, loaded.AccountId);
-        Assert.Equal(ItemState.Downloading, Assert.Single(loaded.Events).FromState);
-        Assert.Equal(1, Assert.Single(loaded.Attempts).ExitCode);
+        var loadedEvent = Assert.Single(loaded.Events);
+        Assert.Equal(ItemState.Downloading, loadedEvent.FromState);
+        Assert.Equal(1, loadedEvent.ExitCode);
+        Assert.Equal(runEnded.OutputTail, loadedEvent.OutputTail);
 
         // Enums are stored by name, so reordering ItemState never changes stored data.
         Assert.Equal(
@@ -125,16 +128,30 @@ public sealed class ItemQueriesTests
     }
 
     [Fact]
-    public async Task Archive_key_is_case_sensitive()
+    public async Task A_video_counts_as_downloaded_once_an_item_completed_it()
     {
         await using var root = await new TestDataRoot().InitializedAsync();
-        await using var db = root.CreateContext();
-        db.Archive.Add(new ArchiveEntity { Extractor = "youtube", VideoId = "abcDEF", DownloadedAt = T0 });
-        db.Archive.Add(new ArchiveEntity { Extractor = "youtube", VideoId = "abcdef", DownloadedAt = T0 });
-        await db.SaveChangesAsync(Ct);
+        await SeedAsync(
+            root,
+            Video("completed", ItemState.Completed, [ItemState.Completed]),
+            Video("removedAfterCompleting", ItemState.Removed, [ItemState.Completed, ItemState.Removed]),
+            Video("requeuedAfterCompleting", ItemState.Queued, [ItemState.Completed, ItemState.Queued]),
+            Video("failed", ItemState.Failed, [ItemState.Failed]),
+            Video("removedBeforeCompleting", ItemState.Removed, [ItemState.Removed]),
+            Video("skipped", ItemState.Skipped, [ItemState.Skipped]),
+            Video("ABCdef", ItemState.Completed, [ItemState.Completed]),
+            Video("otherExtractor", ItemState.Completed, [ItemState.Completed], extractor: "vimeo"));
 
-        Assert.Equal(2, await db.Archive.CountAsync(a => a.Extractor == "youtube", Ct));
-        Assert.False(await db.Archive.AnyAsync(a => a.VideoId == "ABCDEF", Ct));
+        await using var db = root.CreateContext();
+        var downloaded = await db.GetDownloadedVideoIdsAsync(
+            "youtube",
+            ["completed", "removedAfterCompleting", "requeuedAfterCompleting", "failed", "removedBeforeCompleting",
+             "skipped", "abcdef", "ABCdef", "otherExtractor", "neverSeen", "completed"],
+            Ct);
+
+        Assert.Equal(
+            ["ABCdef", "completed", "removedAfterCompleting", "requeuedAfterCompleting"],
+            downloaded.Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -165,12 +182,12 @@ public sealed class ItemQueriesTests
     [Fact]
     public void Output_tail_keeps_the_last_200_lines()
     {
-        var attempt = new ItemAttemptEntity();
+        var runEnded = new ItemEventEntity();
 
-        attempt.SetOutputTail(Enumerable.Range(1, 250).Select(i => $"line {i}"));
+        runEnded.SetOutputTail(Enumerable.Range(1, 250).Select(i => $"line {i}"));
 
-        var lines = attempt.OutputTail.Split('\n');
-        Assert.Equal(ItemAttemptEntity.MaxOutputLines, lines.Length);
+        var lines = runEnded.OutputTail!.Split('\n');
+        Assert.Equal(ItemEventEntity.MaxOutputLines, lines.Length);
         Assert.Equal("line 51", lines[0]);
         Assert.Equal("line 250", lines[^1]);
     }
@@ -188,6 +205,22 @@ public sealed class ItemQueriesTests
             UpdatedAt = T0,
             FinishedAt = finishedAt,
         };
+
+    /// <summary>An item for <paramref name="videoId"/> whose events went through <paramref name="transitions"/>.</summary>
+    private static ItemEntity Video(string videoId, ItemState state, ItemState[] transitions, string extractor = "youtube")
+    {
+        var item = Item(videoId, state, finishedAt: ItemQueries.HistoryStates.Contains(state) ? T0 : null);
+        item.Extractor = extractor;
+        item.VideoId = videoId;
+        var from = ItemState.Queued;
+        foreach (var to in transitions)
+        {
+            item.Events.Add(new ItemEventEntity { At = T0, FromState = from, ToState = to, Attempt = 1 });
+            from = to;
+        }
+
+        return item;
+    }
 
     private static async Task SeedAsync(TestDataRoot root, params ItemEntity[] items)
     {

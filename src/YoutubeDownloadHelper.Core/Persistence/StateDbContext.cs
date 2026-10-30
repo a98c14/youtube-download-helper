@@ -9,16 +9,16 @@ namespace YoutubeDownloadHelper.Core.Persistence;
 /// <c>state.db</c> (PLAN.md §8). Every table is created here up front, including the ones later issues fill.
 /// Names are snake_case; enums are stored by name; timestamps are UTC Unix milliseconds so SQLite can compare
 /// and sort them.
+/// <para>
+/// There is no archive table: items and their events are never hard-deleted, and together they are the download
+/// archive (<see cref="ItemQueries.GetDownloadedVideoIdsAsync"/>).
+/// </para>
 /// </summary>
 public sealed class StateDbContext(DbContextOptions<StateDbContext> options) : DbContext(options)
 {
     public DbSet<ItemEntity> Items => Set<ItemEntity>();
 
     public DbSet<ItemEventEntity> ItemEvents => Set<ItemEventEntity>();
-
-    public DbSet<ItemAttemptEntity> ItemAttempts => Set<ItemAttemptEntity>();
-
-    public DbSet<ArchiveEntity> Archive => Set<ArchiveEntity>();
 
     public DbSet<WatcherEntity> Watchers => Set<WatcherEntity>();
 
@@ -46,26 +46,12 @@ public sealed class StateDbContext(DbContextOptions<StateDbContext> options) : D
             e.HasIndex(i => new { i.FinishedAt, i.Id });
             e.HasOne(i => i.Watcher).WithMany().HasForeignKey(i => i.WatcherId).OnDelete(DeleteBehavior.SetNull);
             e.HasMany(i => i.Events).WithOne().HasForeignKey(ev => ev.ItemId).OnDelete(DeleteBehavior.Cascade);
-            e.HasMany(i => i.Attempts).WithOne().HasForeignKey(a => a.ItemId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ItemEventEntity>(e =>
         {
             e.ToTable("item_events");
             e.HasIndex(ev => new { ev.ItemId, ev.Id });
-        });
-
-        modelBuilder.Entity<ItemAttemptEntity>(e =>
-        {
-            e.ToTable("item_attempts");
-            e.HasKey(a => new { a.ItemId, a.Attempt });
-        });
-
-        modelBuilder.Entity<ArchiveEntity>(e =>
-        {
-            e.ToTable("archive");
-            e.HasKey(a => new { a.Extractor, a.VideoId });
-            e.HasOne<ItemEntity>().WithMany().HasForeignKey(a => a.ItemId).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<WatcherEntity>(e =>

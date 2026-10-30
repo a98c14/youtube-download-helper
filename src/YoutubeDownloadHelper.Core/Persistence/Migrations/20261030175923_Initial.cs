@@ -149,49 +149,6 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "archive",
-                columns: table => new
-                {
-                    extractor = table.Column<string>(type: "TEXT", nullable: false),
-                    video_id = table.Column<string>(type: "TEXT", nullable: false),
-                    item_id = table.Column<Guid>(type: "TEXT", nullable: true),
-                    file_path = table.Column<string>(type: "TEXT", nullable: true),
-                    downloaded_at = table.Column<long>(type: "INTEGER", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_archive", x => new { x.extractor, x.video_id });
-                    table.ForeignKey(
-                        name: "fk_archive_items",
-                        column: x => x.item_id,
-                        principalTable: "items",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.SetNull);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "item_attempts",
-                columns: table => new
-                {
-                    item_id = table.Column<Guid>(type: "TEXT", nullable: false),
-                    attempt = table.Column<int>(type: "INTEGER", nullable: false),
-                    started_at = table.Column<long>(type: "INTEGER", nullable: false),
-                    ended_at = table.Column<long>(type: "INTEGER", nullable: true),
-                    exit_code = table.Column<int>(type: "INTEGER", nullable: true),
-                    output_tail = table.Column<string>(type: "TEXT", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_item_attempts", x => new { x.item_id, x.attempt });
-                    table.ForeignKey(
-                        name: "fk_item_attempts_items",
-                        column: x => x.item_id,
-                        principalTable: "items",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "item_events",
                 columns: table => new
                 {
@@ -203,7 +160,9 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                     to_state = table.Column<string>(type: "TEXT", nullable: false),
                     reason = table.Column<string>(type: "TEXT", nullable: true),
                     error_category = table.Column<string>(type: "TEXT", nullable: true),
-                    attempt = table.Column<int>(type: "INTEGER", nullable: false)
+                    attempt = table.Column<int>(type: "INTEGER", nullable: false),
+                    exit_code = table.Column<int>(type: "INTEGER", nullable: true),
+                    output_tail = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -215,11 +174,6 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                 });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_archive_item_id",
-                table: "archive",
-                column: "item_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_item_events_item_id_id",
@@ -250,12 +204,6 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "archive");
-
-            migrationBuilder.DropTable(
-                name: "item_attempts");
-
             migrationBuilder.DropTable(
                 name: "item_events");
 

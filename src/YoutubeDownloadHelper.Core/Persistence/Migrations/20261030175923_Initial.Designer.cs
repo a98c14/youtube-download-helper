@@ -11,7 +11,7 @@ using YoutubeDownloadHelper.Core.Persistence;
 namespace YoutubeDownloadHelper.Core.Persistence.Migrations
 {
     [DbContext(typeof(StateDbContext))]
-    [Migration("20261030165942_Initial")]
+    [Migration("20261030175923_Initial")]
     partial class Initial
     {
         /// <inheritdoc />
@@ -19,70 +19,6 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.14");
-
-            modelBuilder.Entity("YoutubeDownloadHelper.Core.Persistence.ArchiveEntity", b =>
-                {
-                    b.Property<string>("Extractor")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("extractor");
-
-                    b.Property<string>("VideoId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("video_id");
-
-                    b.Property<long>("DownloadedAt")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("downloaded_at");
-
-                    b.Property<string>("FilePath")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("file_path");
-
-                    b.Property<Guid?>("ItemId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("item_id");
-
-                    b.HasKey("Extractor", "VideoId")
-                        .HasName("pk_archive");
-
-                    b.HasIndex("ItemId")
-                        .HasDatabaseName("ix_archive_item_id");
-
-                    b.ToTable("archive", (string)null);
-                });
-
-            modelBuilder.Entity("YoutubeDownloadHelper.Core.Persistence.ItemAttemptEntity", b =>
-                {
-                    b.Property<Guid>("ItemId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("item_id");
-
-                    b.Property<int>("Attempt")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("attempt");
-
-                    b.Property<long?>("EndedAt")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("ended_at");
-
-                    b.Property<int?>("ExitCode")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("exit_code");
-
-                    b.Property<string>("OutputTail")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("output_tail");
-
-                    b.Property<long>("StartedAt")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("started_at");
-
-                    b.HasKey("ItemId", "Attempt")
-                        .HasName("pk_item_attempts");
-
-                    b.ToTable("item_attempts", (string)null);
-                });
 
             modelBuilder.Entity("YoutubeDownloadHelper.Core.Persistence.ItemEntity", b =>
                 {
@@ -252,6 +188,10 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("error_category");
 
+                    b.Property<int?>("ExitCode")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("exit_code");
+
                     b.Property<string>("FromState")
                         .HasColumnType("TEXT")
                         .HasColumnName("from_state");
@@ -259,6 +199,10 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                     b.Property<Guid>("ItemId")
                         .HasColumnType("TEXT")
                         .HasColumnName("item_id");
+
+                    b.Property<string>("OutputTail")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("output_tail");
 
                     b.Property<string>("Reason")
                         .HasColumnType("TEXT")
@@ -462,25 +406,6 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                     b.ToTable("watcher_seen", (string)null);
                 });
 
-            modelBuilder.Entity("YoutubeDownloadHelper.Core.Persistence.ArchiveEntity", b =>
-                {
-                    b.HasOne("YoutubeDownloadHelper.Core.Persistence.ItemEntity", null)
-                        .WithMany()
-                        .HasForeignKey("ItemId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_archive_items");
-                });
-
-            modelBuilder.Entity("YoutubeDownloadHelper.Core.Persistence.ItemAttemptEntity", b =>
-                {
-                    b.HasOne("YoutubeDownloadHelper.Core.Persistence.ItemEntity", null)
-                        .WithMany("Attempts")
-                        .HasForeignKey("ItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_item_attempts_items");
-                });
-
             modelBuilder.Entity("YoutubeDownloadHelper.Core.Persistence.ItemEntity", b =>
                 {
                     b.HasOne("YoutubeDownloadHelper.Core.Persistence.WatcherEntity", "Watcher")
@@ -514,8 +439,6 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
 
             modelBuilder.Entity("YoutubeDownloadHelper.Core.Persistence.ItemEntity", b =>
                 {
-                    b.Navigation("Attempts");
-
                     b.Navigation("Events");
                 });
 
