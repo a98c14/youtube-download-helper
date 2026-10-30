@@ -4,7 +4,8 @@ namespace YoutubeDownloadHelper.Core.Persistence;
 
 /// <summary>
 /// One state transition of an item (table <c>item_events</c>, PLAN.md §5.1). The event that ends a yt-dlp run also
-/// carries its exit code and output tail (§5.4); full logs go to <c>logs\jobs\</c>.
+/// carries its exit code and output tail (§5.4); full logs go to <c>logs\jobs\</c>. A run starts with the event
+/// into <see cref="ItemState.Resolving"/>, so counting those numbers the runs.
 /// </summary>
 public sealed class ItemEventEntity
 {
@@ -25,8 +26,6 @@ public sealed class ItemEventEntity
     public string? Reason { get; set; }
 
     public string? ErrorCategory { get; set; }
-
-    public int Attempt { get; set; }
 
     /// <summary>Set only on the event that ends a yt-dlp run.</summary>
     public int? ExitCode { get; set; }

@@ -76,8 +76,8 @@ public static class ItemQueries
 
     /// <summary>
     /// The download archive (PLAN.md §5.4): which of <paramref name="videoIds"/> some item has downloaded, i.e. has
-    /// an event into <see cref="ItemState.Completed"/>. It still counts after the item is removed or re-queued.
-    /// Ids compare ordinally, like yt-dlp's archive.
+    /// a <see cref="ItemEntity.FilePath"/>. It still counts after the item is removed or re-queued. Ids compare
+    /// ordinally, like yt-dlp's archive.
     /// </summary>
     public static async Task<HashSet<string>> GetDownloadedVideoIdsAsync(
         this StateDbContext db,
@@ -89,7 +89,7 @@ public static class ItemQueries
         var downloaded = await db.Items
             .Where(i => i.Extractor == extractor
                 && ids.Contains(i.VideoId!)
-                && db.ItemEvents.Any(e => e.ItemId == i.Id && e.ToState == ItemState.Completed))
+                && i.FilePath != null)
             .Select(i => i.VideoId!)
             .Distinct()
             .ToListAsync(cancellationToken);

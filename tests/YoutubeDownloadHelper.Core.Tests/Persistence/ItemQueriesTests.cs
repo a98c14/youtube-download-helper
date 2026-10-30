@@ -98,7 +98,7 @@ public sealed class ItemQueriesTests
         item.ErrorCategory = "Transient";
         item.ErrorCode = "error.transient.rateLimited";
         item.ErrorArgsJson = """{"retryIn":30}""";
-        var runEnded = new ItemEventEntity { At = T0, FromState = ItemState.Downloading, ToState = ItemState.WaitingRetry, Attempt = 1, ExitCode = 1 };
+        var runEnded = new ItemEventEntity { At = T0, FromState = ItemState.Downloading, ToState = ItemState.WaitingRetry, ExitCode = 1 };
         runEnded.SetOutputTail(["ERROR: HTTP Error 429: Too Many Requests", "İndirme başarısız"]);
         item.Events.Add(runEnded);
         await using (var db = root.CreateContext())
@@ -133,14 +133,14 @@ public sealed class ItemQueriesTests
         await using var root = await new TestDataRoot().InitializedAsync();
         await SeedAsync(
             root,
-            Video("completed", ItemState.Completed, [ItemState.Completed]),
-            Video("removedAfterCompleting", ItemState.Removed, [ItemState.Completed, ItemState.Removed]),
-            Video("requeuedAfterCompleting", ItemState.Queued, [ItemState.Completed, ItemState.Queued]),
-            Video("failed", ItemState.Failed, [ItemState.Failed]),
-            Video("removedBeforeCompleting", ItemState.Removed, [ItemState.Removed]),
-            Video("skipped", ItemState.Skipped, [ItemState.Skipped]),
-            Video("ABCdef", ItemState.Completed, [ItemState.Completed]),
-            Video("otherExtractor", ItemState.Completed, [ItemState.Completed], extractor: "vimeo"));
+            Video("completed", ItemState.Completed, downloaded: true),
+            Video("removedAfterCompleting", ItemState.Removed, downloaded: true),
+            Video("requeuedAfterCompleting", ItemState.Queued, downloaded: true),
+            Video("failed", ItemState.Failed),
+            Video("removedBeforeCompleting", ItemState.Removed),
+            Video("skipped", ItemState.Skipped),
+            Video("ABCdef", ItemState.Completed, downloaded: true),
+            Video("otherExtractor", ItemState.Completed, downloaded: true, extractor: "vimeo"));
 
         await using var db = root.CreateContext();
         var downloaded = await db.GetDownloadedVideoIdsAsync(
@@ -206,19 +206,13 @@ public sealed class ItemQueriesTests
             FinishedAt = finishedAt,
         };
 
-    /// <summary>An item for <paramref name="videoId"/> whose events went through <paramref name="transitions"/>.</summary>
-    private static ItemEntity Video(string videoId, ItemState state, ItemState[] transitions, string extractor = "youtube")
+    /// <summary>An item for <paramref name="videoId"/>, with a file when it was <paramref name="downloaded"/>.</summary>
+    private static ItemEntity Video(string videoId, ItemState state, bool downloaded = false, string extractor = "youtube")
     {
         var item = Item(videoId, state, finishedAt: ItemQueries.HistoryStates.Contains(state) ? T0 : null);
         item.Extractor = extractor;
         item.VideoId = videoId;
-        var from = ItemState.Queued;
-        foreach (var to in transitions)
-        {
-            item.Events.Add(new ItemEventEntity { At = T0, FromState = from, ToState = to, Attempt = 1 });
-            from = to;
-        }
-
+        item.FilePath = downloaded ? $@"C:\Downloads\{videoId}.mkv" : null;
         return item;
     }
 

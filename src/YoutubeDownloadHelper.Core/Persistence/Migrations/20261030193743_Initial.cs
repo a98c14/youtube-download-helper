@@ -110,7 +110,6 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                     error_message = table.Column<string>(type: "TEXT", nullable: true),
                     file_path = table.Column<string>(type: "TEXT", nullable: true),
                     size_bytes = table.Column<long>(type: "INTEGER", nullable: true),
-                    downloaded_bytes = table.Column<long>(type: "INTEGER", nullable: true),
                     created_at = table.Column<long>(type: "INTEGER", nullable: false),
                     updated_at = table.Column<long>(type: "INTEGER", nullable: false),
                     finished_at = table.Column<long>(type: "INTEGER", nullable: true),
@@ -160,7 +159,6 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                     to_state = table.Column<string>(type: "TEXT", nullable: false),
                     reason = table.Column<string>(type: "TEXT", nullable: true),
                     error_category = table.Column<string>(type: "TEXT", nullable: true),
-                    attempt = table.Column<int>(type: "INTEGER", nullable: false),
                     exit_code = table.Column<int>(type: "INTEGER", nullable: true),
                     output_tail = table.Column<string>(type: "TEXT", nullable: true)
                 },

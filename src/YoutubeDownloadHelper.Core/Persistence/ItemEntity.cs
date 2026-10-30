@@ -44,6 +44,7 @@ public sealed class ItemEntity
     /// <summary>Queue order; unique and contiguous among active items (kept by the queue actor).</summary>
     public long Position { get; set; }
 
+    /// <summary>The retry count the backoff uses (PLAN.md §5.2); a manual retry resets it.</summary>
     public int Attempt { get; set; }
 
     public DateTimeOffset? NextAttemptAt { get; set; }
@@ -63,13 +64,14 @@ public sealed class ItemEntity
     /// <summary>English fallback message.</summary>
     public string? ErrorMessage { get; set; }
 
+    /// <summary>
+    /// The downloaded file. Set when the item enters <see cref="ItemState.Completed"/> and never cleared, so it marks
+    /// the video as downloaded after the item is removed or re-queued (<see cref="ItemQueries.GetDownloadedVideoIdsAsync"/>).
+    /// </summary>
     public string? FilePath { get; set; }
 
     /// <summary>The size estimate while resolving or downloading, then the final size.</summary>
     public long? SizeBytes { get; set; }
-
-    /// <summary>The last progress checkpoint (written at most every 10 s, PLAN.md §5.4).</summary>
-    public long? DownloadedBytes { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
 

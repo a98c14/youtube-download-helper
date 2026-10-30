@@ -172,7 +172,7 @@ automatically), `DiskFull` (free space below the item's estimated size + margin)
 - **Pause:** kills the yt-dlp process tree and keeps the partial files. **Resume** reruns yt-dlp, which continues the download.
 - **Crash recovery:** at engine start, items in `Resolving`/`Downloading`/`PostProcessing` go back to `Queued`
   (marked "interrupted") and resume from their partial files. Orphaned work folders with no matching item are cleaned up.
-- Every transition is written to `item_events` (timestamp, from, to, reason, error category, attempt), which
+- Every transition is written to `item_events` (timestamp, from, to, reason, error category), which
   powers the details pane and diagnostics.
 
 ### 5.2 Error classification and retry policy
@@ -227,14 +227,14 @@ The exact format strings are decided in M1 and covered by argument-builder snaps
   The engine checks this **before** starting yt-dlp: when the final file already exists, yt-dlp skips the
   download, re-runs the embeds and reports success (M0 spike).
 - Progress lines are parsed and coalesced into **at most 4 updates per second per item**. Progress is kept in
-  memory and checkpointed to the DB at most every 10 s.
+  memory only; the DB stores the size estimate and, at the end, the final size.
 - The last 200 lines of output are kept per run (DB, on the `item_events` row that ends the run) for the details
   pane, excluding `dl` progress lines;
   full logs go to `logs\jobs\`.
 - **Our own archive** in SQLite (key: `extractor + video id`, matching yt-dlp's archive format) replaces
   `--download-archive`, so the archive is queryable and shared with watchers and the Add dialog. It is not a
-  table: a video is archived when any item for it has an `item_events` row into `Completed`, which stays true
-  after the item is removed or re-queued. Items and events are therefore never hard-deleted.
+  table: a video is archived when any item for it has a `file_path`, which is set on `Completed` and kept when
+  the item is removed or re-queued. Items are therefore never hard-deleted.
 
 ### 5.5 Watchers
 
@@ -545,8 +545,8 @@ Tables: `items` (id, url, extractor, video_id, title, channel, upload_date, avai
 state, position, attempt, next_attempt_at, error_category, error_message, file_path, size, timestamps,
 watcher_id?, account_id) · `item_events` (transitions; the event that ends a yt-dlp run also has its exit code
 and last 200 output lines) · `watchers` · `watcher_seen` · `settings` (key → JSON) · `tools` (tool, current,
-previous, channel, last_check) · `schema_info`. The download archive is a query over `items` + `item_events`
-(§5.4), not a table.
+previous, channel, last_check) · `schema_info`. The download archive is a query over `items` (§5.4), not a
+table.
 
 Names are snake_case. Enums are stored by name (reordering an enum never touches data). Timestamps are UTC Unix
 milliseconds, so SQLite can compare and sort them; EF Core cannot order `DateTimeOffset` stored as text.

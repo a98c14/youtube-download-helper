@@ -49,10 +49,6 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("created_at");
 
-                    b.Property<long?>("DownloadedBytes")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("downloaded_bytes");
-
                     b.Property<double?>("DurationSeconds")
                         .HasColumnType("REAL")
                         .HasColumnName("duration_seconds");
@@ -176,10 +172,6 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                     b.Property<long>("At")
                         .HasColumnType("INTEGER")
                         .HasColumnName("at");
-
-                    b.Property<int>("Attempt")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("attempt");
 
                     b.Property<string>("ErrorCategory")
                         .HasColumnType("TEXT")

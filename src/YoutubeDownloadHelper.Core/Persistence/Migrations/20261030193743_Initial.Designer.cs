@@ -11,7 +11,7 @@ using YoutubeDownloadHelper.Core.Persistence;
 namespace YoutubeDownloadHelper.Core.Persistence.Migrations
 {
     [DbContext(typeof(StateDbContext))]
-    [Migration("20261030175923_Initial")]
+    [Migration("20261030193743_Initial")]
     partial class Initial
     {
         /// <inheritdoc />
@@ -51,10 +51,6 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                     b.Property<long>("CreatedAt")
                         .HasColumnType("INTEGER")
                         .HasColumnName("created_at");
-
-                    b.Property<long?>("DownloadedBytes")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("downloaded_bytes");
 
                     b.Property<double?>("DurationSeconds")
                         .HasColumnType("REAL")
@@ -179,10 +175,6 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                     b.Property<long>("At")
                         .HasColumnType("INTEGER")
                         .HasColumnName("at");
-
-                    b.Property<int>("Attempt")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("attempt");
 
                     b.Property<string>("ErrorCategory")
                         .HasColumnType("TEXT")
