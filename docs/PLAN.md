@@ -529,6 +529,7 @@ survives updates, uninstall and reinstall:
 
 ```
 state.db            SQLite, WAL mode, EF Core migrations (run by the engine at startup, after a DB backup)
+backups\           state-<utc>-before-<migration>.db, taken only when a migration is pending (last 5 kept)
 engine.json         discovery file (user-only ACL)
 auth\cookies.bin    DPAPI-encrypted cookies
 webview-profile\    WebView2 login profile (owned by YoutubeDownloadHelper.exe)
@@ -539,9 +540,13 @@ logs\               engine-*.log, app-*.log (rolling, 14 days), jobs\<itemId>-<a
 
 Tables: `items` (id, url, extractor, video_id, title, channel, upload_date, availability, preset_id, folder,
 state, position, attempt, next_attempt_at, error_category, error_message, file_path, size, timestamps,
-watcher_id?, account_id) · `item_events` · `archive` (extractor, video_id, item_id, file_path, downloaded_at) ·
-`watchers` · `watcher_seen` · `settings` (key → JSON) · `tools` (tool, current, previous, channel, last_check) ·
-`schema_info`.
+watcher_id?, account_id) · `item_events` · `item_attempts` (item_id, attempt, started/ended, exit code, last
+200 output lines) · `archive` (extractor, video_id, item_id, file_path, downloaded_at) · `watchers` ·
+`watcher_seen` · `settings` (key → JSON) · `tools` (tool, current, previous, channel, last_check) · `schema_info`.
+
+Names are snake_case. Enums are stored by name (reordering an enum never touches data). Timestamps are UTC Unix
+milliseconds, so SQLite can compare and sort them; EF Core cannot order `DateTimeOffset` stored as text.
+Settings the user never changed are not stored, so they follow the current default.
 
 ---
 

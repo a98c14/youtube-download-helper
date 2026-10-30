@@ -9,4 +9,10 @@
     <ProjectReference Include="..\YoutubeDownloadHelper.Contracts\YoutubeDownloadHelper.Contracts.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <!-- Design-time only (dotnet ef migrations). PrivateAssets keeps it out of Engine's dependency graph. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
+  </ItemGroup>
+
 </Project>
