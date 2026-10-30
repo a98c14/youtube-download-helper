@@ -62,8 +62,8 @@ public sealed class ItemEntity
     public string? ErrorMessage { get; set; }
 
     /// <summary>
-    /// The downloaded file. Set when the item enters <see cref="ItemState.Completed"/> and never cleared, so it marks
-    /// the video as downloaded after the item is removed or re-queued (<see cref="ItemQueries.GetDownloadedVideoIdsAsync"/>).
+    /// The downloaded file. Set when the item enters <see cref="ItemState.Completed"/>; cleared when it enters
+    /// <see cref="ItemState.Removed"/>, whether or not the file itself was deleted.
     /// </summary>
     public string? FilePath { get; set; }
 
@@ -77,10 +77,7 @@ public sealed class ItemEntity
     /// <summary>When the item entered a history state (<see cref="ItemQueries.HistoryStates"/>); the history sort key.</summary>
     public DateTimeOffset? FinishedAt { get; set; }
 
-    /// <summary>
-    /// When the user removed the item. Removing hides it from the queue and history without changing its state; the
-    /// actor stops a running item first. The row stays, so a downloaded video stays in the archive.
-    /// </summary>
+    /// <summary>When the item entered <see cref="ItemState.Removed"/>.</summary>
     public DateTimeOffset? RemovedAt { get; set; }
 
     public Guid? WatcherId { get; set; }

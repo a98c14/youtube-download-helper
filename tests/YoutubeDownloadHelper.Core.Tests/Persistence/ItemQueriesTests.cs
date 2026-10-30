@@ -21,7 +21,7 @@ public sealed class ItemQueriesTests
             Item("done", ItemState.Completed, finishedAt: T0),
             Item("b", ItemState.Failed, position: 2),
             Item("skipped", ItemState.Skipped, finishedAt: T0),
-            Removed(Item("removed", ItemState.Queued, position: 4)));
+            Item("removed", ItemState.Removed, position: 4));
 
         await using var db = root.CreateContext();
         Assert.Equal(["a", "b", "c"], (await db.LoadActiveAsync(Ct)).Select(i => i.Title));
@@ -34,7 +34,7 @@ public sealed class ItemQueriesTests
         var items = Enumerable.Range(0, 7)
             .Select(i => Item($"h{i}", ItemState.Completed, finishedAt: T0.AddMinutes(i / 2)))
             .ToArray();
-        await SeedAsync(root, [.. items, Item("active", ItemState.Queued), Removed(Item("removed", ItemState.Completed, finishedAt: T0))]);
+        await SeedAsync(root, [.. items, Item("active", ItemState.Queued), Item("removed", ItemState.Removed, finishedAt: T0)]);
 
         var seen = new List<Guid>();
         HistoryCursor? cursor = null;
@@ -128,29 +128,28 @@ public sealed class ItemQueriesTests
     }
 
     [Fact]
-    public async Task A_video_counts_as_downloaded_once_an_item_completed_it()
+    public async Task A_video_counts_as_downloaded_while_an_item_for_it_is_completed()
     {
         await using var root = await new TestDataRoot().InitializedAsync();
         await SeedAsync(
             root,
-            Video("completed", ItemState.Completed, downloaded: true),
-            Removed(Video("removedAfterCompleting", ItemState.Completed, downloaded: true)),
-            Video("requeuedAfterCompleting", ItemState.Queued, downloaded: true),
+            Video("completed", ItemState.Completed),
+            Video("removed", ItemState.Removed),
+            Video("queued", ItemState.Queued),
             Video("failed", ItemState.Failed),
-            Removed(Video("removedBeforeCompleting", ItemState.Failed)),
             Video("skipped", ItemState.Skipped),
-            Video("ABCdef", ItemState.Completed, downloaded: true),
-            Video("otherExtractor", ItemState.Completed, downloaded: true, extractor: "vimeo"));
+            Video("ABCdef", ItemState.Completed),
+            Video("otherExtractor", ItemState.Completed, extractor: "vimeo"));
 
         await using var db = root.CreateContext();
         var downloaded = await db.GetDownloadedVideoIdsAsync(
             "youtube",
-            ["completed", "removedAfterCompleting", "requeuedAfterCompleting", "failed", "removedBeforeCompleting",
-             "skipped", "abcdef", "ABCdef", "otherExtractor", "neverSeen", "completed"],
+            ["completed", "removed", "queued", "failed", "skipped", "abcdef", "ABCdef", "otherExtractor", "neverSeen",
+             "completed"],
             Ct);
 
         Assert.Equal(
-            ["ABCdef", "completed", "removedAfterCompleting", "requeuedAfterCompleting"],
+            ["ABCdef", "completed"],
             downloaded.Order(StringComparer.Ordinal));
     }
 
@@ -206,19 +205,11 @@ public sealed class ItemQueriesTests
             FinishedAt = finishedAt,
         };
 
-    /// <summary>An item for <paramref name="videoId"/>, with a file when it was <paramref name="downloaded"/>.</summary>
-    private static ItemEntity Video(string videoId, ItemState state, bool downloaded = false, string extractor = "youtube")
+    private static ItemEntity Video(string videoId, ItemState state, string extractor = "youtube")
     {
         var item = Item(videoId, state, finishedAt: ItemQueries.HistoryStates.Contains(state) ? T0 : null);
         item.Extractor = extractor;
         item.VideoId = videoId;
-        item.FilePath = downloaded ? $@"C:\Downloads\{videoId}.mkv" : null;
-        return item;
-    }
-
-    private static ItemEntity Removed(ItemEntity item)
-    {
-        item.RemovedAt = T0;
         return item;
     }
 

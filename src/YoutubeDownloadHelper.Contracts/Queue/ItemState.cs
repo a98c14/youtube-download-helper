@@ -18,6 +18,9 @@ public enum ItemState
     Failed,
     Skipped,
 
+    /// <summary>The user removed the item: the engine no longer tracks it, and its file was deleted or left untracked.</summary>
+    Removed,
+
     /// <summary>Reserved for v2 (live streams); never entered in v1.</summary>
     WaitingForStream,
 

@@ -160,7 +160,7 @@ automatically), `DiskFull` (free space below the item's estimated size + margin)
             │  └─ update ─ WaitingToolFix    ← extractor broken (yt-dlp update triggered)
             └──── Retry ── Failed            ← permanent (removed/private/geo) or retries exhausted
                            Skipped           ← already in the archive (unless forced)
- Remove: hides the item from the queue and history (removed_at); its state is unchanged
+ Removed (from any state; file deleted or left untracked; out of the queue, history and archive)
  Reserved for v2: WaitingForStream, Recording
 ```
 
@@ -233,8 +233,7 @@ The exact format strings are decided in M1 and covered by argument-builder snaps
   full logs go to `logs\jobs\`.
 - **Our own archive** in SQLite (key: `extractor + video id`, matching yt-dlp's archive format) replaces
   `--download-archive`, so the archive is queryable and shared with watchers and the Add dialog. It is not a
-  table: a video is archived when any item for it has a `file_path`, which is set on `Completed` and kept when
-  the item is removed or re-queued. Items are therefore never hard-deleted.
+  table: a video is archived while an item for it is `Completed`. Removing the item takes it out of the archive.
 
 ### 5.5 Watchers
 
@@ -401,7 +400,7 @@ non-.NET clients.
 | `GET /items/{id}` | Detail incl. attempts and the output tail |
 | `POST /items/{id}/pause` · `/resume` · `/retry` | Item control |
 | `POST /items/{id}/move` `{to: "top"\|"bottom"\|"before", beforeId?}` | Reorder |
-| `DELETE /items/{id}?deleteFiles=` | Remove (soft-delete: hidden from the queue and history) |
+| `DELETE /items/{id}?deleteFiles=` | Remove → `Removed`; also deletes the downloaded file when `deleteFiles` |
 | `POST /queue/pause` · `/queue/resume` | Global control |
 | `GET/POST /watchers` · `PATCH/DELETE /watchers/{id}` · `POST /watchers/{id}/check` | Watchers |
 | `GET /auth` · `PUT /auth/cookies` · `DELETE /auth/cookies` · `POST /auth/verify` | Auth (status, import, log out, verify) |
@@ -546,7 +545,8 @@ state, position, attempt, next_attempt_at, error_category, error_message, file_p
 watcher_id?, account_id) · `item_events` (transitions; the event that ends a yt-dlp run also has its exit code
 and last 200 output lines) · `watchers` · `watcher_seen` · `settings` (key → JSON) · `tools` (tool, current,
 previous, channel, last_check) · `schema_info`. The download archive is a query over `items` (§5.4), not a
-table.
+table. Items are never hard-deleted: removing one sets `state = Removed` and `removed_at`, clears `file_path`, and
+writes an `item_events` row.
 
 Names are snake_case. Enums are stored by name (reordering an enum never touches data). Timestamps are UTC Unix
 milliseconds, so SQLite can compare and sort them; EF Core cannot order `DateTimeOffset` stored as text.

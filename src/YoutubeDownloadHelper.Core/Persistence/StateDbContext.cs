@@ -10,8 +10,8 @@ namespace YoutubeDownloadHelper.Core.Persistence;
 /// Names are snake_case; enums are stored by name; timestamps are UTC Unix milliseconds so SQLite can compare
 /// and sort them.
 /// <para>
-/// There is no archive table: items are never hard-deleted, and those with a file are the download archive
-/// (<see cref="ItemQueries.GetDownloadedVideoIdsAsync"/>).
+/// There is no archive table: completed items are the download archive
+/// (<see cref="ItemQueries.GetDownloadedVideoIdsAsync"/>). Items are never hard-deleted; removing one is a state.
 /// </para>
 /// </summary>
 public sealed class StateDbContext(DbContextOptions<StateDbContext> options) : DbContext(options)

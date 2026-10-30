@@ -13,18 +13,21 @@ public static class ItemQueries
 {
     public const int DefaultHistoryPageSize = 50;
 
-    /// <summary>States shown in history rather than in the queue (PLAN.md §5.1, §6.2), unless the item was removed.</summary>
+    /// <summary>States shown in history rather than in the queue (PLAN.md §5.1, §6.2).</summary>
     public static IReadOnlyList<ItemState> HistoryStates => HistoryStateArray;
 
-    // An array, because EF translates Contains on arrays (to IN) but not on sets.
+    // Arrays, because EF translates Contains on arrays (to IN) but not on sets.
     private static readonly ItemState[] HistoryStateArray = [ItemState.Completed, ItemState.Skipped];
+
+    // Removed items are in neither the queue nor history.
+    private static readonly ItemState[] InactiveStateArray = [.. HistoryStateArray, ItemState.Removed];
 
     private const string LikeEscape = "\\";
 
     /// <summary>Every item not removed or in history, in queue order. Loaded once at startup by the queue actor.</summary>
     public static Task<List<ItemEntity>> LoadActiveAsync(this StateDbContext db, CancellationToken cancellationToken = default) =>
         db.Items
-            .Where(i => i.RemovedAt == null && !HistoryStateArray.Contains(i.State))
+            .Where(i => !InactiveStateArray.Contains(i.State))
             .OrderBy(i => i.Position)
             .ToListAsync(cancellationToken);
 
@@ -41,7 +44,7 @@ public static class ItemQueries
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(pageSize, 1);
 
-        var query = db.Items.AsNoTracking().Where(i => i.RemovedAt == null && HistoryStateArray.Contains(i.State) && i.FinishedAt != null);
+        var query = db.Items.AsNoTracking().Where(i => HistoryStateArray.Contains(i.State) && i.FinishedAt != null);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -75,9 +78,9 @@ public static class ItemQueries
     }
 
     /// <summary>
-    /// The download archive (PLAN.md §5.4): which of <paramref name="videoIds"/> some item has downloaded, i.e. has
-    /// a <see cref="ItemEntity.FilePath"/>. It still counts after the item is removed or re-queued. Ids compare
-    /// ordinally, like yt-dlp's archive.
+    /// The download archive (PLAN.md §5.4): which of <paramref name="videoIds"/> have an item in
+    /// <see cref="ItemState.Completed"/>. Removing the item takes the video out of the archive. Ids compare ordinally,
+    /// like yt-dlp's archive.
     /// </summary>
     public static async Task<HashSet<string>> GetDownloadedVideoIdsAsync(
         this StateDbContext db,
@@ -89,7 +92,7 @@ public static class ItemQueries
         var downloaded = await db.Items
             .Where(i => i.Extractor == extractor
                 && ids.Contains(i.VideoId!)
-                && i.FilePath != null)
+                && i.State == ItemState.Completed)
             .Select(i => i.VideoId!)
             .Distinct()
             .ToListAsync(cancellationToken);
