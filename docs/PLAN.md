@@ -500,34 +500,46 @@ document at `/openapi/v1.json` for non-.NET clients (no `servers` entry: the bas
 |---|---|
 | `GET /info` | `{ apiVersion, engineVersion, tools: [{ tool, version, installed }], auth: { status, account }, blocks: [] }`. Also the health check |
 | `POST /resolve` `{url}` | Metadata only: a single video, or playlist/channel entries (for the picker); flags duplicates |
-| `POST /items` `{urls[] \| videoIds[], presetId?, folder?, paused?, expandPlaylists?: "all", force?}` | Add; per-URL result: added / duplicate / invalid |
-| `GET /items?state=&search=&cursor=` | List/snapshot |
-| `GET /items/{id}` | Detail incl. attempts and the output tail |
-| `POST /items/{id}/pause` · `/resume` · `/retry` | Item control |
+| `POST /items` `{urls[] \| videoIds[], presetId?, folder?, paused?, expandPlaylists?: "all", force?}` | Add; per-URL result: added / duplicate / invalid. Duplicate = listed twice, already queued (same URL or YouTube video ID), or in the archive; `force` adds anyway. YouTube video IDs are read from the URL up front |
+| `GET /items?state=&search=&cursor=&limit=` | List/snapshot: `{ items (queue order, with live progress), sequence, nextCursor }`. `sequence` is the event id the snapshot is consistent with (§6.3) |
+| `GET /items/{id}` | Detail incl. transitions, attempts (runs, from the `item_events` rows) and the output tail |
+| `POST /items/{id}/pause` · `/resume` · `/retry` | Item control. `204`; `404` `queue.itemNotFound`; `409` `queue.invalidTransition` |
 | `POST /items/{id}/move` `{to: "top"\|"bottom"\|"before", beforeId?}` | Reorder |
 | `DELETE /items/{id}?deleteFiles=` | Remove → `Removed`; also deletes the downloaded file when `deleteFiles` |
 | `POST /queue/pause` · `/queue/resume` | Global control |
 | `GET/POST /watchers` · `PATCH/DELETE /watchers/{id}` · `POST /watchers/{id}/check` | Watchers |
 | `GET /auth` · `PUT /auth/cookies` · `DELETE /auth/cookies` · `POST /auth/verify` | Auth (status, import, log out, verify) |
 | `POST /auth/refresh/begin` · `PUT /auth/refresh/complete` | Browser-refresh lease (§5.7). `begin` returns the cookie jar: any token holder can read it, which is no new exposure, since same-user processes can already decrypt DPAPI data |
-| `GET /settings` · `PATCH /settings` | Settings (stored in the DB) |
+| `GET /settings` · `PATCH /settings` | Settings (stored in the DB). `PATCH` changes the fields present, all or nothing (`400` `api.invalidParameter`); `concurrency` is read-only |
 | `GET /tools` · `POST /tools/check` · `POST /tools/{tool}/rollback` | Tools |
-| `GET /history?search=&cursor=` | Completed and skipped items, archive |
+| `GET /history?search=&cursor=&limit=` | Completed and skipped items, archive |
 | `GET /events` | SSE stream (below) |
-| `POST /engine/shutdown` | Graceful shutdown (pause running jobs, keep partial files, flush the DB) |
+| `POST /engine/shutdown` | Graceful shutdown (`engine.stopping` to every stream, then running jobs go back to `Queued` with their partial files kept; every change is already committed) |
+
+Bad query or body values answer `400` `api.invalidParameter` (arg `parameter`). Cursors are opaque strings.
 
 ### 6.3 Events (SSE)
 
-Every event has a monotonically increasing `id` (sequence number). On reconnect, the client sends `Last-Event-ID`.
-The engine replays from a ring buffer (about 2,000 events) or sends `resync`, after which the client refetches
-its snapshot.
+Every event has a monotonically increasing `id`: the internal event bus's sequence number (events the API does not
+show leave gaps). On reconnect, the client sends `Last-Event-ID` (header, or the `lastEventId` query parameter).
+The engine replays from a ring buffer (2,000 events) when every later event is still in it, and otherwise sends
+`resync` (`{ sequence }`), after which the client refetches its snapshots. A stream opened without `Last-Event-ID`
+starts with `resync`. A client normally fetches `GET /items`, connects with `Last-Event-ID: <sequence>`, and ignores
+events whose id is not above its snapshot's `sequence`. Sequence numbers start over when the engine restarts, so a
+client that reconnects to a new engine (a new token or PID in the discovery file) always refetches. An idle stream
+gets a comment line every 15 s; a client that falls 4,096 events behind is disconnected (it reconnects and gets the
+replay or `resync`). Contracts: `Events/EventTypes` names every event and its data record.
 
 `item.added` · `item.updated` (state/metadata) · `item.progress` (throttled: phase, bytes, total, speed, eta,
-fraction) · `item.removed` · `queue.reordered` · `queue.blocked`/`queue.unblocked` · `watcher.updated` ·
-`watcher.checked` · `auth.changed` · `auth.refreshRequested` · `tools.changed` · `notify` (user-facing:
-completed, failed, login needed, watcher found N new) · `engine.stopping` · `resync`.
+fraction) · `item.removed` · `queue.reordered` · `queue.blocked`/`queue.unblocked` (`{ block, reason }`, also for
+`pausedByUser`) · `watcher.updated` · `watcher.checked` · `auth.changed` · `auth.refreshRequested` · `tools.changed`
+(an install finished or the tools' health changed: every tool's status) · `tools.install` (install progress, or its
+failure) · `notify` (user-facing: completed, failed, login needed, watcher found N new) · `engine.stopping` ·
+`resync`.
 
-`notify` events are what the UI turns into toasts, so a future UI gets the same notifications for free.
+`notify` events are what the UI turns into toasts, so a future UI gets the same notifications for free. The stream
+derives them from other events and publishes them on the bus, so each has an id of its own (`notify.item.completed`,
+`notify.item.failed`; later `notify.auth.*` and `notify.watcher.*`).
 
 **The API is language-neutral.** User-facing information travels as `{ code, args, message }`: `code` is a stable
 identifier (e.g. `error.unavailable.private`, `notify.watcher.newItems`), `args` are its parameters, and
@@ -597,7 +609,9 @@ output is passed through untranslated (Details/Log only).
   **Open logs** / **Export diagnostics**.
 - **Exit:** `POST /engine/shutdown`, then quit. With "keep downloading after Exit" on, only the UI quits.
 - If the UI crashes, the engine keeps running and the next UI launch reconnects. When "keep downloading after
-  Exit" is off, the engine exits on its own after **10 minutes with no connected client and an idle queue**.
+  Exit" is off, the engine exits on its own after **10 minutes with no connected client and an idle queue**. A
+  connected client is an open `GET /events` stream. The queue is idle when no item is running or waiting for a
+  retry, and no item is queued (unless the user paused the queue); the engine checks every 30 s.
 - App single instance: a second `YoutubeDownloadHelper.exe` launch activates the existing window and exits.
 - Background duties while running: the 24 h browser cookie refresh and answering `auth.refreshRequested` (§5.7).
 

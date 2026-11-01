@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using YoutubeDownloadHelper.Contracts.Settings;
 using YoutubeDownloadHelper.Core.Persistence;
 
 namespace YoutubeDownloadHelper.Core.Tests.Persistence;

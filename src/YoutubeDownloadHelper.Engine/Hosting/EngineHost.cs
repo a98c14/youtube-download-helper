@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using Serilog;
@@ -18,6 +19,7 @@ using YoutubeDownloadHelper.Core.Runner;
 using YoutubeDownloadHelper.Core.Scheduling;
 using YoutubeDownloadHelper.Core.Tools;
 using YoutubeDownloadHelper.Engine.Endpoints;
+using YoutubeDownloadHelper.Engine.Events;
 
 namespace YoutubeDownloadHelper.Engine.Hosting;
 
@@ -64,9 +66,17 @@ public static class EngineHost
         services.AddSingleton<ApiToken>();
         services.AddSingleton<LogRedactor>();
         services.AddSingleton<EngineEndpoint>();
+        services.AddSingleton<ItemAdder>();
+        services.AddSingleton<SettingsEditor>();
+        services.TryAddSingleton(new EventStreamOptions());
+        services.AddSingleton<EventMapper>();
+        services.AddSingleton<EventJournal>();
+        services.AddSingleton<IClientPresence>(sp => sp.GetRequiredService<EventJournal>());
+        services.TryAddSingleton(new IdleExitOptions());
         services.AddHostedService<DiscoveryService>();
         services.AddHostedService<SchedulerService>();
         services.AddHostedService<ToolManagerService>();
+        services.AddHostedService<IdleExitService>();
 
         services.ConfigureHttpJsonOptions(o =>
         {
@@ -109,6 +119,11 @@ public static class EngineHost
                 new ProducesResponseTypeMetadata(StatusCodes.Status401Unauthorized, typeof(EngineMessage), ["application/json"]),
                 new ProducesResponseTypeMetadata(StatusCodes.Status403Forbidden, typeof(EngineMessage), ["application/json"]));
         api.MapInfoEndpoints();
+        api.MapItemsEndpoints();
+        api.MapQueueEndpoints();
+        api.MapHistoryEndpoints();
+        api.MapSettingsEndpoints();
+        api.MapEventsEndpoints();
         api.MapEngineEndpoints();
         return app;
     }
@@ -132,6 +147,9 @@ public static class EngineHost
         // Kestrel reads its listen options when it starts, from this same options instance. (A TestServer ignores it.)
         services.GetRequiredService<IOptions<KestrelServerOptions>>().Value
             .Listen(IPAddress.Loopback, PortProbe.AvailableOrDynamic(endpoint.RequestedPort));
+
+        // The journal listens before the queue's start-up recovery publishes anything.
+        services.GetRequiredService<EventJournal>().Start();
         await services.GetRequiredService<QueueActor>().StartAsync(cancellationToken);
 
         await app.StartAsync(cancellationToken);
