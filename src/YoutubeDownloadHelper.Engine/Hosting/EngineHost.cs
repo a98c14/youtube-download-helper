@@ -15,6 +15,7 @@ using YoutubeDownloadHelper.Core.Persistence;
 using YoutubeDownloadHelper.Core.Presets;
 using YoutubeDownloadHelper.Core.Queue;
 using YoutubeDownloadHelper.Core.Runner;
+using YoutubeDownloadHelper.Core.Scheduling;
 using YoutubeDownloadHelper.Core.Tools;
 using YoutubeDownloadHelper.Engine.Endpoints;
 
@@ -56,12 +57,14 @@ public static class EngineHost
             .AddPresets()
             .AddTools(builder.Configuration.GetSection(EngineOptions.ToolsSection).Get<ToolLocatorOptions>())
             .AddRunner()
-            .AddAuth();
+            .AddAuth()
+            .AddScheduling();
 
         services.AddSingleton<ApiToken>();
         services.AddSingleton<LogRedactor>();
         services.AddSingleton<EngineEndpoint>();
         services.AddHostedService<DiscoveryService>();
+        services.AddHostedService<SchedulerService>();
 
         services.ConfigureHttpJsonOptions(o =>
         {
@@ -110,7 +113,7 @@ public static class EngineHost
 
     /// <summary>
     /// Opens the database, picks the port (the <c>Engine:Port</c> override, else the <c>ApiPort</c> setting), starts
-    /// the queue, then starts the host. The discovery file is written once the server listens.
+    /// the queue, then starts the host (and with it the scheduler). The discovery file is written once the server listens.
     /// </summary>
     public static async Task StartAsync(WebApplication app, CancellationToken cancellationToken = default)
     {

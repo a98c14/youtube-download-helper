@@ -4,7 +4,8 @@ namespace YoutubeDownloadHelper.Core.Queue;
 
 /// <summary>
 /// The queue-level blocks (PLAN.md §4.3) as <c>GET /info</c> reports them. <see cref="PauseQueueBlockProvider"/> is
-/// the default; the scheduler (#42) replaces it with one that also knows network, disk and tool blocks.
+/// what <c>AddQueue()</c> registers; <c>AddScheduling()</c> replaces it with the <see cref="Scheduling.Scheduler"/>,
+/// which also knows the network, disk and tool blocks.
 /// </summary>
 public interface IQueueBlockProvider
 {

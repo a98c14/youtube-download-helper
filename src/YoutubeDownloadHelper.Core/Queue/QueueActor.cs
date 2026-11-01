@@ -330,9 +330,44 @@ public sealed class QueueActor(
             cancellationToken: cancellationToken);
     }
 
-    /// <summary>The video is already in the download archive (PLAN.md §5.4).</summary>
-    public Task<QueueResult> SkipAsync(long itemId, JobOutput? output = null, CancellationToken cancellationToken = default) =>
-        TransitionAsync(itemId, ItemTrigger.Skip, ItemEventReasons.InArchive, output: output, cancellationToken: cancellationToken);
+    /// <summary>
+    /// The video is already in the download archive (PLAN.md §5.4). <paramref name="metadata"/> is what resolving the
+    /// item found, so history shows its title.
+    /// </summary>
+    public Task<QueueResult> SkipAsync(
+        long itemId,
+        ItemMetadata? metadata = null,
+        JobOutput? output = null,
+        CancellationToken cancellationToken = default) =>
+        TransitionAsync(
+            itemId,
+            ItemTrigger.Skip,
+            ItemEventReasons.InArchive,
+            item => ApplyMetadata(item, metadata),
+            output: output,
+            cancellationToken: cancellationToken);
+
+    /// <summary>
+    /// Stops a running job without a result: the item goes back to <see cref="ItemState.Queued"/>, keeping its place,
+    /// partial files and retry count. The scheduler uses it for queue blocks (disk full, no network) and for a graceful
+    /// engine stop. <paramref name="reason"/> is an error code or an <see cref="ItemEventReasons"/> value.
+    /// </summary>
+    public Task<QueueResult> InterruptAsync(
+        long itemId,
+        string reason,
+        string? errorCategory = null,
+        JobOutput? output = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        return TransitionAsync(
+            itemId,
+            ItemTrigger.Interrupt,
+            reason,
+            errorCategory: errorCategory,
+            output: output,
+            cancellationToken: cancellationToken);
+    }
 
     public Task<QueueResult> FailAsync(long itemId, JobFailure failure, CancellationToken cancellationToken = default)
     {

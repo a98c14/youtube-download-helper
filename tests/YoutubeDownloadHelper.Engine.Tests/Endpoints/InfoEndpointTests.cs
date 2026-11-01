@@ -10,6 +10,7 @@ using YoutubeDownloadHelper.Contracts.Queue;
 using YoutubeDownloadHelper.Contracts.Tools;
 using YoutubeDownloadHelper.Core.Auth;
 using YoutubeDownloadHelper.Core.Queue;
+using YoutubeDownloadHelper.Core.Scheduling;
 using YoutubeDownloadHelper.Engine.Hosting;
 
 namespace YoutubeDownloadHelper.Engine.Tests.Endpoints;
@@ -74,6 +75,21 @@ public sealed class InfoEndpointTests : IAsyncLifetime
         var info = await client.GetFromJsonAsync<EngineInfo>(ApiRoutes.Info, Json, Ct);
 
         Assert.Equal([QueueBlock.PausedByUser], info!.Blocks);
+    }
+
+    [Fact]
+    public async Task The_scheduler_runs_with_the_host_and_reports_the_queue_blocks()
+    {
+        var scheduler = _engine.App.Services.GetRequiredService<Scheduler>();
+
+        Assert.Same(scheduler, _engine.App.Services.GetRequiredService<IQueueBlockProvider>());
+        while (scheduler.Passes == 0)
+        {
+            await Task.Delay(10, Ct);
+        }
+
+        await _engine.StopAsync();
+        Assert.Empty(scheduler.RunningItemIds);
     }
 
     [Fact]
