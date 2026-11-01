@@ -1,0 +1,34 @@
+C:\Users\Kullanıcı İ\AppData\Local\YoutubeDownloadHelperData\tools\yt-dlp\yt-dlp.exe
+  --ignore-config
+  --encoding
+  utf-8
+  --cache-dir
+  C:\Users\Kullanıcı İ\AppData\Local\YoutubeDownloadHelperData\cache\yt-dlp
+  --ffmpeg-location
+  C:\Users\Kullanıcı İ\AppData\Local\YoutubeDownloadHelperData\tools\ffmpeg\ffmpeg.exe
+  --js-runtimes
+  deno:C:\Users\Kullanıcı İ\AppData\Local\YoutubeDownloadHelperData\tools\deno\deno.exe
+  --no-playlist
+  --newline
+  --progress
+  --progress-delta
+  0.25
+  --progress-template
+  download:YDH1 {"k":"dl","p":%(progress.{status,downloaded_bytes,total_bytes,total_bytes_estimate,speed,eta,elapsed,fragment_index,fragment_count})j,"i":%(info.{id,format_id})j}
+  --progress-template
+  postprocess:YDH1 {"k":"pp","p":%(progress.{status,postprocessor})j,"i":%(info.{id,filepath})j}
+  --print
+  before_dl:YDH1 {"k":"plan","i":%(.{id,title,channel,format_id,ext,filesize,filesize_approx})j,"rf":%(requested_formats.:.{format_id,ext,protocol,filesize,filesize_approx})j}
+  --print
+  after_move:YDH1 {"k":"moved","i":%(.{id,filepath})j}
+  --embed-metadata
+  --embed-thumbnail
+  --embed-chapters
+  -P
+  temp:C:\Users\Kullanıcı İ\AppData\Local\YoutubeDownloadHelperData\work\42
+  -P
+  home:C:\Users\Kullanıcı İ\Downloads\Youtube İndirgeç
+  -o
+  %(channel)s\%(upload_date>%Y-%m-%d)s - %(title)s.%(ext)s
+  --
+  https://www.youtube.com/watch?v=jNQXAC9IVRw

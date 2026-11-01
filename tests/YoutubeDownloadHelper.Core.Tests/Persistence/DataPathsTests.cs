@@ -31,6 +31,7 @@ public sealed class DataPathsTests
         Assert.Equal(@"C:\Data İı\work\1234567", paths.WorkDirFor(1_234_567));
         Assert.Equal(@"C:\Data İı\logs\jobs", paths.JobLogsDir);
         Assert.Equal(@"C:\Data İı\backups", paths.BackupsDir);
+        Assert.Equal(@"C:\Data İı\cache\yt-dlp", paths.YtDlpCacheDir);
     }
 
     [Fact]

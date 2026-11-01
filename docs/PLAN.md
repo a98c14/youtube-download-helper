@@ -206,17 +206,25 @@ Every failure shows a **friendly message** with a "Details" expander containing 
 
 ### 5.3 Presets
 
-Presets live in the engine (`PresetId` → yt-dlp format/sort/merge arguments); clients only see IDs and display names.
+Presets live in the engine (`PresetId` → yt-dlp format/sort/merge arguments, `Core/Presets/PresetRegistry.cs`);
+clients only see IDs (`Contracts.Presets.PresetIds`) and localizable names (`preset.<name>` codes in `PresetCodes`).
 
-| Preset | Intent |
-|---|---|
-| Best quality (default) | yt-dlp's default format selection and container (no custom sort): highest quality available, including Premium formats when logged in; output may be MKV (with `--embed-thumbnail`, yt-dlp turns a WebM merge into MKV) |
-| 1080p | ≤1080p, prefers MP4/H.264 for compatibility with any player |
-| 720p | ≤720p, MP4 |
-| Audio (M4A) | Best audio, no re-encode |
-| Audio (MP3) | Best audio converted to MP3 |
+| ID | Preset | Intent | yt-dlp arguments |
+|---|---|---|---|
+| `best` | Best quality (default) | yt-dlp's default format selection and container (no custom sort): highest quality available, including Premium formats when logged in; output may be MKV (with `--embed-thumbnail`, yt-dlp turns a WebM merge into MKV) | none (yt-dlp's `bv*+ba/b` and default sort) |
+| `1080p` | 1080p | ≤1080p, prefers MP4/H.264 for compatibility with any player | `-S res:1080,vcodec:h264,acodec:aac --merge-output-format mp4` |
+| `720p` | 720p | ≤720p, MP4 | `-S res:720,vcodec:h264,acodec:aac --merge-output-format mp4` |
+| `audio-m4a` | Audio (M4A) | Best audio, no re-encode | `-f "ba[ext=m4a]/ba/b" -x --audio-format m4a` |
+| `audio-mp3` | Audio (MP3) | Best audio converted to MP3 | `-f "ba/b" -x --audio-format mp3 --audio-quality 0` |
 
-The exact format strings are decided in M1 and covered by argument-builder snapshot tests.
+- **Video presets** sort rather than filter: `res:N` takes the largest resolution up to N (the smaller dimension, so
+  portrait Shorts count too) and falls back to the smallest one above N instead of failing; then H.264 video and
+  AAC audio win over VP9/AV1 and Opus at the same resolution. The merge goes into MP4 either way.
+- **Audio (M4A):** YouTube's AAC stream is downloaded as `.m4a`; `-x` then only stream-copies it. It re-encodes
+  only when a video has no M4A audio at all (the `ba`/`b` fallbacks).
+- **Audio (MP3):** VBR quality 0 (LAME `-V0`), the best MP3 quality.
+
+The argument-builder snapshot tests (`tests/…Core.Tests/Runner/Snapshots/`) pin these strings; change both together.
 
 ### 5.4 yt-dlp runner
 
@@ -226,8 +234,16 @@ The exact format strings are decided in M1 and covered by argument-builder snaps
   `--no-playlist` for single items, `--newline`, `--progress` (required: `--print` implies `--quiet`, which
   otherwise hides all progress), `--progress-delta 0.25`, machine-readable `--progress-template`s for `download:`
   and `postprocess:`, and `--print` lines for `before_dl:` (format plan) and `after_move:` (final path). Also a
-  private `--cache-dir`, `--ffmpeg-location <ffmpeg dir>`, `--js-runtimes deno:<managed deno.exe>`,
-  `--embed-metadata --embed-thumbnail --embed-chapters`, and `--encoding utf-8`.
+  private `--cache-dir` (`data\cache\yt-dlp\`), `--ffmpeg-location <ffmpeg>`, `--js-runtimes deno:<managed deno.exe>`,
+  `--embed-metadata --embed-thumbnail --embed-chapters`, `--encoding utf-8`, `--cookies <job file>` when the job
+  has cookies, and `--` before the URL (a URL can never be read as an option).
+- **Command builder** (`Core/Runner/YtDlpCommandBuilder.cs`): every command line comes from one place, as an
+  `ArgumentList` (never a joined string) plus the executable. Besides downloads it builds the resolve
+  (`-J --no-playlist`), flat listings (`--flat-playlist -J --playlist-end N`, 30 by default) and the auth
+  verification (a flat listing of the subscriptions feed with `--playlist-end 1`, always with cookies). The
+  `--ignore-config`, encoding, cache, ffmpeg, Deno and cookies options go on all of them. Tool paths come from an
+  `IToolLocator` snapshot taken once per command, so the executable and its arguments always match; until the
+  tool manager (§5.6) replaces it, a configured locator uses `tools\<tool>\<tool>.exe` or configured overrides.
 - **Machine-readable lines** (M0 spike, `docs/spikes/progress-and-paths.md`; exact strings there): prefix `YDH1 `
   + one JSON object with kind `k` = `plan` | `dl` | `pp` | `moved`. `%(…)j` escapes non-ASCII, so these lines are
   pure ASCII. `pp` lines arrive on **stderr** and the others on stdout, so the runner parses both streams. Lines
@@ -236,7 +252,11 @@ The exact format strings are decided in M1 and covered by argument-builder snaps
   emoji and CJK from raw output; `PYTHONUTF8` / `PYTHONIOENCODING` have no effect on the exe. Both streams are
   decoded as UTF-8 (with replacement). Inherited `PYTHON*` variables are removed from the child environment.
 - **Paths:** temporary/partial files go to `data\work\<itemId>\` (`-P temp:`); the finished file moves to the
-  destination. If the destination filename already exists, the engine adds ` [<videoId>]` to the output template.
+  destination (`-P home:`), with the output template `%(channel)s\%(upload_date>%Y-%m-%d)s - %(title)s.%(ext)s`.
+  The destination is the download folder, or the item's folder override (from the Add dialog or its watcher) when
+  it has one; the `<Channel>` subfolder is created inside either, and a relative override is taken as relative to
+  the download folder. If the destination filename already exists, the engine adds ` [<videoId>]` to the output
+  template (`… - %(title)s [%(id)s].%(ext)s`).
   The engine checks this **before** starting yt-dlp: when the final file already exists, yt-dlp skips the
   download, re-runs the embeds and reports success (M0 spike).
 - Progress lines are parsed and coalesced into **at most 4 updates per second per item**. Progress is kept in
@@ -553,6 +573,7 @@ auth\cookies.bin    DPAPI-encrypted cookies
 webview-profile\    WebView2 login profile (owned by YoutubeDownloadHelper.exe)
 tools\<tool>\<ver>\ managed binaries
 work\<itemId>\      partial downloads, per-job cookies file
+cache\yt-dlp\       yt-dlp's private --cache-dir
 logs\               engine-*.log, app-*.log (rolling, 14 days), jobs\<itemId>-<attempt>.log
 ```
 
