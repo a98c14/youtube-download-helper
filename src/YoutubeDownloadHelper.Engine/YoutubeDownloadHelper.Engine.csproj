@@ -11,4 +11,19 @@
     <ProjectReference Include="..\YoutubeDownloadHelper.Core\YoutubeDownloadHelper.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Serilog" />
+    <PackageReference Include="Serilog.Extensions.Hosting" />
+    <PackageReference Include="Serilog.Sinks.File" />
+  </ItemGroup>
+
+  <!-- No XML doc comments in the OpenAPI document: they render crefs poorly and carry the checkout's line endings
+       into the snapshot. Summaries come from WithSummary(). -->
+  <Target Name="DisableOpenApiXmlComments" BeforeTargets="CoreCompile">
+    <ItemGroup>
+      <Analyzer Remove="@(Analyzer)" Condition="'%(Filename)' == 'Microsoft.AspNetCore.OpenApi.SourceGenerators'" />
+    </ItemGroup>
+  </Target>
+
 </Project>

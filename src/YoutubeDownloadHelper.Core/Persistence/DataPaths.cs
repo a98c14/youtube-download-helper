@@ -1,5 +1,6 @@
 using System.Globalization;
 using YoutubeDownloadHelper.Contracts;
+using YoutubeDownloadHelper.Contracts.Discovery;
 
 namespace YoutubeDownloadHelper.Core.Persistence;
 
@@ -28,8 +29,8 @@ public sealed class DataPaths
     /// <summary>Copies of <see cref="StateDb"/> taken before migrations are applied.</summary>
     public string BackupsDir => Path.Combine(Root, "backups");
 
-    /// <summary>The engine discovery file (user-only ACL, #44).</summary>
-    public string EngineJson => Path.Combine(Root, "engine.json");
+    /// <summary>The engine discovery file (user-only ACL).</summary>
+    public string EngineJson => Path.Combine(Root, EngineDiscovery.FileName);
 
     public string AuthDir => Path.Combine(Root, "auth");
 

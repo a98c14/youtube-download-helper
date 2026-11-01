@@ -81,7 +81,11 @@ Other programs / future CLI ───── HTTP ─────────> �
 
 Hard rules:
 - **Only the engine touches `state.db`, the tools, and the stored cookies.** Clients use the API only.
-- **The engine is single-instance per Windows user** (named mutex). A second engine exits immediately.
+- **The engine is single-instance per Windows user** (named mutex). A second engine exits immediately, with exit
+  code 3 (`EngineExitCodes.AlreadyRunning`), before it touches the data folder. The mutex is
+  `Global\YoutubeDownloadHelper.Engine.<user SID>.<hash of the data folder>`, created with a user-only ACL: it spans
+  the user's sessions, and an engine run against another data folder (`--Engine:DataRoot`, development and tests)
+  does not count.
 - **The WPF project never references `Core`.** It depends only on `Contracts` + `Client`. An architecture test enforces this.
 
 ### 4.2 Solution layout
@@ -409,8 +413,10 @@ Then a re-login is unavoidable, but it stays one click.
 
 ## 6. Engine API
 
-Base: `http://127.0.0.1:<port>/api/v1`. JSON (camelCase). OpenAPI document at `/openapi/v1.json` for
-non-.NET clients.
+Base: `http://127.0.0.1:<port>/api/v1`. JSON (camelCase, enums as camelCase strings, numbers never as strings).
+Route constants live in `Contracts/ApiRoutes`. Every error response (401, 403, 404, 405, 500, …) has a
+`{ code, args, message }` body (`EngineMessage`, codes in `Contracts/Api/ApiErrorCodes`, `api.*`). OpenAPI
+document at `/openapi/v1.json` for non-.NET clients (no `servers` entry: the base URL comes from the discovery file).
 
 ### 6.1 Discovery and security
 
@@ -418,18 +424,28 @@ non-.NET clients.
   `{ "apiVersion": 1, "baseUrl": "http://127.0.0.1:47815", "token": "<random 256-bit>", "pid": 1234, "engineVersion": "1.0.0" }`.
   Written atomically once the server is listening and deleted on clean shutdown. Clients treat it as stale when
   the PID is gone or the health call fails. **This file is the integration contract for other programs.**
-- **Port:** the configured port (default 47815); falls back to a dynamic port if that one is taken. The actual
+- Written to a temporary file that is created with a protected, user-only ACL (no inherited entries), then renamed
+  over `engine.json`, so the token is never readable by anyone else and readers never see a partial file. On
+  shutdown the engine deletes it only if it still holds its own token.
+- **Port:** the `ApiPort` setting (default 47815), or the `Engine:Port` configuration override (`0` = dynamic);
+  falls back to a dynamic port if that one is taken. The actual
   port is always in the discovery file.
 - **Binds to `127.0.0.1` only.** Every endpoint needs `Authorization: Bearer <token>`. Requests whose `Host`
   is not `127.0.0.1:<port>`/`localhost:<port>` are rejected (DNS-rebinding defense). Requests with an `Origin`
-  header are rejected; no CORS. Together these stop web pages from driving the engine.
-- The token is regenerated on each engine start.
+  header are rejected; no CORS. Together these stop web pages from driving the engine. The checks run in that order
+  (Origin, Host, token) on every route, the OpenAPI document included. Kestrel's configuration section and URL
+  settings are ignored, so no setting can bind another address.
+- The token is regenerated on each engine start: 256 random bits, base64url (43 characters).
+- **Engine configuration** (command line `--Engine:<key>=…`, environment `Engine__<key>`, or `appsettings.json` next to
+  the executable), all optional: `Port`, `DataRoot`, and `Tools:YtDlp`/`Tools:Ffmpeg`/`Tools:Deno` (tool path
+  overrides, e.g. `YoutubeDownloadHelper.FakeYtDlp.exe` for UI development). User settings stay in the database.
+- The engine process runs with `CultureInfo.InvariantCulture` (§7.5).
 
 ### 6.2 Endpoints (v1)
 
 | Method & path | Purpose |
 |---|---|
-| `GET /info` | Engine version, API version, tool versions, auth status, queue blocks |
+| `GET /info` | `{ apiVersion, engineVersion, tools: [{ tool, version, installed }], auth: { status, account }, blocks: [] }`. Also the health check |
 | `POST /resolve` `{url}` | Metadata only: a single video, or playlist/channel entries (for the picker); flags duplicates |
 | `POST /items` `{urls[] \| videoIds[], presetId?, folder?, paused?, expandPlaylists?: "all", force?}` | Add; per-URL result: added / duplicate / invalid |
 | `GET /items?state=&search=&cursor=` | List/snapshot |
@@ -628,8 +644,14 @@ Settings the user never changed are not stored, so they follow the current defau
 
 ## 10. Logging and diagnostics
 
-- Serilog, structured, rolling files for both processes; correlation by item ID and attempt.
-- Cookie values, the API token, and the `Authorization` header are **always redacted**.
+- Serilog, structured, rolling files for both processes; correlation by item ID and attempt. The engine writes
+  `logs\engine-<yyyyMMdd>.log` (daily, also rolled at 1 GB), deletes files older than 14 days, and formats with
+  the invariant culture.
+- Cookie values, the API token, and the `Authorization` header are **always redacted**. In the engine an enricher
+  rewrites every property of every event before any sink sees it: the token wherever it appears;
+  `Authorization`/`Cookie`/`Set-Cookie` header values; `Bearer`/`Basic` credentials; the value column of Netscape
+  cookie lines; and the whole value of a property named like a secret (`Authorization`, `Cookie(s)`, `Token`, …).
+  Message templates are constant text and are not rewritten, so secrets must always go in properties.
 - **Export diagnostics** collects logs, the anonymized settings, tool versions, and recent `item_events`.
 
 ## 11. Testing strategy
