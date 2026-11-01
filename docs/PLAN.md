@@ -329,6 +329,17 @@ FFmpeg builds).
 - Install/update: download from GitHub releases → **verify the published SHA-256 checksum** → extract to the
   version folder → **smoke test** (`--version`; yt-dlp also simulates a stable public video when the network is
   up) → atomically switch "current" → garbage-collect versions that are neither current, previous, nor in use.
+  - Sources (latest release, Windows x64): `yt-dlp/yt-dlp` `yt-dlp.exe` with `SHA2-256SUMS`; `denoland/deno`
+    `deno-x86_64-pc-windows-msvc.zip` with `<asset>.sha256sum` (PowerShell `Get-FileHash` format); `yt-dlp/FFmpeg-Builds`
+    `ffmpeg-master-latest-win64-gpl.zip` with `checksums.sha256` (only `ffmpeg.exe` and `ffprobe.exe` are kept). The
+    version is the tag (Deno without its `v`); FFmpeg-Builds always tags `latest`, so its version is the release's UTC
+    publish time (`yyyy-MM-dd-HHmm`). All HTTP goes through `IToolReleaseFeed`; tests use a fake feed.
+  - Each install is staged in `tools\.staging\<tool>-<guid>\` (download, verify, extract, smoke test there) and only
+    then renamed to `tools\<tool>\<version>\` (same volume, so atomic): a version folder is always complete. "Current"
+    switches in one `tools` row update. Whatever an interrupted install leaves in `.staging` is deleted at the next
+    start, and a complete version folder whose switch never committed is reused, not replaced. Reinstalling the
+    current version because it is broken first moves the broken folder out of the way.
+  - #43 does the `--version` smoke test; the yt-dlp simulate step comes with the update checks (#60).
 - Schedule: check at startup and every 24 h, plus forced checks on tool-broken errors.
 - **yt-dlp channel** (Settings → Updates): **Stable** (default) or **Nightly**, from the separate
   `yt-dlp/yt-dlp-nightly-builds` releases. Switching installs the latest build of the chosen channel right away
@@ -338,6 +349,14 @@ FFmpeg builds).
 - **Rollback:** automatic when the smoke test fails; manual "Roll back yt-dlp" in Settings → Updates.
 - Health check at startup: if a binary is missing (e.g. quarantined by antivirus) → queue block `ToolsMissing`
   and reinstall.
+  - The startup check also smoke-tests each current version. Between checks, the scheduler's `ToolsReady` poll (every
+    pass) notices a binary that vanished and asks for a repair. A failed install (e.g. offline at first start) is
+    retried after 1, 5, 15, 30, then every 60 minutes. A repair requeues the items in `WaitingToolFix`. Until #60, a
+    forced check on a tool-broken error (`IToolUpdateTrigger`) is a health check with smoke tests.
+  - A tool with an `Engine:Tools:<Tool>` path override (development, FakeYtDlp) is not managed: never installed, ready
+    while its file exists.
+  - Install progress and results go on the event bus (`ToolInstallProgressEvent`, `ToolInstalledEvent`,
+    `ToolInstallFailedEvent` with a `tool.install.*` code, `ToolHealthChangedEvent`).
 - PO-token provider plugin: **not planned**. The M0 spike confirmed that cookies + Deno are enough (yt-dlp
   2026.10.26, members-only download, no PO-token warnings; `docs/spikes/webview2-login.md`). If that changes,
   the tool manager gains a "plugin" tool type.
@@ -621,7 +640,7 @@ backups\            state-<utc>-before-<migration>.db, taken only when a migrati
 engine.json         discovery file (user-only ACL)
 auth\cookies.bin    DPAPI-encrypted cookie jar generations
 webview-profile\    WebView2 login profile (owned by YoutubeDownloadHelper.exe)
-tools\<tool>\<ver>\ managed binaries
+tools\<tool>\<ver>\ managed binaries (installs are staged in tools\.staging\)
 work\<itemId>\      partial downloads, per-job cookies file
 cache\yt-dlp\       yt-dlp's private --cache-dir
 logs\               engine-*.log, app-*.log (rolling, 14 days), jobs\<itemId>-<attempt>.log

@@ -11,7 +11,9 @@ using YoutubeDownloadHelper.Contracts.Tools;
 using YoutubeDownloadHelper.Core.Auth;
 using YoutubeDownloadHelper.Core.Queue;
 using YoutubeDownloadHelper.Core.Scheduling;
+using YoutubeDownloadHelper.Core.Tools;
 using YoutubeDownloadHelper.Engine.Hosting;
+using YoutubeDownloadHelper.Tests.Shared;
 
 namespace YoutubeDownloadHelper.Engine.Tests.Endpoints;
 
@@ -33,6 +35,13 @@ public sealed class InfoEndpointTests : IAsyncLifetime
     [Fact]
     public async Task Info_reports_versions_tools_auth_and_blocks()
     {
+        // The tool feed is offline, so the tools stay missing.
+        var scheduler = _engine.App.Services.GetRequiredService<Scheduler>();
+        while (scheduler.Passes == 0)
+        {
+            await Task.Delay(10, Ct);
+        }
+
         using var client = _engine.CreateClient();
 
         var info = await client.GetFromJsonAsync<EngineInfo>(ApiRoutes.Info, Json, Ct);
@@ -44,25 +53,26 @@ public sealed class InfoEndpointTests : IAsyncLifetime
             [new ToolInfo(ToolNames.YtDlp, null, false), new ToolInfo(ToolNames.Ffmpeg, null, false), new ToolInfo(ToolNames.Deno, null, false)],
             info.Tools);
         Assert.Equal(new AuthInfo(AuthStatus.NotLoggedIn), info.Auth);
-        Assert.Empty(info.Blocks);
+        Assert.Equal([QueueBlock.ToolsMissing], info.Blocks);
     }
 
     [Fact]
     public async Task Info_reports_installed_tools_and_stored_cookies()
     {
-        foreach (var tool in (string[])["yt-dlp", "ffmpeg", "deno"])
+        await using var engine = await TestEngine.StartAsync(toolFeed: new FakeToolFeed().PublishAll("2026.10.26"));
+        var tools = engine.App.Services.GetRequiredService<ToolManager>();
+        while (!tools.ToolsReady)
         {
-            Directory.CreateDirectory(Path.Combine(_engine.Paths.ToolsDir, tool));
-            await File.WriteAllTextAsync(Path.Combine(_engine.Paths.ToolsDir, tool, tool + ".exe"), "", Ct);
+            await Task.Delay(10, Ct);
         }
 
-        _engine.App.Services.GetRequiredService<CookieJarStore>().Add(
+        engine.App.Services.GetRequiredService<CookieJarStore>().Add(
             new CookieJar([new JarCookie(".youtube.com", "/", "SID", "x")]), CookieSource.Login);
-        using var client = _engine.CreateClient();
+        using var client = engine.CreateClient();
 
         var info = await client.GetFromJsonAsync<EngineInfo>(ApiRoutes.Info, Json, Ct);
 
-        Assert.All(info!.Tools, t => Assert.True(t.Installed, t.Tool));
+        Assert.All(info!.Tools, t => Assert.Equal((true, "2026.10.26"), (t.Installed, t.Version)));
         Assert.Equal(AuthStatus.Unknown, info.Auth.Status);
     }
 
@@ -74,7 +84,7 @@ public sealed class InfoEndpointTests : IAsyncLifetime
 
         var info = await client.GetFromJsonAsync<EngineInfo>(ApiRoutes.Info, Json, Ct);
 
-        Assert.Equal([QueueBlock.PausedByUser], info!.Blocks);
+        Assert.Equal(QueueBlock.PausedByUser, info!.Blocks[0]);
     }
 
     [Fact]

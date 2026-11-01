@@ -27,6 +27,12 @@ public sealed class EngineProcess : IDisposable
         };
         info.ArgumentList.Add($"--{EngineOptions.Section}:{nameof(EngineOptions.DataRoot)}={paths.Root}");
         info.ArgumentList.Add($"--{EngineOptions.Section}:{nameof(EngineOptions.Port)}={port}");
+
+        // Overridden tools are not managed, so the tool manager never goes to GitHub (no network in tests).
+        foreach (var tool in (string[])["YtDlp", "Ffmpeg", "Deno"])
+        {
+            info.ArgumentList.Add($"--{EngineOptions.ToolsSection}:{tool}={Path.Combine(paths.Root, "no-tools", tool + ".exe")}");
+        }
         return new EngineProcess(Process.Start(info) ?? throw new InvalidOperationException("The engine did not start."));
     }
 
