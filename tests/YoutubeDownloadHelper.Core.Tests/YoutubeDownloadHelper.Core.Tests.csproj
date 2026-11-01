@@ -13,6 +13,8 @@
 
   <ItemGroup>
     <Compile Include="..\Shared\CultureCanaryTests.cs" Link="Shared\CultureCanaryTests.cs" />
+    <!-- yt-dlp output samples for the error classifier; see fixtures.json for where each came from. -->
+    <None Include="Errors\Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

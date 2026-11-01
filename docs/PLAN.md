@@ -187,17 +187,20 @@ automatically), `DiskFull` (free space below the item's estimated size + margin)
 
 ### 5.2 Error classification and retry policy
 
-One classifier maps the yt-dlp exit code and `ERROR:` lines to a category. Its patterns live in one file and are
-tested against captured real-world stderr fixtures.
+One classifier maps the yt-dlp exit code and `ERROR:` lines to a category and a stable code (`error.<category>.<reason>`,
+listed in `Contracts.Errors.ErrorCodes`). Its patterns live in one file (`Core/Errors/ErrorPatterns.cs`), are matched
+ordinal-ignore-case in priority order, and are tested against stderr fixtures (captured from real yt-dlp where
+possible; each fixture notes its source). A few patterns also read `WARNING:` lines, because signature and JS-runtime
+failures only warn and then fail with "Requested format is not available".
 
 | Category | Examples | Action |
 |---|---|---|
-| Transient | timeouts, connection reset, HTTP 5xx, HTTP 429, fragment failures | `WaitingRetry` with backoff **30 s → 2 m → 10 m → 30 m**, ±20% jitter, then `Failed` |
+| Transient | timeouts, connection reset, DNS, HTTP 5xx, HTTP 429 (and YouTube's "try again later"), HTTP 403, fragment failures | `WaitingRetry` with backoff **30 s → 2 m → 10 m → 30 m**, ±20% jitter, then `Failed` |
 | Auth | "members-only", "join this channel", "sign in to confirm your age", Premium-only, bot check while logged in | `WaitingAuth`; trigger an auth verification; prompt "Log in again" if the cookies are invalid |
-| Unavailable | removed, private, copyright claim, geo-blocked | `Failed` immediately, with a plain-language reason |
-| Tool broken | "Unable to extract…", signature/nsig failures, JS runtime errors | `WaitingToolFix`; force a yt-dlp update check (at most once per hour); requeue after an update, else `Failed` after 24 h |
-| Local I/O | disk full, access denied, path too long | Disk full → queue block `DiskFull`; others → `Failed` with an actionable message |
-| Unknown | anything else | Treated as transient, at most 2 retries |
+| Unavailable | removed, private, copyright claim, geo-blocked, upcoming live/premiere, HTTP 404, unsupported URL | `Failed` immediately, with a plain-language reason |
+| Tool broken | "Unable to extract…", signature/nsig/n-challenge failures, JS runtime or ffmpeg missing, rejected options, a crash exit code | `WaitingToolFix`; force a yt-dlp update check (at most once per hour); requeue after an update, else `Failed` after 24 h (the deadline is the item's `next_attempt_at`) |
+| Local I/O | disk full, access denied, path too long | Disk full → the item goes back to `Queued` (not failed) and the queue block `DiskFull` is raised; others → `Failed` with an actionable message |
+| Unknown | anything else | Treated as transient, at most 2 retries (the retry count is shared with transient errors) |
 
 Every failure shows a **friendly message** with a "Details" expander containing the raw yt-dlp output.
 

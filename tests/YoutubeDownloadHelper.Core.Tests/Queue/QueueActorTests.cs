@@ -1,3 +1,4 @@
+using YoutubeDownloadHelper.Contracts.Errors;
 using YoutubeDownloadHelper.Contracts.Messages;
 using YoutubeDownloadHelper.Contracts.Queue;
 using YoutubeDownloadHelper.Core.Queue;
@@ -88,11 +89,11 @@ public sealed class QueueActorTests
         var error = new EngineMessage("error.transient.network", new Dictionary<string, string> { ["host"] = "youtube.com" }, "Network error.");
 
         await h.Actor.StartResolvingAsync(item.Id, Ct);
-        var failed = await h.Actor.FailAsync(item.Id, new JobFailure(ItemTrigger.WaitForRetry, "Transient", error, next, new JobOutput(1, ["ERROR: timed out"])), Ct);
+        var failed = await h.Actor.FailAsync(item.Id, new JobFailure(ItemTrigger.WaitForRetry, ErrorCategory.Transient, error, next, new JobOutput(1, ["ERROR: timed out"])), Ct);
         Assert.True(failed.Succeeded);
 
         var snapshot = (await h.Actor.GetSnapshotAsync(Ct)).Items.Single();
-        Assert.Equal((ItemState.WaitingRetry, 1, next, "Transient"), (snapshot.State, snapshot.Attempt, snapshot.NextAttemptAt, snapshot.ErrorCategory));
+        Assert.Equal((ItemState.WaitingRetry, 1, next, (ErrorCategory?)ErrorCategory.Transient), (snapshot.State, snapshot.Attempt, snapshot.NextAttemptAt, snapshot.ErrorCategory));
         Assert.Equal((error.Code, error.Message), (snapshot.Error?.Code, snapshot.Error?.Message));
         Assert.Equal(error.Args, snapshot.Error!.Args);
 
@@ -101,7 +102,7 @@ public sealed class QueueActorTests
 
         await h.Actor.RetryDueAsync(item.Id, Ct);
         await h.Actor.StartResolvingAsync(item.Id, Ct);
-        await h.Actor.FailAsync(item.Id, new JobFailure(ItemTrigger.Fail, "Unavailable", new EngineMessage("error.unavailable.private", "Private video.")), Ct);
+        await h.Actor.FailAsync(item.Id, new JobFailure(ItemTrigger.Fail, ErrorCategory.Unavailable, new EngineMessage("error.unavailable.private", "Private video.")), Ct);
         snapshot = (await h.Actor.GetSnapshotAsync(Ct)).Items.Single();
         Assert.Equal((ItemState.Failed, 1, (DateTimeOffset?)null), (snapshot.State, snapshot.Attempt, snapshot.NextAttemptAt));
 
@@ -119,13 +120,30 @@ public sealed class QueueActorTests
         foreach (var (id, trigger) in new[] { (auth.Id, ItemTrigger.WaitForAuth), (tool.Id, ItemTrigger.WaitForToolFix) })
         {
             await h.Actor.StartResolvingAsync(id, Ct);
-            await h.Actor.FailAsync(id, new JobFailure(trigger, "x", new EngineMessage("error.x", "x")), Ct);
+            await h.Actor.FailAsync(id, new JobFailure(trigger, ErrorCategory.Unknown, new EngineMessage("error.x", "x")), Ct);
         }
 
         Assert.Equal(1, await h.Actor.ReleaseWaitingAsync(ItemTrigger.AuthRestored, Ct));
 
         var states = (await h.Actor.GetSnapshotAsync(Ct)).Items.Select(i => i.State);
         Assert.Equal([ItemState.Queued, ItemState.WaitingToolFix], states);
+    }
+
+    [Fact]
+    public async Task A_tool_fix_wait_keeps_its_deadline_until_released()
+    {
+        await using var h = await QueueHarness.StartAsync();
+        var item = await h.AddAsync();
+        var deadline = h.Root.Time.Now.AddHours(24);
+
+        await h.Actor.StartResolvingAsync(item.Id, Ct);
+        await h.Actor.FailAsync(item.Id, new JobFailure(ItemTrigger.WaitForToolFix, ErrorCategory.ToolBroken, new EngineMessage("error.toolBroken.extractor", "x"), deadline), Ct);
+        var snapshot = (await h.Actor.GetSnapshotAsync(Ct)).Items.Single();
+        Assert.Equal((ItemState.WaitingToolFix, 0, deadline), (snapshot.State, snapshot.Attempt, snapshot.NextAttemptAt));
+
+        Assert.Equal(1, await h.Actor.ReleaseWaitingAsync(ItemTrigger.ToolFixed, Ct));
+        snapshot = (await h.Actor.GetSnapshotAsync(Ct)).Items.Single();
+        Assert.Equal((ItemState.Queued, (DateTimeOffset?)null), (snapshot.State, snapshot.NextAttemptAt));
     }
 
     [Fact]

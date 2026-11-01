@@ -1,3 +1,4 @@
+using YoutubeDownloadHelper.Contracts.Errors;
 using YoutubeDownloadHelper.Contracts.Messages;
 
 namespace YoutubeDownloadHelper.Core.Queue;
@@ -38,13 +39,15 @@ public sealed record ItemProgress(
 public sealed record JobOutput(int ExitCode, IReadOnlyList<string> Lines);
 
 /// <summary>
-/// A failed job. <paramref name="Trigger"/> is what the retry policy (#39) decided: one of
+/// A failed job, usually from <see cref="Errors.RetryDecision.ToJobFailure"/>. <paramref name="Trigger"/> is one of
 /// <see cref="ItemTrigger.WaitForRetry"/>, <see cref="ItemTrigger.WaitForAuth"/>, <see cref="ItemTrigger.WaitForToolFix"/> or
 /// <see cref="ItemTrigger.Fail"/>. <see cref="ItemTrigger.WaitForRetry"/> adds one to the item's retry count.
+/// <paramref name="NextAttemptAt"/> is the retry time for <see cref="ItemTrigger.WaitForRetry"/> and the deadline for
+/// <see cref="ItemTrigger.WaitForToolFix"/>; it is ignored otherwise.
 /// </summary>
 public sealed record JobFailure(
     ItemTrigger Trigger,
-    string Category,
+    ErrorCategory Category,
     EngineMessage Error,
     DateTimeOffset? NextAttemptAt = null,
     JobOutput? Output = null);

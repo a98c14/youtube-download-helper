@@ -348,17 +348,17 @@ public sealed class QueueActor(
             failure.Error.Code,
             item =>
             {
-                item.ErrorCategory = failure.Category;
+                item.ErrorCategory = failure.Category.ToString();
                 item.ErrorCode = failure.Error.Code;
                 item.ErrorArgsJson = ErrorArgs.Write(failure.Error.Args);
                 item.ErrorMessage = failure.Error.Message;
-                item.NextAttemptAt = failure.Trigger == ItemTrigger.WaitForRetry ? failure.NextAttemptAt : null;
+                item.NextAttemptAt = failure.Trigger is ItemTrigger.WaitForRetry or ItemTrigger.WaitForToolFix ? failure.NextAttemptAt : null;
                 if (failure.Trigger == ItemTrigger.WaitForRetry)
                 {
                     item.Attempt++;
                 }
             },
-            errorCategory: failure.Category,
+            errorCategory: failure.Category.ToString(),
             output: failure.Output,
             cancellationToken: cancellationToken);
     }
@@ -386,7 +386,10 @@ public sealed class QueueActor(
                 var changes = new Changes();
                 foreach (var item in _active.ToList())
                 {
-                    Fire(item, trigger, reason, changes);
+                    if (Fire(item, trigger, reason, changes))
+                    {
+                        item.NextAttemptAt = null;
+                    }
                 }
 
                 await CommitAsync(changes);

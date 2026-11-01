@@ -48,9 +48,13 @@ public sealed class ItemEntity : Entity
     /// <summary>The retry count the backoff uses (PLAN.md §5.2); a manual retry resets it.</summary>
     public int Attempt { get; set; }
 
+    /// <summary>
+    /// When a <see cref="ItemState.WaitingRetry"/> item is retried, or when a <see cref="ItemState.WaitingToolFix"/> item
+    /// fails if no yt-dlp update came (PLAN.md §5.2).
+    /// </summary>
     public DateTimeOffset? NextAttemptAt { get; set; }
 
-    /// <summary>The error category name (#39 owns the enum).</summary>
+    /// <summary>The <see cref="Contracts.Errors.ErrorCategory"/> name.</summary>
     public string? ErrorCategory { get; set; }
 
     /// <summary>Stable message code, e.g. <c>error.unavailable.private</c>.</summary>

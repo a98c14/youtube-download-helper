@@ -1,0 +1,378 @@
+[
+  {
+    "file": "network-dns",
+    "exitCode": 1,
+    "category": "Transient",
+    "code": "error.transient.network",
+    "args": {},
+    "source": "captured with yt-dlp 2026.10.26 on Windows 11, 2026-11-01: -J on an unresolvable host"
+  },
+  {
+    "file": "network-proxy-refused",
+    "exitCode": 1,
+    "category": "Transient",
+    "code": "error.transient.network",
+    "args": {},
+    "source": "captured with yt-dlp 2026.10.26 on Windows 11, 2026-11-01: -J with --proxy pointing at a closed local port"
+  },
+  {
+    "file": "network-timeout",
+    "exitCode": 1,
+    "category": "Transient",
+    "code": "error.transient.network",
+    "args": {},
+    "source": "captured with yt-dlp 2026.10.26 on Windows 11, 2026-11-01: -J with --proxy at a non-routable address and --socket-timeout 2"
+  },
+  {
+    "file": "http-429-download",
+    "exitCode": 1,
+    "category": "Transient",
+    "code": "error.transient.rateLimited",
+    "args": {},
+    "source": "captured with yt-dlp 2026.10.26 on Windows 11, 2026-11-01: direct file download from a local server answering 429"
+  },
+  {
+    "file": "http-503-download-retries",
+    "exitCode": 1,
+    "category": "Transient",
+    "code": "error.transient.serverError",
+    "args": {
+      "status": "503"
+    },
+    "source": "captured with yt-dlp 2026.10.26 on Windows 11, 2026-11-01: direct file download from a local server answering 503"
+  },
+  {
+    "file": "http-503-webpage",
+    "exitCode": 1,
+    "category": "Transient",
+    "code": "error.transient.serverError",
+    "args": {
+      "status": "503"
+    },
+    "source": "captured with yt-dlp 2026.10.26 on Windows 11, 2026-11-01: generic extractor on a local server answering 503"
+  },
+  {
+    "file": "http-403-download",
+    "exitCode": 1,
+    "category": "Transient",
+    "code": "error.transient.forbidden",
+    "args": {},
+    "source": "captured with yt-dlp 2026.10.26 on Windows 11, 2026-11-01: direct file download from a local server answering 403"
+  },
+  {
+    "file": "http-404-download",
+    "exitCode": 1,
+    "category": "Unavailable",
+    "code": "error.unavailable.notFound",
+    "args": {},
+    "source": "captured with yt-dlp 2026.10.26 on Windows 11, 2026-11-01: direct file download from a local server answering 404"
+  },
+  {
+    "file": "fragment-not-found",
+    "exitCode": 1,
+    "category": "Transient",
+    "code": "error.transient.fragment",
+    "args": {},
+    "source": "captured with yt-dlp 2026.10.26 on Windows 11, 2026-11-01: HLS from a local server whose segments answer 503, --abort-on-unavailable-fragments"
+  },
+  {
+    "file": "unavailable-not-exist",
+    "exitCode": 1,
+    "category": "Unavailable",
+    "code": "error.unavailable.removed",
+    "args": {},
+    "source": "captured with yt-dlp 2026.10.26 on Windows 11, 2026-11-01: -J on a video id that does not exist"
+  },
+  {
+    "file": "playlist-missing",
+    "exitCode": 1,
+    "category": "Unavailable",
+    "code": "error.unavailable.playlistNotFound",
+    "args": {},
+    "source": "captured with yt-dlp 2026.10.26 on Windows 11, 2026-11-01: --flat-playlist -J on a playlist id that does not exist"
+  },
+  {
+    "file": "js-runtime-missing",
+    "exitCode": 1,
+    "category": "ToolBroken",
+    "code": "error.toolBroken.jsRuntimeMissing",
+    "args": {},
+    "source": "captured with yt-dlp 2026.10.26 on Windows 11, 2026-11-01: --no-js-runtimes -f 137 --simulate"
+  },
+  {
+    "file": "ffmpeg-missing",
+    "exitCode": 1,
+    "category": "ToolBroken",
+    "code": "error.toolBroken.ffmpegMissing",
+    "args": {},
+    "source": "captured with yt-dlp 2026.10.26 on Windows 11, 2026-11-01: -x with --ffmpeg-location pointing at an empty folder"
+  },
+  {
+    "file": "usage-error",
+    "exitCode": 2,
+    "category": "ToolBroken",
+    "code": "error.toolBroken.badOptions",
+    "args": {},
+    "source": "captured with yt-dlp 2026.10.26 on Windows 11, 2026-11-01: unknown option --foo-bar (argparse writes CRLF)"
+  },
+  {
+    "file": "access-denied-mkdir",
+    "exitCode": 1,
+    "category": "LocalIo",
+    "code": "error.localIo.accessDenied",
+    "args": {
+      "path": "C:\\Windows\\System32\\ydh-test"
+    },
+    "source": "captured with yt-dlp 2026.10.26 on Windows 11, 2026-11-01: -P inside C:\\Windows\\System32"
+  },
+  {
+    "file": "path-component-too-long",
+    "exitCode": 1,
+    "category": "LocalIo",
+    "code": "error.localIo.pathTooLong",
+    "args": {
+      "path": "C:\\Users\\user\\Downloads\\work\\aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.mp4.part"
+    },
+    "source": "captured with yt-dlp 2026.10.26 on Windows 11, 2026-11-01: -o with two 250-character folder/file names (folder prefix shortened)"
+  },
+  {
+    "file": "path-not-found-unicode",
+    "exitCode": 1,
+    "category": "LocalIo",
+    "code": "error.localIo.pathNotFound",
+    "args": {
+      "path": "C:\\Users\\a98c14\\source\\projects\\youtube-download-helper\\spikes\\progress-and-paths\\work\\Kullanıcı İ 😀 用户\\engel İ 東\\alt"
+    },
+    "source": "spike #33 capture (docs/spikes/samples/error-unicode-path.stderr.txt)"
+  },
+  {
+    "file": "members-only",
+    "exitCode": 1,
+    "category": "Auth",
+    "code": "error.auth.membersOnly",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): YouTube playability reason"
+  },
+  {
+    "file": "members-only-level",
+    "exitCode": 1,
+    "category": "Auth",
+    "code": "error.auth.membersOnly",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): YouTube playability reason with a membership level"
+  },
+  {
+    "file": "premium-only",
+    "exitCode": 1,
+    "category": "Auth",
+    "code": "error.auth.premiumOnly",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): YouTube playability reason (least certain wording)"
+  },
+  {
+    "file": "age-restricted",
+    "exitCode": 1,
+    "category": "Auth",
+    "code": "error.auth.ageRestricted",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): YouTube playability reason + yt-dlp cookies hint"
+  },
+  {
+    "file": "bot-check",
+    "exitCode": 1,
+    "category": "Auth",
+    "code": "error.auth.botCheck",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): YouTube playability reason (curly apostrophe) + cookies hint"
+  },
+  {
+    "file": "login-required",
+    "exitCode": 1,
+    "category": "Auth",
+    "code": "error.auth.loginRequired",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): extractor/youtube/_tab.py raise_login_required"
+  },
+  {
+    "file": "cookies-rotated",
+    "exitCode": 1,
+    "category": "Auth",
+    "code": "error.auth.loginRequired",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): extractor/youtube/_base.py cookie validity warning, then the login error"
+  },
+  {
+    "file": "private",
+    "exitCode": 1,
+    "category": "Unavailable",
+    "code": "error.unavailable.private",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): YouTube playability reason + cookies hint"
+  },
+  {
+    "file": "removed",
+    "exitCode": 1,
+    "category": "Unavailable",
+    "code": "error.unavailable.removed",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): YouTube playability reason"
+  },
+  {
+    "file": "terminated",
+    "exitCode": 1,
+    "category": "Unavailable",
+    "code": "error.unavailable.removed",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): YouTube playability reason"
+  },
+  {
+    "file": "copyright",
+    "exitCode": 1,
+    "category": "Unavailable",
+    "code": "error.unavailable.copyright",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): YouTube playability reason"
+  },
+  {
+    "file": "geo-blocked",
+    "exitCode": 1,
+    "category": "Unavailable",
+    "code": "error.unavailable.geoBlocked",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): YouTube playability reason + yt-dlp geo hint"
+  },
+  {
+    "file": "upcoming",
+    "exitCode": 1,
+    "category": "Unavailable",
+    "code": "error.unavailable.upcoming",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): YouTube playability reason for an upcoming live event"
+  },
+  {
+    "file": "premiere",
+    "exitCode": 1,
+    "category": "Unavailable",
+    "code": "error.unavailable.upcoming",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): YouTube playability reason for a premiere"
+  },
+  {
+    "file": "unsupported-url",
+    "exitCode": 1,
+    "category": "Unavailable",
+    "code": "error.unavailable.unsupportedUrl",
+    "args": {
+      "url": "https://example.com/watch/123"
+    },
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): YoutubeDL.py, no extractor for the URL"
+  },
+  {
+    "file": "extractor-failure",
+    "exitCode": 1,
+    "category": "ToolBroken",
+    "code": "error.toolBroken.extractor",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): ExtractorError with the bug-report suffix"
+  },
+  {
+    "file": "nsig",
+    "exitCode": 1,
+    "category": "ToolBroken",
+    "code": "error.toolBroken.signature",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): nsig warning (older yt-dlp wording), then missing formats"
+  },
+  {
+    "file": "connection-reset",
+    "exitCode": 1,
+    "category": "Transient",
+    "code": "error.transient.network",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): downloader/http.py, retries exhausted"
+  },
+  {
+    "file": "http-502-download",
+    "exitCode": 1,
+    "category": "Transient",
+    "code": "error.transient.serverError",
+    "args": {
+      "status": "502"
+    },
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): downloader/http.py"
+  },
+  {
+    "file": "disk-full",
+    "exitCode": 1,
+    "category": "LocalIo",
+    "code": "error.localIo.diskFull",
+    "args": {},
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): downloader/http.py write failure (ERROR_DISK_FULL maps to errno 28)"
+  },
+  {
+    "file": "access-denied-write",
+    "exitCode": 1,
+    "category": "LocalIo",
+    "code": "error.localIo.accessDenied",
+    "args": {
+      "path": "D:\\İndirilenler\\Kanal\\2026-01-02 - Video.f399.mp4.part"
+    },
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): downloader/http.py open failure, Turkish path"
+  },
+  {
+    "file": "file-in-use",
+    "exitCode": 1,
+    "category": "LocalIo",
+    "code": "error.localIo.fileInUse",
+    "args": {
+      "path": "C:\\Users\\user\\Downloads\\Video.temp.mkv"
+    },
+    "source": "from yt-dlp source text (as in FakeYtDlp YtDlpMessages.cs): utils try_rename (WinError 32 text from Windows)"
+  },
+  {
+    "file": "unknown-error",
+    "exitCode": 1,
+    "category": "Unknown",
+    "code": "error.unknown",
+    "args": {
+      "exitCode": "1"
+    },
+    "source": "FakeYtDlp unknown-error scenario (matches no pattern on purpose)"
+  },
+  {
+    "file": "no-error-line",
+    "exitCode": 1,
+    "category": "Unknown",
+    "code": "error.unknown",
+    "args": {
+      "exitCode": "1"
+    },
+    "source": "hand-written: exit code 1 with only a warning"
+  },
+  {
+    "file": "crash-missing-dll",
+    "exitCode": -1073741515,
+    "category": "ToolBroken",
+    "code": "error.toolBroken.crashed",
+    "args": {
+      "exitCode": "0xC0000135"
+    },
+    "source": "hand-written: no output, exit code 0xC0000135 (STATUS_DLL_NOT_FOUND)"
+  },
+  {
+    "file": "rate-limited-content",
+    "exitCode": 1,
+    "category": "Transient",
+    "code": "error.transient.rateLimited",
+    "args": {},
+    "source": "from yt-dlp issue tracker reports (wording as users quote it; not captured): YouTube session rate limit shown as \"Video unavailable\""
+  },
+  {
+    "file": "n-challenge",
+    "exitCode": 1,
+    "category": "ToolBroken",
+    "code": "error.toolBroken.signature",
+    "args": {},
+    "source": "from yt-dlp issue tracker reports (wording as users quote it; not captured): EJS n challenge warning (2025.11+), then missing formats"
+  }
+]
