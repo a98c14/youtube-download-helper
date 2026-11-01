@@ -7,6 +7,7 @@ using YoutubeDownloadHelper.Core.Persistence;
 using YoutubeDownloadHelper.Core.Presets;
 using YoutubeDownloadHelper.Core.Runner;
 using YoutubeDownloadHelper.Core.Tools;
+using YoutubeDownloadHelper.Tests.Shared;
 
 namespace YoutubeDownloadHelper.Core.Tests.Runner;
 
@@ -175,7 +176,7 @@ public sealed class YtDlpCommandBuilderTests
     }
 
     private static void Snapshot(YtDlpCommand command, [CallerMemberName] string name = "") =>
-        Approval.Verify(Render(command), name);
+        Approval.Verify(Render(command), Path.Combine("Runner", "Snapshots"), name);
 
     /// <summary>The executable, then one argument per line, exactly as they go into <c>ArgumentList</c>.</summary>
     private static string Render(YtDlpCommand command)

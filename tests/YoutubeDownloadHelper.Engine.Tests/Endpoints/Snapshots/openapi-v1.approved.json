@@ -1,0 +1,220 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "YoutubeDownloadHelper engine API",
+    "description": "Base URL and bearer token: the engine.json discovery file in the data folder.",
+    "version": "1"
+  },
+  "paths": {
+    "/api/v1/info": {
+      "get": {
+        "tags": [
+          "Info"
+        ],
+        "summary": "Engine and API versions, tools, login status and queue blocks. Also the health check.",
+        "operationId": "getInfo",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/engine/shutdown": {
+      "post": {
+        "tags": [
+          "Engine"
+        ],
+        "summary": "Stops the engine gracefully. Answers before it stops.",
+        "operationId": "shutdownEngine",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AuthInfo": {
+        "required": [
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/AuthStatus"
+          },
+          "account": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AuthStatus": {
+        "enum": [
+          "unknown",
+          "notLoggedIn",
+          "valid",
+          "expired"
+        ]
+      },
+      "EngineInfo": {
+        "required": [
+          "apiVersion",
+          "engineVersion",
+          "tools",
+          "auth",
+          "blocks"
+        ],
+        "type": "object",
+        "properties": {
+          "apiVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "engineVersion": {
+            "type": "string"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolInfo"
+            }
+          },
+          "auth": {
+            "$ref": "#/components/schemas/AuthInfo"
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueueBlock"
+            }
+          }
+        }
+      },
+      "EngineMessage": {
+        "required": [
+          "code",
+          "args",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "args": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "QueueBlock": {
+        "enum": [
+          "pausedByUser",
+          "waitingForNetwork",
+          "diskFull",
+          "toolsMissing"
+        ]
+      },
+      "ToolInfo": {
+        "required": [
+          "tool",
+          "version",
+          "installed"
+        ],
+        "type": "object",
+        "properties": {
+          "tool": {
+            "type": "string"
+          },
+          "version": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "installed": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "description": "The token from engine.json. Regenerated on every engine start.",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearer": [ ]
+    }
+  ],
+  "tags": [
+    {
+      "name": "Info"
+    },
+    {
+      "name": "Engine"
+    }
+  ]
+}
