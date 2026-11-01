@@ -338,7 +338,10 @@ FFmpeg builds).
 5. Fallback: **Import cookies.txt…** (Netscape format), via the same endpoint.
 
 **Engine side:**
-- Stores the cookies **encrypted with DPAPI** (CurrentUser) in `data\auth\cookies.bin`.
+- Stores the cookies **encrypted with DPAPI** (CurrentUser) in `data\auth\cookies.bin`: every kept generation
+  (below) in one blob, replaced atomically on each change. Only `youtube.com` cookies are stored, whatever the
+  source (login, import, refresh). A file that can't be decrypted or read (another user, corruption) is moved to
+  `cookies.bin.unreadable` and the engine starts logged out.
 - For each job, writes a plaintext Netscape cookies file into that job's work folder, readable only by the user,
   and deletes it after the job.
 - **Verification:** see below; it doubles as the keep-alive ping.
@@ -354,9 +357,11 @@ engine's latest jar and hands its result back, and nothing else (the WebView2 pr
 could rotate.
 
 1. **Versioned jar.** The engine stores the jar as numbered *generations* (DPAPI-encrypted) and keeps the
-   current one plus the last 3 known-good ones. Every change creates a new generation through the queue actor,
-   so updates are serialized. Generations older than the last browser refresh hold a dead `*PSIDTS`; they are
-   kept for diagnostics, not as rollback targets.
+   current one plus the last 3 known-good ones (known-good = passed verification), and the current one's
+   rollback target (point 5 (b)). Every change creates a new generation through the queue actor, so updates are
+   serialized. Each generation records its source, creation time, the generation it was based on and when it was
+   last verified. Generations older than the last browser refresh hold a dead `*PSIDTS`; they are kept for
+   diagnostics, not as rollback targets.
 2. **Writeback merge (every yt-dlp run), three-way.** Each job gets the current generation, and the engine
    remembers which one. After the job exits, the engine reads the cookie file yt-dlp saved and takes **only the
    cookies whose value differs from the generation the job was given**, applying their value and expiry onto the
@@ -367,7 +372,10 @@ could rotate.
      `SAPISID`, `__Secure-1PSID`, `__Secure-3PSID`, `__Secure-1PAPISID`, `__Secure-3PAPISID`,
      `__Secure-1PSIDTS`, `__Secure-3PSIDTS`, `LOGIN_INFO`;
    - ignore removals (yt-dlp drops expired cookies);
-   - keep the stored attributes (yt-dlp loses every HttpOnly flag and saves some cookies as session cookies);
+   - keep the stored attributes (yt-dlp loses every HttpOnly flag and saves some cookies as session cookies):
+     take only value and expiry, and keep the stored expiry when yt-dlp saved the cookie as a session cookie;
+   - when only the expiry changed, keep the later expiry (a job that started before a refresh can't shorten it);
+   - skip cookies that have already expired;
    - skip `PREF` (yt-dlp rewrites it with `hl=en` / `tz=UTC`);
    - ignore cookies outside `youtube.com`.
 
@@ -392,10 +400,11 @@ could rotate.
      only on the schedule or on recovery, never in a loop.
 5. **Recovery ladder before bothering the user.** When verification fails or a job hits an Auth error:
    (a) retry verification once, in case it was a transient glitch → (b) if the current generation came from a
-   browser refresh, roll back to the generation that refresh started from and verify (anything older is dead)
+   browser refresh (possibly followed by writebacks or pings, which never rotate `*PSIDTS`), roll back to the
+   generation that refresh started from and verify (anything older is dead)
    → (c) ask the UI (`auth.refreshRequested` event) for a browser refresh, if a UI is connected
    → (d) only then: status `Expired`, the `WaitingAuth` flow, and the "log in again" toast.
-6. **Telemetry (local logs only):** each generation records its source (login / writeback / ping / browser
+6. **Telemetry (local logs only):** each generation records its source (login / import / writeback / ping / browser
    refresh / rollback) and timestamps. Session lifetime and the recovery step that saved it are logged, so the
    intervals can be tuned in beta (6 h / 24 h are starting values).
 
@@ -585,7 +594,7 @@ survives updates, uninstall and reinstall:
 state.db            SQLite, WAL mode, EF Core migrations (run by the engine at startup, after a DB backup)
 backups\            state-<utc>-before-<migration>.db, taken only when a migration is pending (last 5 kept)
 engine.json         discovery file (user-only ACL)
-auth\cookies.bin    DPAPI-encrypted cookies
+auth\cookies.bin    DPAPI-encrypted cookie jar generations
 webview-profile\    WebView2 login profile (owned by YoutubeDownloadHelper.exe)
 tools\<tool>\<ver>\ managed binaries
 work\<itemId>\      partial downloads, per-job cookies file

@@ -8,6 +8,7 @@ using YoutubeDownloadHelper.Contracts.Auth;
 using YoutubeDownloadHelper.Contracts.Info;
 using YoutubeDownloadHelper.Contracts.Queue;
 using YoutubeDownloadHelper.Contracts.Tools;
+using YoutubeDownloadHelper.Core.Auth;
 using YoutubeDownloadHelper.Core.Queue;
 using YoutubeDownloadHelper.Engine.Hosting;
 
@@ -54,7 +55,8 @@ public sealed class InfoEndpointTests : IAsyncLifetime
             await File.WriteAllTextAsync(Path.Combine(_engine.Paths.ToolsDir, tool, tool + ".exe"), "", Ct);
         }
 
-        await File.WriteAllTextAsync(_engine.Paths.CookiesBin, "", Ct);
+        _engine.App.Services.GetRequiredService<CookieJarStore>().Add(
+            new CookieJar([new JarCookie(".youtube.com", "/", "SID", "x")]), CookieSource.Login);
         using var client = _engine.CreateClient();
 
         var info = await client.GetFromJsonAsync<EngineInfo>(ApiRoutes.Info, Json, Ct);

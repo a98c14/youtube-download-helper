@@ -11,6 +11,8 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <!-- DPAPI (CurrentUser) for the cookie jar. -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
     <!-- Design-time only (dotnet ef migrations). PrivateAssets keeps it out of Engine's dependency graph. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
   </ItemGroup>
