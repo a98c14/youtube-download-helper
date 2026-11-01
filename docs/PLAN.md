@@ -131,7 +131,10 @@ errors, `Directory.Build.props`. Details and code organisation: `CLAUDE.md`.
 **Concurrency model:** one **queue actor** (a single-reader `Channel<Command>`) owns all queue state in memory
 and is the only component that mutates items. API calls, job workers, watchers, and the tool manager send it
 messages. This removes a whole class of race conditions (the prototype's cleanup bugs are the cautionary tale).
-After each state transition the actor persists to SQLite, then publishes an event.
+After each state transition the actor persists to SQLite (item + `item_events` row, one transaction), then
+publishes on the internal event bus, which numbers every event (the SSE `id`, §6.3). Progress stays in memory;
+only the size estimate is checkpointed, at most every 10 s per item. The scheduler stops a running job when it
+sees its item leave a running state.
 
 **Scheduler:** picks the next `Queued` item by position when a slot is free (max 2). Adds a random 5–20 s
 delay between consecutive YouTube job starts to reduce bot-detection risk. Honors queue-level blocks (below).
@@ -148,8 +151,10 @@ automatically), `DiskFull` (free space below the item's estimated size + margin)
 ### 5.1 States
 
 ```
-            ┌──────────── Pause ───────────┐
-            ▼                              │
+          Paused <─ Pause (from Queued, running or waiting states)
+            │
+          Resume
+            ▼
  Added ─> Queued ─> Resolving ─> Downloading ─> PostProcessing ─> Completed
             ▲  ▲         │            │               │
             │  │         └──────┬─────┴───────────────┘
@@ -170,7 +175,11 @@ automatically), `DiskFull` (free space below the item's estimated size + margin)
   `live_status` is stored and shown as a badge, but **does not change behavior in v1**. A live URL is downloaded
   however yt-dlp handles it (records from "now" until the stream ends); an upcoming one fails with yt-dlp's own
   message, run through the normal classifier. Known v1 limitation: pausing a live recording cannot resume it.
-- **Pause:** kills the yt-dlp process tree and keeps the partial files. **Resume** reruns yt-dlp, which continues the download.
+- **Pause:** kills the yt-dlp process tree and keeps the partial files; the item waits in `Paused`, keeping its
+  place. **Resume** puts it back in `Queued`, and the next run continues the download.
+- **Pause all** (the `PausedByUser` queue block): no job starts, and running items go back to `Queued` with
+  reason `queue.paused`, so "Resume all" just lifts the block. It is held in memory only: the queue runs again
+  after an engine restart.
 - **Crash recovery:** at engine start, items in `Resolving`/`Downloading`/`PostProcessing` go back to `Queued`
   (the event's reason says why) and resume from their partial files. Orphaned work folders with no matching item are cleaned up.
 - Every transition is written to `item_events` (timestamp, from, to, reason, error category), which

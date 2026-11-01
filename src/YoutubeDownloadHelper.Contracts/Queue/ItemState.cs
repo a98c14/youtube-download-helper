@@ -8,6 +8,13 @@ public enum ItemState
 {
     Added,
     Queued,
+
+    /// <summary>
+    /// The user paused the item: it keeps its place and partial files but is not started until resumed. Pausing a
+    /// running item kills its yt-dlp process; resuming puts it back in <see cref="Queued"/>.
+    /// </summary>
+    Paused,
+
     Resolving,
     Downloading,
     PostProcessing,

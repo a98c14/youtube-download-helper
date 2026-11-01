@@ -33,8 +33,9 @@ public sealed class TestDataRoot : IAsyncDisposable
 
     public SettingsStore Settings => _services.GetRequiredService<SettingsStore>();
 
-    public StateDbContext CreateContext() =>
-        _services.GetRequiredService<IDbContextFactory<StateDbContext>>().CreateDbContext();
+    public IDbContextFactory<StateDbContext> ContextFactory => _services.GetRequiredService<IDbContextFactory<StateDbContext>>();
+
+    public StateDbContext CreateContext() => ContextFactory.CreateDbContext();
 
     public async Task<TestDataRoot> InitializedAsync()
     {
