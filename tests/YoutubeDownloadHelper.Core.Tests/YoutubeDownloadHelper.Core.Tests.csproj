@@ -12,10 +12,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- FakeTimeProvider: timers that tests advance by hand (the progress throttle). -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="..\Shared\CultureCanaryTests.cs" Link="Shared\CultureCanaryTests.cs" />
     <Compile Include="..\Shared\Approval.cs" Link="Shared\Approval.cs" />
     <!-- yt-dlp output samples for the error classifier; see fixtures.json for where each came from. -->
     <None Include="Errors\Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Spike #33's raw yt-dlp captures, for the progress parser. -->
+    <None Include="..\..\docs\spikes\samples\*.txt" LinkBase="Runner\Samples" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

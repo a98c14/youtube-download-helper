@@ -18,18 +18,7 @@ public sealed class YtDlpCommandBuilder(DataPaths paths, IToolLocator tools, Pre
     /// <summary>A single-item download with progress lines, embeds, work and destination folders.</summary>
     public YtDlpCommand Download(DownloadRequest request)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.Url);
-        if (!Path.IsPathFullyQualified(request.DownloadFolder))
-        {
-            throw new ArgumentException("The download folder must be an absolute path.", nameof(request));
-        }
-
-        var preset = presets.Get(request.PresetId);
-        var destination = string.IsNullOrWhiteSpace(request.FolderOverride)
-            ? request.DownloadFolder
-            : Path.Combine(request.DownloadFolder, request.FolderOverride);
-
+        var output = Output(request);
         var snapshot = tools.Current;
         List<string> args =
         [
@@ -45,13 +34,24 @@ public sealed class YtDlpCommandBuilder(DataPaths paths, IToolLocator tools, Pre
             "--embed-metadata",
             "--embed-thumbnail",
             "--embed-chapters",
-            "-P", "temp:" + paths.WorkDirFor(request.ItemId),
-            "-P", "home:" + Path.GetFullPath(destination),
-            "-o", request.AppendVideoId ? YtDlpTemplates.OutputWithVideoId : YtDlpTemplates.Output,
-            .. preset.FormatArguments,
+            .. output,
             .. Url(request.Url),
         ];
         return new YtDlpCommand(snapshot.YtDlp, args);
+    }
+
+    /// <summary>
+    /// The resolve before a download: <see cref="Resolve(string, string?)"/> with the download's folders, output
+    /// template and format arguments, so the JSON's <c>filename</c> is the path the download will produce (up to the
+    /// extension; <see cref="ResolvedVideo.Filename"/>) and its sizes are those of the formats it will download.
+    /// </summary>
+    public YtDlpCommand Resolve(DownloadRequest request)
+    {
+        var output = Output(request);
+        var snapshot = tools.Current;
+        return new YtDlpCommand(
+            snapshot.YtDlp,
+            [.. Common(snapshot, request.CookiesFile), "-J", "--no-playlist", .. output, .. Url(request.Url)]);
     }
 
     /// <summary>Metadata of a single video as one JSON object (<c>-J</c>), for the Add dialog and before a download.</summary>
@@ -110,6 +110,29 @@ public sealed class YtDlpCommandBuilder(DataPaths paths, IToolLocator tools, Pre
         }
 
         return args;
+    }
+
+    /// <summary>The work and destination folders, the output template and the preset's format arguments.</summary>
+    private List<string> Output(DownloadRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.Url);
+        if (!Path.IsPathFullyQualified(request.DownloadFolder))
+        {
+            throw new ArgumentException("The download folder must be an absolute path.", nameof(request));
+        }
+
+        var preset = presets.Get(request.PresetId);
+        var destination = string.IsNullOrWhiteSpace(request.FolderOverride)
+            ? request.DownloadFolder
+            : Path.Combine(request.DownloadFolder, request.FolderOverride);
+        return
+        [
+            "-P", "temp:" + paths.WorkDirFor(request.ItemId),
+            "-P", "home:" + Path.GetFullPath(destination),
+            "-o", request.AppendVideoId ? YtDlpTemplates.OutputWithVideoId : YtDlpTemplates.Output,
+            .. preset.FormatArguments,
+        ];
     }
 
     private static string[] Listing(int playlistEnd) =>

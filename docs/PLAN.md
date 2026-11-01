@@ -233,7 +233,11 @@ The argument-builder snapshot tests (`tests/…Core.Tests/Runner/Snapshots/`) pi
 ### 5.4 yt-dlp runner
 
 - Every invocation runs inside a **Windows Job Object** (`KILL_ON_JOB_CLOSE`), so yt-dlp and its ffmpeg children
-  die with the engine. Cancel or pause kills the whole tree.
+  die with the engine. Cancel or pause kills the whole tree. The process is created suspended and joins its job
+  before it runs (`Core/Runner/JobObjectProcess.cs`), so no child can start outside the job, and it inherits only
+  its three pipe handles. The runner (`YtDlpRunner`) reports how a run ended (exit code, cancelled, final path,
+  `ERROR:`/`WARNING:` lines, output tail) and leaves classification (of the exit code and the tail) to the
+  scheduler; a cancel returns a result instead of throwing.
 - Fixed arguments on every run: `--ignore-config` (the user's global yt-dlp config can never interfere),
   `--no-playlist` for single items, `--newline`, `--progress` (required: `--print` implies `--quiet`, which
   otherwise hides all progress), `--progress-delta 0.25`, machine-readable `--progress-template`s for `download:`
@@ -262,12 +266,19 @@ The argument-builder snapshot tests (`tests/…Core.Tests/Runner/Snapshots/`) pi
   the download folder. If the destination filename already exists, the engine adds ` [<videoId>]` to the output
   template (`… - %(title)s [%(id)s].%(ext)s`).
   The engine checks this **before** starting yt-dlp: when the final file already exists, yt-dlp skips the
-  download, re-runs the embeds and reports success (M0 spike).
+  download, re-runs the embeds and reports success (M0 spike). The resolve before a download uses the download's
+  `-P`/`-o` and format arguments, so the `filename` in its JSON is the predicted final path; its extension is the
+  downloaded one (a conversion, remux or the MKV thumbnail fallback can change it), so the check compares names
+  without the extension (`DestinationCheck`). `moved` without any `dl` line is still reported as "already present".
 - Progress lines are parsed and coalesced into **at most 4 updates per second per item**. Progress is kept in
-  memory only; the DB stores the size estimate and, at the end, the final size.
+  memory only; the DB stores the size estimate and, at the end, the final size. A snapshot has a phase
+  (`Preparing`, `Downloading`, `Processing` with the post-processor's name, `Moving`, `Done`), byte counts, speed,
+  ETA and a fraction (null when unknown, e.g. a live stream). The throttle sends the first update at once and holds
+  a later one until 250 ms have passed, replacing it with newer ones, so the latest phase is delayed but never lost.
 - The last 200 lines of output are kept per run (DB, on the `item_events` row that ends the run) for the details
   pane, excluding `dl` progress lines;
-  full logs go to `logs\jobs\`.
+  full logs go to `logs\jobs\<itemId>-<attempt>.log`, appended to, so an attempt's resolve and download share one
+  file (runner notes are `# ` lines).
 - **Our own archive** in SQLite (key: `extractor + video id`, matching yt-dlp's archive format) replaces
   `--download-archive`, so the archive is queryable and shared with watchers and the Add dialog. It is not a
   table: a video is archived while an item for it is `Completed`. Removing the item takes it out of the archive.

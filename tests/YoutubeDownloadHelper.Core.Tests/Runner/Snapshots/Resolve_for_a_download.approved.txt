@@ -1,0 +1,29 @@
+C:\Users\Kullanıcı İ\AppData\Local\YoutubeDownloadHelperData\tools\yt-dlp\yt-dlp.exe
+  --ignore-config
+  --encoding
+  utf-8
+  --cache-dir
+  C:\Users\Kullanıcı İ\AppData\Local\YoutubeDownloadHelperData\cache\yt-dlp
+  --ffmpeg-location
+  C:\Users\Kullanıcı İ\AppData\Local\YoutubeDownloadHelperData\tools\ffmpeg\ffmpeg.exe
+  --js-runtimes
+  deno:C:\Users\Kullanıcı İ\AppData\Local\YoutubeDownloadHelperData\tools\deno\deno.exe
+  --cookies
+  C:\Users\Kullanıcı İ\AppData\Local\YoutubeDownloadHelperData\work\42\cookies.txt
+  -J
+  --no-playlist
+  -P
+  temp:C:\Users\Kullanıcı İ\AppData\Local\YoutubeDownloadHelperData\work\42
+  -P
+  home:C:\Users\Kullanıcı İ\Downloads\Youtube İndirgeç\Müzik\Çalma listesi
+  -o
+  %(channel)s\%(upload_date>%Y-%m-%d)s - %(title)s.%(ext)s
+  -f
+  ba/b
+  -x
+  --audio-format
+  mp3
+  --audio-quality
+  0
+  --
+  https://www.youtube.com/watch?v=jNQXAC9IVRw

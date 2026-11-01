@@ -50,6 +50,10 @@ public sealed class DataPaths
 
     public string JobLogsDir => Path.Combine(LogsDir, "jobs");
 
+    /// <summary>The full yt-dlp output of one attempt at an item (PLAN.md §5.4, §10).</summary>
+    public string JobLogFor(long itemId, int attempt) =>
+        Path.Combine(JobLogsDir, string.Create(CultureInfo.InvariantCulture, $"{itemId}-{attempt}.log"));
+
     /// <summary>Partial downloads and the per-job cookies file for one item.</summary>
     public string WorkDirFor(long itemId) => Path.Combine(WorkDir, itemId.ToString(CultureInfo.InvariantCulture));
 

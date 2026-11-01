@@ -402,6 +402,11 @@ internal sealed partial class FakeRun(FakeOptions options, FakeRequest request, 
         }
 
         work();
+        if (request.Number("ppdelay", 0) is > 0 and var delay)
+        {
+            Thread.Sleep(TimeSpan.FromSeconds(delay));
+        }
+
         PpLine("finished", name, info, path);
     }
 
@@ -504,8 +509,24 @@ internal sealed partial class FakeRun(FakeOptions options, FakeRequest request, 
         { "extractor_key", "Youtube" },
         { "ext", "mp4" },
         { "format_id", "399+140" },
+        { "filesize_approx", request.Bytes("size", 192 << 10) },
+        { "filename", PredictedFilename(info) },
+        { "_filename", PredictedFilename(info) },
         { "_type", "video" },
     };
+
+    /// <summary>
+    /// yt-dlp's <c>filename</c> under <c>-J</c>: the output template in the home folder, with the downloaded
+    /// extension (before <c>-x</c> converts it), like <see cref="Download"/> renders it.
+    /// </summary>
+    private string PredictedFilename(VideoInfo info)
+    {
+        var ext = options.ExtractAudio ? "webm" : "mp4";
+        var plan = new Plan(info, [], "", ext, 0);
+        var relative = OutputTemplate.Render(
+            options.OutputTemplate ?? "%(title)s [%(id)s].%(ext)s", Fields(plan, ext, null), sanitize: true);
+        return Path.GetFullPath(Path.Combine(Path.GetFullPath(options.HomePath ?? Environment.CurrentDirectory), relative));
+    }
 
     private void Screen(string line)
     {

@@ -62,7 +62,7 @@ authentication. See  https://…`) is appended where yt-dlp appends it.
 
 | URL | Output |
 |---|---|
-| any video scenario with `-J` | One JSON object (`_type` `video`): `availability` is `public`, or `subscriber_only` (`members-only`), `premium_only` (`premium-only`), `needs_auth` (`age-restricted`); `live_status` is `not_live`, `is_live` (`live`) or `is_upcoming` (`upcoming`). Scenarios that fail during extraction fail under `-J` too; download-phase failures don't. |
+| any video scenario with `-J` | One JSON object (`_type` `video`): `availability` is `public`, or `subscriber_only` (`members-only`), `premium_only` (`premium-only`), `needs_auth` (`age-restricted`); `live_status` is `not_live`, `is_live` (`live`) or `is_upcoming` (`upcoming`). `filesize_approx` is `size`; `filename` and `_filename` are the output template (`-o`) rendered in `-P home:` with the downloaded extension (`mp4`, or `webm` with `-x`). Scenarios that fail during extraction fail under `-J` too; download-phase failures don't. |
 | `playlist` | `--flat-playlist -J` listing, `playlist_count` = `count`. |
 | `channel/videos`, `channel/shorts`, `channel/streams`, `channel/members` | Channel tab listings. `streams` entries have `live_status` `was_live`; `members` entries have `availability` `subscriber_only` and need login (otherwise `ERROR: [youtube:tab] UUMO…: The playlist does not exist.`). `channel` alone is `videos`. |
 | `subscriptions` | The auth verification. Logged in: a listing. Logged out: `ERROR: [youtube:tab] Login details are needed to download this content. Use --cookies-from-browser …`, exit 1. |
@@ -81,6 +81,7 @@ listings fail.
 | `upload_date` | `20260102` | video scenarios |
 | `size` | `192K` (`2M` for `slow`) | total bytes; ¾ video, ¼ audio. Suffixes `K`, `M`, `G` (binary). Files are created with `SetLength`, so large sizes are cheap. |
 | `speed` | unthrottled (reported as 10 MiB/s) | bytes per second; when set, the fake sleeps and writes 4 progress lines per second |
+| `ppdelay` | `0` | seconds each post-processor takes (so a throttled progress reader sees every phase) |
 | `stop` | see the scenario | fraction of `size` where `hang`, `spawn-child`, `resume`, `connection-reset`, `disk-full` stop |
 | `status` | `503` | `http-5xx` |
 | `rotate` | `SIDCC,__Secure-1PSIDCC,__Secure-3PSIDCC` | `cookie-writeback` |
