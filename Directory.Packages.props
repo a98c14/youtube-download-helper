@@ -12,7 +12,6 @@
 
   <ItemGroup Label="Tests">
     <PackageVersion Include="xunit.v3" Version="4.0.2" />
-    <PackageVersion Include="Verify.XunitV3" Version="33.3.4" />
   </ItemGroup>
 
 </Project>
