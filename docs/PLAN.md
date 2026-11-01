@@ -499,8 +499,8 @@ document at `/openapi/v1.json` for non-.NET clients (no `servers` entry: the bas
 | Method & path | Purpose |
 |---|---|
 | `GET /info` | `{ apiVersion, engineVersion, tools: [{ tool, version, installed }], auth: { status, account }, blocks: [] }`. Also the health check |
-| `POST /resolve` `{url}` | Metadata only: a single video, or playlist/channel entries (for the picker); flags duplicates |
-| `POST /items` `{urls[] \| videoIds[], presetId?, folder?, paused?, expandPlaylists?: "all", force?}` | Add; per-URL result: added / duplicate / invalid. Duplicate = listed twice, already queued (same URL or YouTube video ID), or in the archive; `force` adds anyway. YouTube video IDs are read from the URL up front |
+| `POST /resolve` `{url, limit?}` | Metadata only: `{ kind: video\|playlist, id, title, channel, totalCount, truncated, entries[] }`. A YouTube video URL (even with `list=`) runs `-J --no-playlist`; anything else a flat listing (`--flat-playlist -J`, `limit` entries, default 1,000, at most 5,000), which prints a video's metadata for a video. Entries: kind (`video`, or `playlist` for the tabs of a channel URL without a tab — resolve them in turn), URL, YouTube video ID, title, duration, availability/live status where the listing has them, and `duplicate: queued\|downloaded` with the item ID (same rule as `POST /items`). A yt-dlp failure is `422` with its classified `error.*` message; missing tools `503` `resolve.toolsMissing`. Cookies come from the `IResolveCookieProvider` seam (#48) |
+| `POST /items` `{urls[] \| videoIds[], presetId?, folder?, paused?, expandPlaylists?: "none"\|"all", force?}` | Add; per-input result: added / duplicate / invalid / failed. Duplicate = listed twice, already queued (same URL or YouTube video ID), or in the archive; `force` adds anyway. YouTube video IDs are read from the URL up front. With `expandPlaylists: "all"` every other URL is resolved first: a playlist or channel tab becomes one result per video (with `playlist` = the input), a channel URL without a tab the videos of each tab; all or nothing per URL (`failed` with the yt-dlp error, `item.playlistEmpty`, `item.playlistTooLarge` past 5,000 items per request). The picker sends its selection as `videoIds` (or `urls` for non-YouTube entries) |
 | `GET /items?state=&search=&cursor=&limit=` | List/snapshot: `{ items (queue order, with live progress), sequence, nextCursor }`. `sequence` is the event id the snapshot is consistent with (§6.3) |
 | `GET /items/{id}` | Detail incl. transitions, attempts (runs, from the `item_events` rows) and the output tail |
 | `POST /items/{id}/pause` · `/resume` · `/retry` | Item control. `204`; `404` `queue.itemNotFound`; `409` `queue.invalidTransition` |
@@ -577,7 +577,8 @@ output is passed through untranslated (Details/Log only).
 
 - **Add:** multiline URL box (prefilled from the clipboard if it holds a supported URL), preset dropdown,
   destination (default: per-channel), "Add paused". Calls `/resolve`. Playlists/channels open the **picker**:
-  checklist with title, duration, members/premium badge, "already downloaded" marker, select all/none.
+  checklist with title, duration, members/premium badge, "already downloaded" marker, select all/none; a channel
+  URL without a tab first offers its tabs. The selection is added as `videoIds`.
 - **Watchers:** list plus Add/Edit (URL → resolved channel name; checkboxes Videos / Shorts / Past streams /
   Members-only; preset; folder; "Also download the latest N existing videos"); Check now; enable/disable.
 - **Settings:**

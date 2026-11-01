@@ -65,6 +65,7 @@ authentication. See  https://…`) is appended where yt-dlp appends it.
 | any video scenario with `-J` | One JSON object (`_type` `video`): `availability` is `public`, or `subscriber_only` (`members-only`), `premium_only` (`premium-only`), `needs_auth` (`age-restricted`); `live_status` is `not_live`, `is_live` (`live`) or `is_upcoming` (`upcoming`). `filesize_approx` is `size`; `filename` and `_filename` are the output template (`-o`) rendered in `-P home:` with the downloaded extension (`mp4`, or `webm` with `-x`). Scenarios that fail during extraction fail under `-J` too; download-phase failures don't. |
 | `playlist` | `--flat-playlist -J` listing, `playlist_count` = `count`. |
 | `channel/videos`, `channel/shorts`, `channel/streams`, `channel/members` | Channel tab listings. `streams` entries have `live_status` `was_live`; `members` entries have `availability` `subscriber_only` and need login (otherwise `ERROR: [youtube:tab] UUMO…: The playlist does not exist.`). `channel` alone is `videos`. |
+| `channel/tabs` | A channel URL without a tab: the entries are the `videos`, `shorts` and `streams` tabs (`_type` `url`, `ie_key` `YoutubeTab`), whose URLs keep this URL's query. |
 | `subscriptions` | The auth verification. Logged in: a listing. Logged out: `ERROR: [youtube:tab] Login details are needed to download this content. Use --cookies-from-browser …`, exit 1. |
 
 Listings are numbered newest first, `count` down to 1, so a later poll with a higher `count` has new entries at the
