@@ -79,3 +79,7 @@ dotnet_diagnostic.CA1311.severity = error
 # Enforced code style (EnforceCodeStyleInBuild). Everything else above stays an IDE suggestion.
 dotnet_diagnostic.IDE0161.severity = error
 dotnet_diagnostic.IDE0005.severity = error
+
+# EF Core migrations are regenerated (single Initial migration until the first release), never hand-edited.
+[src/YoutubeDownloadHelper.Core/Persistence/Migrations/*.cs]
+generated_code = true

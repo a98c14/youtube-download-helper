@@ -13,6 +13,12 @@ public static class AppIdentity
     /// <summary>The per-user data folder under <c>%LOCALAPPDATA%</c> (PLAN.md §8).</summary>
     public const string DataFolderName = "YoutubeDownloadHelperData";
 
+    /// <summary>
+    /// The default download folder under the user's Downloads folder. It is user-facing, so unlike every other
+    /// path it deliberately carries the display name.
+    /// </summary>
+    public const string DownloadFolderName = DisplayName;
+
     public const string VelopackPackId = "YoutubeDownloadHelper";
 
     public const string AppExecutableName = "YoutubeDownloadHelper.exe";

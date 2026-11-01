@@ -28,6 +28,15 @@ Remove-Item Env:EXPECTED_TEST_CULTURE
 dotnet test --project tests/YoutubeDownloadHelper.Core.Tests --filter-method "*Queue*"
 ```
 
+Regenerate the single `Initial` migration after changing an entity (a test fails while the model and migration
+differ):
+
+```powershell
+dotnet tool restore
+dotnet ef migrations remove --project src/YoutubeDownloadHelper.Core
+dotnet ef migrations add Initial --project src/YoutubeDownloadHelper.Core --output-dir Persistence/Migrations
+```
+
 Build warnings are errors, and that includes analyzers and the enforced style rules. NuGet audit warnings
 (NU1901–NU1904) stay warnings so a new advisory doesn't break unrelated PRs.
 
