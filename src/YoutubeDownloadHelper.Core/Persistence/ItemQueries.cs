@@ -102,6 +102,44 @@ public static class ItemQueries
         CancellationToken cancellationToken = default) =>
         db.Items.MatchVideoIdsAsync(extractor, videoIds, cancellationToken);
 
+    /// <summary>
+    /// For each of <paramref name="videoIds"/> in the download archive, the newest <see cref="ItemState.Completed"/>
+    /// item that downloaded it.
+    /// </summary>
+    public static async Task<Dictionary<string, long>> GetDownloadedItemIdsAsync(
+        this StateDbContext db,
+        string extractor,
+        IEnumerable<string> videoIds,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = videoIds.Distinct(StringComparer.Ordinal).ToArray();
+        var rows = await db.Items
+            .Where(i => i.State == ItemState.Completed && i.Extractor == extractor && ids.Contains(i.VideoId!))
+            .Select(i => new { VideoId = i.VideoId!, i.Id })
+            .ToListAsync(cancellationToken);
+
+        var result = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var row in rows)
+        {
+            result[row.VideoId] = result.TryGetValue(row.VideoId, out var other) ? Math.Max(other, row.Id) : row.Id;
+        }
+
+        return result;
+    }
+
+    /// <summary>An item in any state except <see cref="ItemState.Removed"/> and <see cref="ItemState.Seen"/>, or null.</summary>
+    public static Task<ItemEntity?> FindVisibleItemAsync(this StateDbContext db, long itemId, CancellationToken cancellationToken = default) =>
+        db.Items.AsNoTracking()
+            .Where(i => i.Id == itemId && i.State != ItemState.Removed && i.State != ItemState.Seen)
+            .SingleOrDefaultAsync(cancellationToken);
+
+    /// <summary>An item's transitions, oldest first.</summary>
+    public static Task<List<ItemEventEntity>> GetItemEventsAsync(this StateDbContext db, long itemId, CancellationToken cancellationToken = default) =>
+        db.ItemEvents.AsNoTracking()
+            .Where(e => e.ItemId == itemId)
+            .OrderBy(e => e.Id)
+            .ToListAsync(cancellationToken);
+
     private static async Task<HashSet<string>> MatchVideoIdsAsync(
         this IQueryable<ItemEntity> items,
         string extractor,

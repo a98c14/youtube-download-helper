@@ -1,14 +1,8 @@
 using YoutubeDownloadHelper.Contracts;
 using YoutubeDownloadHelper.Contracts.Presets;
+using YoutubeDownloadHelper.Contracts.Settings;
 
 namespace YoutubeDownloadHelper.Core.Persistence;
-
-/// <summary>yt-dlp release channel (PLAN.md §5.6).</summary>
-public enum YtDlpChannel
-{
-    Stable,
-    Nightly,
-}
 
 /// <summary>
 /// Every setting stored in the <c>settings</c> table, with its default. Load and save through

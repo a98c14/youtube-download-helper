@@ -8,10 +8,14 @@
     <ProjectReference Include="..\..\src\YoutubeDownloadHelper.Contracts\YoutubeDownloadHelper.Contracts.csproj" />
     <ProjectReference Include="..\..\src\YoutubeDownloadHelper.Core\YoutubeDownloadHelper.Core.csproj" />
     <ProjectReference Include="..\..\src\YoutubeDownloadHelper.Engine\YoutubeDownloadHelper.Engine.csproj" />
+    <!-- Copies YoutubeDownloadHelper.FakeYtDlp.exe next to the tests, for engine-level downloads. -->
+    <ProjectReference Include="..\..\tools\YoutubeDownloadHelper.FakeYtDlp\YoutubeDownloadHelper.FakeYtDlp.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <!-- FakeTimeProvider: the idle exit on a fake clock. -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
   </ItemGroup>
 
   <ItemGroup>

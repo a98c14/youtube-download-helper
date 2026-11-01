@@ -59,9 +59,10 @@ public sealed record QueueItem
 
     public DateTimeOffset UpdatedAt { get; init; }
 
-    internal static QueueItem From(ItemEntity e) => new()
+    /// <summary>A copy of a stored item, e.g. one read for history.</summary>
+    public static QueueItem From(ItemEntity e) => new()
     {
-        Id = e.Id,
+        Id = (e ?? throw new ArgumentNullException(nameof(e))).Id,
         Url = e.Url,
         Extractor = e.Extractor,
         VideoId = e.VideoId,

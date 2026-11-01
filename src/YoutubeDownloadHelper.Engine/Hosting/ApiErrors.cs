@@ -34,6 +34,10 @@ public static class ApiErrors
             StatusCodes.Status500InternalServerError,
             new EngineMessage(ApiErrorCodes.Internal, "An unexpected engine error occurred. See the engine log."));
 
+    /// <summary>A 400 body for a parameter or field with a value the engine does not accept.</summary>
+    public static EngineMessage InvalidParameter(string parameter, string message) =>
+        new(ApiErrorCodes.InvalidParameter, new Dictionary<string, string>(StringComparer.Ordinal) { ["parameter"] = parameter }, message);
+
     public static EngineMessage ForStatus(int status) => status switch
     {
         StatusCodes.Status400BadRequest => new(ApiErrorCodes.BadRequest, "The request is malformed."),

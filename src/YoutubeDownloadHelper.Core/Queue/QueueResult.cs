@@ -11,7 +11,8 @@ public sealed record QueueResult(EngineMessage? Rejection)
 
     public bool Succeeded => Rejection is null;
 
-    internal static QueueResult NotFound(long itemId) =>
+    /// <summary>The rejection for an item that is not in the queue (or does not exist).</summary>
+    public static QueueResult NotFound(long itemId) =>
         new(new EngineMessage(
             QueueCodes.ItemNotFound,
             Args(("itemId", itemId.ToString(CultureInfo.InvariantCulture))),
@@ -45,16 +46,6 @@ public sealed record QueueResult(EngineMessage? Rejection)
 
         return dictionary;
     }
-}
-
-/// <summary>Message codes for rejected queue commands.</summary>
-public static class QueueCodes
-{
-    public const string ItemNotFound = "queue.itemNotFound";
-    public const string InvalidTransition = "queue.invalidTransition";
-    public const string InvalidMove = "queue.invalidMove";
-    public const string NotRunning = "queue.notRunning";
-    public const string QueuePaused = "queue.paused";
 }
 
 /// <summary>Values of <c>item_events.reason</c> for transitions the queue itself causes. Job failures use their error code.</summary>

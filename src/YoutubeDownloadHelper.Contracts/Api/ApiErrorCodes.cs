@@ -27,6 +27,12 @@ public static class ApiErrorCodes
     /// <summary>400: the request is malformed.</summary>
     public const string BadRequest = "api.badRequest";
 
+    /// <summary>
+    /// 400: a query parameter or body field has a value the engine does not accept (e.g. an unknown preset, a bad
+    /// cursor). Args: <c>parameter</c> (its camelCase name).
+    /// </summary>
+    public const string InvalidParameter = "api.invalidParameter";
+
     /// <summary>Any other 4xx/5xx status without a more specific code. Args: <c>status</c>.</summary>
     public const string HttpError = "api.httpError";
 

@@ -51,12 +51,3 @@ public sealed record JobFailure(
     EngineMessage Error,
     DateTimeOffset? NextAttemptAt = null,
     JobOutput? Output = null);
-
-public enum MoveTarget
-{
-    Top,
-    Bottom,
-
-    /// <summary>Just before another item.</summary>
-    Before,
-}
