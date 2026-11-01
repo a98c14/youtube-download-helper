@@ -1,0 +1,14 @@
+C:\Users\Kullanıcı İ\AppData\Local\YoutubeDownloadHelperData\tools\yt-dlp\yt-dlp.exe
+  --ignore-config
+  --encoding
+  utf-8
+  --cache-dir
+  C:\Users\Kullanıcı İ\AppData\Local\YoutubeDownloadHelperData\cache\yt-dlp
+  --ffmpeg-location
+  C:\Users\Kullanıcı İ\AppData\Local\YoutubeDownloadHelperData\tools\ffmpeg\ffmpeg.exe
+  --js-runtimes
+  deno:C:\Users\Kullanıcı İ\AppData\Local\YoutubeDownloadHelperData\tools\deno\deno.exe
+  -J
+  --no-playlist
+  --
+  https://www.youtube.com/watch?v=jNQXAC9IVRw

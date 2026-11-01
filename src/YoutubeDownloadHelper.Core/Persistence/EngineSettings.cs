@@ -1,4 +1,5 @@
 using YoutubeDownloadHelper.Contracts;
+using YoutubeDownloadHelper.Contracts.Presets;
 
 namespace YoutubeDownloadHelper.Core.Persistence;
 
@@ -19,7 +20,7 @@ public sealed record EngineSettings
 
     public required string DownloadFolder { get; init; }
 
-    public string DefaultPresetId { get; init; } = "best";
+    public string DefaultPresetId { get; init; } = PresetIds.Best;
 
     /// <summary>Fixed at 2 in v1; only changeable by editing the database (PLAN.md §3).</summary>
     public int Concurrency { get; init; } = 2;

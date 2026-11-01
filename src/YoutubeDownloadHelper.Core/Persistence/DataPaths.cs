@@ -42,6 +42,9 @@ public sealed class DataPaths
 
     public string WorkDir => Path.Combine(Root, "work");
 
+    /// <summary>yt-dlp's private <c>--cache-dir</c> (signature/player data), so the user's own cache never interferes.</summary>
+    public string YtDlpCacheDir => Path.Combine(Root, "cache", "yt-dlp");
+
     public string LogsDir => Path.Combine(Root, "logs");
 
     public string JobLogsDir => Path.Combine(LogsDir, "jobs");
