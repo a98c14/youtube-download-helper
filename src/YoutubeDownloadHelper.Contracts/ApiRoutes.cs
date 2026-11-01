@@ -23,6 +23,12 @@ public static class ApiRoutes
     public const string EngineShutdown = Base + "/engine/shutdown";
 
     /// <summary>
+    /// <c>POST</c> <see cref="Resolve.ResolveRequest"/>: a video's metadata, or a playlist's or channel's entries, with
+    /// duplicate flags (<see cref="Resolve.ResolveResponse"/>). Downloads nothing.
+    /// </summary>
+    public const string Resolve = Base + "/resolve";
+
+    /// <summary>
     /// <c>GET</c> (<c>?state=&amp;search=&amp;cursor=&amp;limit=</c>): the queue, an <see cref="Queue.ItemList"/>.
     /// <c>POST</c>: adds items (<see cref="Queue.AddItemsRequest"/>, answered with an <see cref="Queue.AddItemsResponse"/>).
     /// </summary>

@@ -15,6 +15,7 @@ using YoutubeDownloadHelper.Core.Errors;
 using YoutubeDownloadHelper.Core.Persistence;
 using YoutubeDownloadHelper.Core.Presets;
 using YoutubeDownloadHelper.Core.Queue;
+using YoutubeDownloadHelper.Core.Resolve;
 using YoutubeDownloadHelper.Core.Runner;
 using YoutubeDownloadHelper.Core.Scheduling;
 using YoutubeDownloadHelper.Core.Tools;
@@ -61,11 +62,13 @@ public static class EngineHost
             .AddToolManager()
             .AddRunner()
             .AddAuth()
+            .AddResolve()
             .AddScheduling();
 
         services.AddSingleton<ApiToken>();
         services.AddSingleton<LogRedactor>();
         services.AddSingleton<EngineEndpoint>();
+        services.AddSingleton<DuplicateFinder>();
         services.AddSingleton<ItemAdder>();
         services.AddSingleton<SettingsEditor>();
         services.TryAddSingleton(new EventStreamOptions());
@@ -119,6 +122,7 @@ public static class EngineHost
                 new ProducesResponseTypeMetadata(StatusCodes.Status401Unauthorized, typeof(EngineMessage), ["application/json"]),
                 new ProducesResponseTypeMetadata(StatusCodes.Status403Forbidden, typeof(EngineMessage), ["application/json"]));
         api.MapInfoEndpoints();
+        api.MapResolveEndpoints();
         api.MapItemsEndpoints();
         api.MapQueueEndpoints();
         api.MapHistoryEndpoints();

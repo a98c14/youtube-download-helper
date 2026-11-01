@@ -12,6 +12,11 @@ internal sealed partial class FakeRun
     private int Listing(string? tab)
     {
         var channel = request.Text("channel", "Fake Channel");
+        if (tab == "tabs")
+        {
+            return Tabs(channel);
+        }
+
         if (tab == "members" && !LoggedIn)
         {
             return Fail(YtDlpMessages.PlaylistDoesNotExist("UUMO" + VideoInfo.ChannelId[2..]));
@@ -33,6 +38,43 @@ internal sealed partial class FakeRun
             "streams" => "was_live",
             _ => null,
         }, tab == "members" ? "subscriber_only" : null, playlistCount: tab is null);
+    }
+
+    /// <summary>
+    /// A channel URL without a tab (<c>channel/tabs</c>): yt-dlp lists the channel's tabs as playlist entries
+    /// (<c>ie_key</c> <c>YoutubeTab</c>). Each tab URL keeps this URL's query, so <c>count</c> and <c>channel</c> carry over.
+    /// </summary>
+    private int Tabs(string channel)
+    {
+        if (!options.DumpJson)
+        {
+            return Fail("ERROR: [fake] Only -J listings are simulated for playlists, channels and feeds.");
+        }
+
+        var query = new Uri(request.Url).Query;
+        var entries = ((string[])["videos", "shorts", "streams"]).Select(tab => new PyDict
+        {
+            { "_type", "url" },
+            { "ie_key", "YoutubeTab" },
+            { "id", VideoInfo.ChannelId },
+            { "url", $"https://fake.test/channel/{tab}{query}" },
+            { "title", $"{channel} - {char.ToUpperInvariant(tab[0])}{tab[1..]}" },
+        }).ToArray();
+        console.Out(PyJson.Dumps(new PyDict
+        {
+            { "id", VideoInfo.ChannelId },
+            { "title", channel },
+            { "channel", channel },
+            { "channel_id", VideoInfo.ChannelId },
+            { "uploader", channel },
+            { "webpage_url", request.Url },
+            { "original_url", request.Url },
+            { "_type", "playlist" },
+            { "entries", entries },
+            { "extractor", "youtube:tab" },
+            { "extractor_key", "YoutubeTab" },
+        }));
+        return 0;
     }
 
     /// <summary>

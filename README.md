@@ -23,6 +23,17 @@ Add videos (URLs or YouTube video IDs; each one is reported as `added`, `duplica
     curl.exe -s -H $auth -H "Content-Type: application/json" --data-binary '@-' "$api/items"
 ```
 
+Look at a URL before adding it: a video's metadata, or a playlist's or channel's entries, each with `duplicate`
+(`queued` / `downloaded`) when it is already there. Add a whole playlist or channel with `expandPlaylists`, or only
+the videos you picked by their `videoId`:
+
+```powershell
+'{"url":"https://www.youtube.com/@channel/videos","limit":50}' |
+    curl.exe -s -H $auth -H "Content-Type: application/json" --data-binary '@-' "$api/resolve"
+'{"urls":["https://www.youtube.com/playlist?list=PL..."],"expandPlaylists":"all"}' |
+    curl.exe -s -H $auth -H "Content-Type: application/json" --data-binary '@-' "$api/items"
+```
+
 List the queue (`state`, `search`, `cursor` and `limit` are optional), and look at one item:
 
 ```powershell

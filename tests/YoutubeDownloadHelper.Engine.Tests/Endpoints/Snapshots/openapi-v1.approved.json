@@ -47,6 +47,88 @@
         }
       }
     },
+    "/api/v1/resolve": {
+      "post": {
+        "tags": [
+          "Resolve"
+        ],
+        "summary": "A video's metadata, or a playlist's or channel's entries (flat), each flagged when adding it would be a duplicate.",
+        "description": "Runs yt-dlp; downloads nothing. A YouTube video URL resolves as a single video even when it names a playlist (list=). A channel URL without a tab lists its tabs as entries of kind playlist. 422 with the yt-dlp error (error.* code) when yt-dlp fails; 503 resolve.toolsMissing while yt-dlp is not installed.",
+        "operationId": "resolve",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/queue/pause": {
       "post": {
         "tags": [
@@ -968,7 +1050,8 @@
         "enum": [
           "added",
           "duplicate",
-          "invalid"
+          "invalid",
+          "failed"
         ]
       },
       "AddItemResult": {
@@ -1001,6 +1084,12 @@
               {
                 "$ref": "#/components/schemas/EngineMessage"
               }
+            ]
+          },
+          "playlist": {
+            "type": [
+              "null",
+              "string"
             ]
           }
         }
@@ -1045,6 +1134,9 @@
           "force": {
             "type": "boolean",
             "default": false
+          },
+          "expandPlaylists": {
+            "$ref": "#/components/schemas/PlaylistExpansion"
           }
         }
       },
@@ -1200,6 +1292,13 @@
             "type": "string"
           }
         }
+      },
+      "EntryDuplicate": {
+        "enum": [
+          "queued",
+          "downloaded",
+          null
+        ]
       },
       "ErrorCategory": {
         "enum": [
@@ -1627,6 +1726,13 @@
           "before"
         ]
       },
+      "PlaylistExpansion": {
+        "enum": [
+          "none",
+          "all"
+        ],
+        "default": "none"
+      },
       "QueueBlock": {
         "enum": [
           "pausedByUser",
@@ -1634,6 +1740,201 @@
           "diskFull",
           "toolsMissing"
         ]
+      },
+      "ResolvedEntry": {
+        "required": [
+          "kind",
+          "url",
+          "extractor",
+          "videoId",
+          "title",
+          "channel",
+          "uploadDate",
+          "durationSeconds",
+          "availability",
+          "liveStatus",
+          "sizeBytes",
+          "duplicate",
+          "itemId"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ResolvedEntryKind"
+          },
+          "url": {
+            "type": "string"
+          },
+          "extractor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "videoId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "channel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "uploadDate": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          },
+          "durationSeconds": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "availability": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "liveStatus": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sizeBytes": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "duplicate": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EntryDuplicate"
+              }
+            ]
+          },
+          "itemId": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "ResolvedEntryKind": {
+        "enum": [
+          "video",
+          "playlist"
+        ]
+      },
+      "ResolveKind": {
+        "enum": [
+          "video",
+          "playlist"
+        ]
+      },
+      "ResolveRequest": {
+        "required": [
+          "url"
+        ],
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "limit": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "ResolveResponse": {
+        "required": [
+          "kind",
+          "url",
+          "id",
+          "title",
+          "channel",
+          "channelId",
+          "totalCount",
+          "truncated",
+          "entries"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ResolveKind"
+          },
+          "url": {
+            "type": "string"
+          },
+          "id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "channel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "channelId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "totalCount": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResolvedEntry"
+            }
+          }
+        }
       },
       "SettingsInfo": {
         "required": [
@@ -1773,6 +2074,9 @@
   "tags": [
     {
       "name": "Info"
+    },
+    {
+      "name": "Resolve"
     },
     {
       "name": "Queue"
