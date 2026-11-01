@@ -140,13 +140,27 @@ publishes on the internal event bus, which numbers every event (the SSE `id`, §
 only the size estimate is checkpointed, at most every 10 s per item. The scheduler stops a running job when it
 sees its item leave a running state.
 
-**Scheduler:** picks the next `Queued` item by position when a slot is free (max 2). Adds a random 5–20 s
-delay between consecutive YouTube job starts to reduce bot-detection risk. Honors queue-level blocks (below).
+**Scheduler** (`Core/Scheduling/Scheduler.cs`): picks the next `Queued` item by position when a slot is free (the
+`Concurrency` setting, 2). Adds a random 5–20 s delay between consecutive YouTube job starts (YouTube by extractor,
+or by host before resolving) to reduce bot-detection risk; the next item waits for it rather than being skipped.
+Honors queue-level blocks (below). One loop decides: it runs after every queue event (progress excepted), when a
+job ends, and when its next timer is due (retry timers, tool-fix deadlines, block rechecks), at least every 30 s,
+on an injectable `TimeProvider`. A job is resolve → archive check (`Skipped` unless forced) → free-space and
+collision checks → download, with progress posted to the actor in order. A job ends when its item leaves a running
+state; on engine shutdown the scheduler's stop kills running jobs and puts their items back in `Queued` (reason
+`engine.stopped`), keeping the partial files. Later features plug in through narrow seams with no-op defaults:
+`IJobCookieProvider` (the per-job cookies file, called before a job's first run and after it ends),
+`IAuthVerificationTrigger` (on `WaitingAuth`), `IToolUpdateTrigger` (on `WaitingToolFix`, at most hourly) and
+`IToolHealth` (the `ToolsMissing` block).
 
 **Queue-level blocks:** conditions that stop new starts without failing items, each shown in the UI status bar:
-`PausedByUser`, `WaitingForNetwork` (several jobs fail with network errors → probe connectivity, resume
-automatically), `DiskFull` (free space below the item's estimated size + margin), `ToolsMissing`
-(first run, or a broken install that is being repaired).
+`PausedByUser`, `WaitingForNetwork` (3 network failures in a row → probe connectivity every 15 s, resume
+automatically; a probe or any completed job lifts it), `DiskFull` (free space on the work folder's or the
+destination's drive below the item's estimated size + 500 MB, checked before a job starts and after resolving, or a
+disk-full error; rechecked every 30 s, and after an error the fullest drive must also gain the margin),
+`ToolsMissing` (first run, or a broken install that is being repaired). An item that hits a block goes back to
+`Queued` with its retry count unchanged (the error code is the event's reason). Raising or lifting a block (other
+than `PausedByUser`) publishes `QueueBlockChangedEvent` with a `queue.block.*` message code.
 
 ---
 

@@ -70,6 +70,9 @@ public static class ItemEventReasons
     /// <summary>The engine stopped while the item was running (crash recovery, PLAN.md §5.1).</summary>
     public const string Interrupted = "engine.interrupted";
 
+    /// <summary>The engine stopped cleanly while the item was running; it continues from its partial files.</summary>
+    public const string EngineStopped = "engine.stopped";
+
     public const string JobStarted = "job.started";
     public const string MetadataResolved = "job.metadataResolved";
     public const string PostProcessing = "job.postProcessing";
