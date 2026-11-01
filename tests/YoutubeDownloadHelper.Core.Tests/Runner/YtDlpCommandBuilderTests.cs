@@ -65,6 +65,10 @@ public sealed class YtDlpCommandBuilderTests
     public void Resolve_with_cookies() => Snapshot(Builder.Resolve(Url, CookiesFile));
 
     [Fact]
+    public void Resolve_for_a_download() =>
+        Snapshot(Builder.Resolve(Request(PresetIds.AudioMp3) with { CookiesFile = CookiesFile, FolderOverride = @"Müzik\Çalma listesi" }));
+
+    [Fact]
     public void Flat_listing() => Snapshot(Builder.FlatListing("https://www.youtube.com/@jawed/videos"));
 
     [Fact]
@@ -153,6 +157,7 @@ public sealed class YtDlpCommandBuilderTests
         .. PresetRegistry.BuiltIn.Select(p => builder.Download(Request(p.Id) with { ItemId = -1_234_567, CookiesFile = CookiesFile, AppendVideoId = true })),
         builder.Download(Request(PresetIds.Best) with { ItemId = long.MaxValue, FolderOverride = "İ" }),
         builder.Resolve(Url, CookiesFile),
+        builder.Resolve(Request(PresetIds.P1080) with { ItemId = -1, CookiesFile = CookiesFile, AppendVideoId = true }),
         builder.FlatListing(Url, 1_000_000, CookiesFile),
         builder.VerifyAuth(CookiesFile),
     ];
