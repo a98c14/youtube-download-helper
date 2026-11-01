@@ -56,6 +56,7 @@ public static class EngineHost
             .AddErrors()
             .AddPresets()
             .AddTools(builder.Configuration.GetSection(EngineOptions.ToolsSection).Get<ToolLocatorOptions>())
+            .AddToolManager()
             .AddRunner()
             .AddAuth()
             .AddScheduling();
@@ -65,6 +66,7 @@ public static class EngineHost
         services.AddSingleton<EngineEndpoint>();
         services.AddHostedService<DiscoveryService>();
         services.AddHostedService<SchedulerService>();
+        services.AddHostedService<ToolManagerService>();
 
         services.ConfigureHttpJsonOptions(o =>
         {
@@ -112,8 +114,9 @@ public static class EngineHost
     }
 
     /// <summary>
-    /// Opens the database, picks the port (the <c>Engine:Port</c> override, else the <c>ApiPort</c> setting), starts
-    /// the queue, then starts the host (and with it the scheduler). The discovery file is written once the server listens.
+    /// Opens the database, loads the installed tool versions, picks the port (the <c>Engine:Port</c> override, else the
+    /// <c>ApiPort</c> setting), starts the queue, then starts the host (and with it the scheduler and the tool manager's
+    /// health check). The discovery file is written once the server listens.
     /// </summary>
     public static async Task StartAsync(WebApplication app, CancellationToken cancellationToken = default)
     {
@@ -121,6 +124,7 @@ public static class EngineHost
         var services = app.Services;
 
         await services.GetRequiredService<StateDatabase>().InitializeAsync(cancellationToken);
+        await services.GetRequiredService<ToolManager>().InitializeAsync(cancellationToken);
         var settings = await services.GetRequiredService<SettingsStore>().LoadAsync(cancellationToken);
         var endpoint = services.GetRequiredService<EngineEndpoint>();
         endpoint.RequestedPort = ReadOptions(app.Configuration).Port ?? settings.ApiPort;

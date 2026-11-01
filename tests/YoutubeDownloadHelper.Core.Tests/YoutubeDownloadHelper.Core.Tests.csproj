@@ -19,6 +19,7 @@
   <ItemGroup>
     <Compile Include="..\Shared\CultureCanaryTests.cs" Link="Shared\CultureCanaryTests.cs" />
     <Compile Include="..\Shared\Approval.cs" Link="Shared\Approval.cs" />
+    <Compile Include="..\Shared\FakeToolFeed.cs" Link="Shared\FakeToolFeed.cs" />
     <!-- yt-dlp output samples for the error classifier; see fixtures.json for where each came from. -->
     <None Include="Errors\Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
     <!-- Spike #33's raw yt-dlp captures, for the progress parser. -->
