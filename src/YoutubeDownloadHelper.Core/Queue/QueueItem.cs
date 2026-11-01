@@ -1,4 +1,5 @@
 using System.Text.Json;
+using YoutubeDownloadHelper.Contracts.Errors;
 using YoutubeDownloadHelper.Contracts.Messages;
 using YoutubeDownloadHelper.Contracts.Queue;
 using YoutubeDownloadHelper.Core.Persistence;
@@ -44,7 +45,7 @@ public sealed record QueueItem
 
     public DateTimeOffset? NextAttemptAt { get; init; }
 
-    public string? ErrorCategory { get; init; }
+    public ErrorCategory? ErrorCategory { get; init; }
 
     public EngineMessage? Error { get; init; }
 
@@ -78,7 +79,7 @@ public sealed record QueueItem
         Position = e.Position,
         Attempt = e.Attempt,
         NextAttemptAt = e.NextAttemptAt,
-        ErrorCategory = e.ErrorCategory,
+        ErrorCategory = e.ErrorCategory is null ? null : Enum.Parse<ErrorCategory>(e.ErrorCategory),
         Error = e.ErrorCode is null ? null : new EngineMessage(e.ErrorCode, ErrorArgs.Read(e.ErrorArgsJson), e.ErrorMessage ?? e.ErrorCode),
         FilePath = e.FilePath,
         SizeBytes = e.SizeBytes,

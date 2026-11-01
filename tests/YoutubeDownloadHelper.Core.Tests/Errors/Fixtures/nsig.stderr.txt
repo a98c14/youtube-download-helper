@@ -1,0 +1,3 @@
+WARNING: [youtube] xQ3vJ7kP0aZ: nsig extraction failed: Some formats may be missing
+         n = fAkEnSiGvAlUe ; player = https://www.youtube.com/s/player/0fake0nsig/player_ias.vflset/en_US/base.js
+ERROR: [youtube] xQ3vJ7kP0aZ: Requested format is not available. Use --list-formats for a list of available formats

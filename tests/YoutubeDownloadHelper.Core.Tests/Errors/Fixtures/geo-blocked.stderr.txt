@@ -1,0 +1,1 @@
+ERROR: [youtube] xQ3vJ7kP0aZ: The uploader has not made this video available in your country. You might want to use a VPN or a proxy server (with --proxy) to workaround.

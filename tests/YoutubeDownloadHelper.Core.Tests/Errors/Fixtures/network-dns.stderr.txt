@@ -1,0 +1,1 @@
+ERROR: [generic] foo: Unable to download webpage: HTTPSConnection(host='example.invalid.test', port=443): Failed to resolve 'example.invalid.test' ([Errno 11001] getaddrinfo failed) (caused by TransportError("HTTPSConnection(host='example.invalid.test', port=443): Failed to resolve 'example.invalid.test' ([Errno 11001] getaddrinfo failed)"))
