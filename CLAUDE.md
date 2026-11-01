@@ -84,8 +84,9 @@ Test projects may reference anything. `YoutubeDownloadHelper.ArchTests` enforces
 - `Directory.Packages.props`: central package management with transitive pinning. Add versions there, never in a
   csproj. No NuGet lock files.
 - `tests/Directory.Build.props`: test projects are `Exe`, reference `xunit.v3` and have `global using Xunit;`. Use
-  xUnit's built-in `Assert` (no commercially licensed assertion library). `Verify.XunitV3` is available for
-  snapshot tests.
+  xUnit's built-in `Assert` (no commercially licensed assertion library). Snapshot tests use the in-repo
+  `Approval` helper (`tests/YoutubeDownloadHelper.Core.Tests/Runner/Approval.cs`), not Verify (its sponsorship
+  check fails the build).
 - `.editorconfig`: errors for CA1304, CA1305, CA1307, CA1309, CA1310, CA1311 (culture), IDE0161 (file-scoped
   namespaces) and IDE0005 (unused usings). Other style rules are IDE suggestions.
 
