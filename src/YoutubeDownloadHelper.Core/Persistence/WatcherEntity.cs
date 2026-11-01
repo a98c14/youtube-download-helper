@@ -1,11 +1,9 @@
 namespace YoutubeDownloadHelper.Core.Persistence;
 
 /// <summary>A channel or playlist subscription (table <c>watchers</c>, PLAN.md §5.5). Behaviour lands in #58.</summary>
-public sealed class WatcherEntity
+public sealed class WatcherEntity : Entity
 {
     public const int DefaultIntervalMinutes = 60;
-
-    public Guid Id { get; set; }
 
     public required string Url { get; set; }
 
@@ -32,8 +30,6 @@ public sealed class WatcherEntity
 
     public bool Enabled { get; set; } = true;
 
-    public DateTimeOffset CreatedAt { get; set; }
-
     /// <summary><c>None</c> or <c>LastN</c> (#58 owns the enum).</summary>
     public string Backfill { get; set; } = "None";
 
@@ -48,6 +44,4 @@ public sealed class WatcherEntity
     public bool NeedsLogin { get; set; }
 
     public string AccountId { get; set; } = Accounts.Default;
-
-    public List<WatcherSeenEntity> Seen { get; } = [];
 }

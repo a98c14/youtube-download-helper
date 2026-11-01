@@ -5,18 +5,15 @@ namespace YoutubeDownloadHelper.Core.Persistence;
 /// <summary>
 /// One state transition of an item (table <c>item_events</c>, PLAN.md §5.1). The event that ends a yt-dlp run also
 /// carries its exit code and output tail (§5.4); full logs go to <c>logs\jobs\</c>. A run starts with the event
-/// into <see cref="ItemState.Resolving"/>, so counting those numbers the runs.
+/// into <see cref="ItemState.Resolving"/>, so counting those numbers the runs. <see cref="Entity.CreatedAt"/> is when the
+/// transition happened; events are never updated.
 /// </summary>
-public sealed class ItemEventEntity
+public sealed class ItemEventEntity : Entity
 {
     /// <summary>The most output lines kept per run.</summary>
     public const int MaxOutputLines = 200;
 
-    public long Id { get; set; }
-
-    public Guid ItemId { get; set; }
-
-    public DateTimeOffset At { get; set; }
+    public long ItemId { get; set; }
 
     /// <summary>Null for the event that created the item.</summary>
     public ItemState? FromState { get; set; }

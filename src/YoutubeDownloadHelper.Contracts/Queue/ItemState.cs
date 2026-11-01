@@ -18,6 +18,12 @@ public enum ItemState
     Failed,
     Skipped,
 
+    /// <summary>
+    /// A watcher saw the video but did not queue it (e.g. it was in the channel when the watcher was created). It is
+    /// only a marker, so the video is not queued later; it is never downloaded and is in neither the queue nor history.
+    /// </summary>
+    Seen,
+
     /// <summary>The user removed the item: the engine no longer tracks it, and its file was deleted or left untracked.</summary>
     Removed,
 

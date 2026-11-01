@@ -1,3 +1,4 @@
+using System.Globalization;
 using YoutubeDownloadHelper.Contracts;
 
 namespace YoutubeDownloadHelper.Core.Persistence;
@@ -46,7 +47,7 @@ public sealed class DataPaths
     public string JobLogsDir => Path.Combine(LogsDir, "jobs");
 
     /// <summary>Partial downloads and the per-job cookies file for one item.</summary>
-    public string WorkDirFor(Guid itemId) => Path.Combine(WorkDir, itemId.ToString("D"));
+    public string WorkDirFor(long itemId) => Path.Combine(WorkDir, itemId.ToString(CultureInfo.InvariantCulture));
 
     /// <summary>Creates the engine-owned folders. The WebView2 profile is left to the app.</summary>
     public void EnsureCreated()

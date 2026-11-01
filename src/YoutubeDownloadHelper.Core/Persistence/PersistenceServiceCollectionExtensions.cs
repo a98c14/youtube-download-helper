@@ -21,7 +21,9 @@ public static class PersistenceServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton(paths);
         services.AddSingleton(defaults ?? EngineSettings.DefaultsForCurrentUser());
-        services.AddDbContextFactory<StateDbContext>(o => o.UseSqlite(StateDatabase.ConnectionString(paths.StateDb)));
+        services.AddDbContextFactory<StateDbContext>((sp, o) => o
+            .UseSqlite(StateDatabase.ConnectionString(paths.StateDb))
+            .AddInterceptors(new TimestampInterceptor(sp.GetRequiredService<TimeProvider>())));
         services.AddSingleton<StateDatabase>();
         services.AddSingleton<SettingsStore>();
         return services;

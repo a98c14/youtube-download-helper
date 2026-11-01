@@ -161,6 +161,7 @@ automatically), `DiskFull` (free space below the item's estimated size + margin)
             └──── Retry ── Failed            ← permanent (removed/private/geo) or retries exhausted
                            Skipped           ← already in the archive (unless forced)
  Removed (from any state; file deleted or left untracked; out of the queue, history and archive)
+ Seen (watcher bookkeeping: a video it saw but did not queue; never downloaded, out of the queue and history)
  Reserved for v2: WaitingForStream, Recording
 ```
 
@@ -247,8 +248,11 @@ Watcher { id, url, channelId, title, kind (Channel|Playlist),
 - **Poll:** `yt-dlp --flat-playlist -J --playlist-end 30` for each enabled tab: `/videos`, `/shorts`,
   `/streams` (only finished streams, `was_live`), plus the channel's members-only uploads playlist
   (`UUMO` + channel ID suffix) when logged in.
-- **Diff:** candidates are compared against the archive, existing queue items, and `watcher_seen`. On creation
-  we record the current entries as seen, so the back catalog is not downloaded unless backfill = LastN.
+- **Diff:** a candidate is queued only if no item exists for it (`extractor + video id`) in any state, `Removed`
+  and `Seen` included, so a video the user removed is not queued again. On creation we insert the current entries
+  as `Seen` items (with the watcher's id and preset), so the back catalog is not downloaded unless backfill = LastN.
+  There is no separate seen table. Deleting a watcher keeps its items, `Seen` ones included, with `watcher_id`
+  cleared.
 - New items are queued with the watcher's preset and folder. Polls are staggered across watchers with jitter.
   Auth failures on the members tab mark the watcher "needs login" and do not fail the whole check.
 - **"Check now"** runs a poll immediately.
@@ -540,13 +544,17 @@ work\<itemId>\      partial downloads, per-job cookies file
 logs\               engine-*.log, app-*.log (rolling, 14 days), jobs\<itemId>-<attempt>.log
 ```
 
-Tables: `items` (id, url, extractor, video_id, title, channel, upload_date, availability, preset_id, folder,
-state, position, attempt, next_attempt_at, error_category, error_message, file_path, size, timestamps, removed_at,
+Every table has an integer `id` (SQLite `AUTOINCREMENT`, so ids are never reused), `created_at` and `updated_at`;
+EF Core stamps the timestamps on save. Natural keys (`settings.key`, `tools.tool`, `schema_info.key`) are unique
+indexes.
+
+Tables: `items` (url, extractor, video_id, title, channel, upload_date, availability, preset_id, folder,
+state, position, attempt, next_attempt_at, error_category, error_message, file_path, size, removed_at,
 watcher_id?, account_id) · `item_events` (transitions; the event that ends a yt-dlp run also has its exit code
-and last 200 output lines) · `watchers` · `watcher_seen` · `settings` (key → JSON) · `tools` (tool, current,
+and last 200 output lines) · `watchers` · `settings` (key → JSON) · `tools` (tool, current,
 previous, channel, last_check) · `schema_info`. The download archive is a query over `items` (§5.4), not a
-table. Items are never hard-deleted: removing one sets `state = Removed` and `removed_at`, clears `file_path`, and
-writes an `item_events` row.
+table; history is `Completed` and `Skipped` items, newest `updated_at` first. Items are never hard-deleted:
+removing one sets `state = Removed` and `removed_at`, clears `file_path`, and writes an `item_events` row.
 
 Names are snake_case. Enums are stored by name (reordering an enum never touches data). Timestamps are UTC Unix
 milliseconds, so SQLite can compare and sort them; EF Core cannot order `DateTimeOffset` stored as text.

@@ -1,7 +1,7 @@
 namespace YoutubeDownloadHelper.Core.Persistence;
 
 /// <summary>Facts about the database file itself (table <c>schema_info</c>); keys are in <see cref="SchemaInfoKeys"/>.</summary>
-public sealed class SchemaInfoEntity
+public sealed class SchemaInfoEntity : Entity
 {
     public required string Key { get; set; }
 

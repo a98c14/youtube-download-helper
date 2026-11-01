@@ -10,7 +10,7 @@ namespace YoutubeDownloadHelper.Core.Persistence;
 /// camelCase name, holding the value as JSON. Missing rows, unknown keys and values that no longer deserialize
 /// fall back to the defaults.
 /// </summary>
-public sealed class SettingsStore(IDbContextFactory<StateDbContext> contextFactory, EngineSettings defaults, TimeProvider time)
+public sealed class SettingsStore(IDbContextFactory<StateDbContext> contextFactory, EngineSettings defaults)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -52,7 +52,6 @@ public sealed class SettingsStore(IDbContextFactory<StateDbContext> contextFacto
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var rows = await db.Settings.ToDictionaryAsync(r => r.Key, StringComparer.Ordinal, cancellationToken);
         var defaultJson = ToJson(defaults);
-        var now = time.GetUtcNow();
 
         foreach (var (key, node) in ToJson(settings))
         {
@@ -62,12 +61,11 @@ public sealed class SettingsStore(IDbContextFactory<StateDbContext> contextFacto
                 if (!string.Equals(row.ValueJson, json, StringComparison.Ordinal))
                 {
                     row.ValueJson = json;
-                    row.UpdatedAt = now;
                 }
             }
             else if (!string.Equals(defaultJson[key]?.ToJsonString(JsonOptions) ?? "null", json, StringComparison.Ordinal))
             {
-                db.Settings.Add(new SettingEntity { Key = key, ValueJson = json, UpdatedAt = now });
+                db.Settings.Add(new SettingEntity { Key = key, ValueJson = json });
             }
         }
 

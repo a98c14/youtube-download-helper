@@ -10,8 +10,13 @@ namespace YoutubeDownloadHelper.Core.Persistence;
 /// Names are snake_case; enums are stored by name; timestamps are UTC Unix milliseconds so SQLite can compare
 /// and sort them.
 /// <para>
+/// Every entity derives from <see cref="Entity"/> (integer <c>id</c>, <c>created_at</c>, <c>updated_at</c>).
+/// </para>
+/// <para>
 /// There is no archive table: completed items are the download archive
-/// (<see cref="ItemQueries.GetDownloadedVideoIdsAsync"/>). Items are never hard-deleted; removing one is a state.
+/// (<see cref="ItemQueries.GetDownloadedVideoIdsAsync"/>). Nor is there a table of videos a watcher has seen: those are
+/// items in <see cref="ItemState.Seen"/> (<see cref="ItemQueries.GetKnownVideoIdsAsync"/>). Items are never
+/// hard-deleted; removing one is a state.
 /// </para>
 /// </summary>
 public sealed class StateDbContext(DbContextOptions<StateDbContext> options) : DbContext(options)
@@ -21,8 +26,6 @@ public sealed class StateDbContext(DbContextOptions<StateDbContext> options) : D
     public DbSet<ItemEventEntity> ItemEvents => Set<ItemEventEntity>();
 
     public DbSet<WatcherEntity> Watchers => Set<WatcherEntity>();
-
-    public DbSet<WatcherSeenEntity> WatcherSeen => Set<WatcherSeenEntity>();
 
     public DbSet<SettingEntity> Settings => Set<SettingEntity>();
 
@@ -43,7 +46,7 @@ public sealed class StateDbContext(DbContextOptions<StateDbContext> options) : D
             e.ToTable("items");
             e.HasIndex(i => new { i.State, i.Position });
             e.HasIndex(i => new { i.Extractor, i.VideoId });
-            e.HasIndex(i => new { i.FinishedAt, i.Id });
+            e.HasIndex(i => new { i.UpdatedAt, i.Id });
             e.HasOne(i => i.Watcher).WithMany().HasForeignKey(i => i.WatcherId).OnDelete(DeleteBehavior.SetNull);
             e.HasMany(i => i.Events).WithOne().HasForeignKey(ev => ev.ItemId).OnDelete(DeleteBehavior.Cascade);
         });
@@ -54,34 +57,24 @@ public sealed class StateDbContext(DbContextOptions<StateDbContext> options) : D
             e.HasIndex(ev => new { ev.ItemId, ev.Id });
         });
 
-        modelBuilder.Entity<WatcherEntity>(e =>
-        {
-            e.ToTable("watchers");
-            e.HasMany(w => w.Seen).WithOne().HasForeignKey(s => s.WatcherId).OnDelete(DeleteBehavior.Cascade);
-        });
-
-        modelBuilder.Entity<WatcherSeenEntity>(e =>
-        {
-            e.ToTable("watcher_seen");
-            e.HasKey(s => new { s.WatcherId, s.Extractor, s.VideoId });
-        });
+        modelBuilder.Entity<WatcherEntity>(e => e.ToTable("watchers"));
 
         modelBuilder.Entity<SettingEntity>(e =>
         {
             e.ToTable("settings");
-            e.HasKey(s => s.Key);
+            e.HasIndex(s => s.Key).IsUnique();
         });
 
         modelBuilder.Entity<ToolEntity>(e =>
         {
             e.ToTable("tools");
-            e.HasKey(t => t.Tool);
+            e.HasIndex(t => t.Tool).IsUnique();
         });
 
         modelBuilder.Entity<SchemaInfoEntity>(e =>
         {
             e.ToTable("schema_info");
-            e.HasKey(s => s.Key);
+            e.HasIndex(s => s.Key).IsUnique();
         });
 
         ApplySnakeCaseNames(modelBuilder);

@@ -18,10 +18,11 @@ public sealed class ItemQueriesTests
             root,
             Item("c", ItemState.Downloading, position: 3),
             Item("a", ItemState.Queued, position: 1),
-            Item("done", ItemState.Completed, finishedAt: T0),
+            Item("done", ItemState.Completed),
             Item("b", ItemState.Failed, position: 2),
-            Item("skipped", ItemState.Skipped, finishedAt: T0),
-            Item("removed", ItemState.Removed, position: 4));
+            Item("skipped", ItemState.Skipped),
+            Item("removed", ItemState.Removed, position: 4),
+            Item("seen", ItemState.Seen));
 
         await using var db = root.CreateContext();
         Assert.Equal(["a", "b", "c"], (await db.LoadActiveAsync(Ct)).Select(i => i.Title));
@@ -32,11 +33,11 @@ public sealed class ItemQueriesTests
     {
         await using var root = await new TestDataRoot().InitializedAsync();
         var items = Enumerable.Range(0, 7)
-            .Select(i => Item($"h{i}", ItemState.Completed, finishedAt: T0.AddMinutes(i / 2)))
+            .Select(i => Item($"h{i}", ItemState.Completed, updatedAt: T0.AddMinutes(i / 2)))
             .ToArray();
-        await SeedAsync(root, [.. items, Item("active", ItemState.Queued), Item("removed", ItemState.Removed, finishedAt: T0)]);
+        await SeedAsync(root, [.. items, Item("active", ItemState.Queued), Item("removed", ItemState.Removed), Item("seen", ItemState.Seen)]);
 
-        var seen = new List<Guid>();
+        var seen = new List<long>();
         HistoryCursor? cursor = null;
         var pages = 0;
         do
@@ -50,11 +51,37 @@ public sealed class ItemQueriesTests
         while (cursor is not null);
 
         var expected = items
-            .OrderByDescending(i => i.FinishedAt)
-            .ThenByDescending(i => i.Id.ToString("D"), StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(i => i.UpdatedAt)
+            .ThenByDescending(i => i.Id)
             .Select(i => i.Id);
         Assert.Equal(expected, seen);
         Assert.Equal(3, pages);
+    }
+
+    [Fact]
+    public async Task Timestamps_are_stamped_on_insert_and_update()
+    {
+        await using var root = await new TestDataRoot().InitializedAsync();
+        var created = root.Time.Now;
+        var item = Item("stamped", ItemState.Queued);
+        item.CreatedAt = default;
+        item.UpdatedAt = default;
+        await SeedAsync(root, item);
+        Assert.Equal(created, item.CreatedAt);
+        Assert.Equal(created, item.UpdatedAt);
+
+        root.Time.Now = created.AddMinutes(5);
+        await using (var db = root.CreateContext())
+        {
+            var tracked = await db.Items.SingleAsync(Ct);
+            tracked.State = ItemState.Completed;
+            await db.SaveChangesAsync(Ct);
+        }
+
+        await using var check = root.CreateContext();
+        var loaded = await check.Items.SingleAsync(Ct);
+        Assert.Equal(created, loaded.CreatedAt);
+        Assert.Equal(root.Time.Now, loaded.UpdatedAt);
     }
 
     [Theory]
@@ -66,19 +93,19 @@ public sealed class ItemQueriesTests
     public async Task History_search_matches_title_channel_or_url(string search, string expectedTitle)
     {
         await using var root = await new TestDataRoot().InitializedAsync();
-        var channelItem = Item("kanal adı", ItemState.Completed, finishedAt: T0);
+        var channelItem = Item("kanal adı", ItemState.Completed);
         channelItem.Channel = "Kanal İsmi";
-        var urlItem = Item("by url", ItemState.Completed, finishedAt: T0);
+        var urlItem = Item("by url", ItemState.Completed);
         urlItem.Url = "https://www.youtube.com/watch?v=xyz";
         await SeedAsync(
             root,
-            Item("Türkçe şarkı", ItemState.Completed, finishedAt: T0),
+            Item("Türkçe şarkı", ItemState.Completed),
             channelItem,
             urlItem,
-            Item("50% off", ItemState.Completed, finishedAt: T0),
-            Item("5000 off", ItemState.Completed, finishedAt: T0),
-            Item("a_b", ItemState.Completed, finishedAt: T0),
-            Item("axb", ItemState.Completed, finishedAt: T0));
+            Item("50% off", ItemState.Completed),
+            Item("5000 off", ItemState.Completed),
+            Item("a_b", ItemState.Completed),
+            Item("axb", ItemState.Completed));
 
         await using var db = root.CreateContext();
         var page = await db.GetHistoryPageAsync(search, cancellationToken: Ct);
@@ -90,15 +117,15 @@ public sealed class ItemQueriesTests
     public async Task Item_columns_round_trip()
     {
         await using var root = await new TestDataRoot().InitializedAsync();
-        var watcher = new WatcherEntity { Id = Guid.CreateVersion7(), Url = "https://www.youtube.com/@kanal", Kind = "Channel", PresetId = "best" };
+        var watcher = new WatcherEntity { Url = "https://www.youtube.com/@kanal", Kind = "Channel", PresetId = "best" };
         var item = Item("Başlık İı", ItemState.WaitingRetry, position: 1);
-        item.WatcherId = watcher.Id;
+        item.Watcher = watcher;
         item.UploadDate = new DateOnly(2026, 2, 28);
         item.NextAttemptAt = new DateTimeOffset(2026, 10, 30, 15, 0, 0, TimeSpan.FromHours(3));
         item.ErrorCategory = "Transient";
         item.ErrorCode = "error.transient.rateLimited";
         item.ErrorArgsJson = """{"retryIn":30}""";
-        var runEnded = new ItemEventEntity { At = T0, FromState = ItemState.Downloading, ToState = ItemState.WaitingRetry, ExitCode = 1 };
+        var runEnded = new ItemEventEntity { FromState = ItemState.Downloading, ToState = ItemState.WaitingRetry, ExitCode = 1 };
         runEnded.SetOutputTail(["ERROR: HTTP Error 429: Too Many Requests", "İndirme başarısız"]);
         item.Events.Add(runEnded);
         await using (var db = root.CreateContext())
@@ -119,6 +146,7 @@ public sealed class ItemQueriesTests
         var loadedEvent = Assert.Single(loaded.Events);
         Assert.Equal(ItemState.Downloading, loadedEvent.FromState);
         Assert.Equal(1, loadedEvent.ExitCode);
+        Assert.Equal(root.Time.Now, loadedEvent.CreatedAt);
         Assert.Equal(runEnded.OutputTail, loadedEvent.OutputTail);
 
         // Enums are stored by name, so reordering ItemState never changes stored data.
@@ -138,14 +166,15 @@ public sealed class ItemQueriesTests
             Video("queued", ItemState.Queued),
             Video("failed", ItemState.Failed),
             Video("skipped", ItemState.Skipped),
+            Video("seen", ItemState.Seen),
             Video("ABCdef", ItemState.Completed),
             Video("otherExtractor", ItemState.Completed, extractor: "vimeo"));
 
         await using var db = root.CreateContext();
         var downloaded = await db.GetDownloadedVideoIdsAsync(
             "youtube",
-            ["completed", "removed", "queued", "failed", "skipped", "abcdef", "ABCdef", "otherExtractor", "neverSeen",
-             "completed"],
+            ["completed", "removed", "queued", "failed", "skipped", "seen", "abcdef", "ABCdef", "otherExtractor",
+             "neverSeen", "completed"],
             Ct);
 
         Assert.Equal(
@@ -154,19 +183,36 @@ public sealed class ItemQueriesTests
     }
 
     [Fact]
-    public async Task Deleting_a_watcher_keeps_its_items_and_drops_its_seen_list()
+    public async Task A_video_is_known_while_any_item_for_it_exists()
     {
         await using var root = await new TestDataRoot().InitializedAsync();
-        var watcher = new WatcherEntity { Id = Guid.CreateVersion7(), Url = "u", Kind = "Playlist", PresetId = "best" };
-        watcher.Seen.Add(new WatcherSeenEntity { Extractor = "youtube", VideoId = "v1", SeenAt = T0 });
-        var item = Item("from watcher", ItemState.Queued);
-        item.WatcherId = watcher.Id;
-        await using (var db = root.CreateContext())
-        {
-            db.Watchers.Add(watcher);
-            db.Items.Add(item);
-            await db.SaveChangesAsync(Ct);
-        }
+        await SeedAsync(
+            root,
+            Video("completed", ItemState.Completed),
+            Video("removed", ItemState.Removed),
+            Video("queued", ItemState.Queued),
+            Video("seen", ItemState.Seen),
+            Video("otherExtractor", ItemState.Seen, extractor: "vimeo"));
+
+        await using var db = root.CreateContext();
+        var known = await db.GetKnownVideoIdsAsync(
+            "youtube",
+            ["completed", "removed", "queued", "seen", "SEEN", "otherExtractor", "neverSeen"],
+            Ct);
+
+        Assert.Equal(["completed", "queued", "removed", "seen"], known.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task Deleting_a_watcher_keeps_its_items_including_seen_ones()
+    {
+        await using var root = await new TestDataRoot().InitializedAsync();
+        var watcher = new WatcherEntity { Url = "u", Kind = "Playlist", PresetId = "best" };
+        var queued = Item("from watcher", ItemState.Queued);
+        var seen = Video("v1", ItemState.Seen);
+        queued.Watcher = watcher;
+        seen.Watcher = watcher;
+        await SeedAsync(root, queued, seen);
 
         await using (var db = root.CreateContext())
         {
@@ -174,8 +220,9 @@ public sealed class ItemQueriesTests
         }
 
         await using var check = root.CreateContext();
-        Assert.Null((await check.Items.SingleAsync(Ct)).WatcherId);
-        Assert.Empty(await check.WatcherSeen.ToListAsync(Ct));
+        var items = await check.Items.OrderBy(i => i.Id).ToListAsync(Ct);
+        Assert.Equal([ItemState.Queued, ItemState.Seen], items.Select(i => i.State));
+        Assert.All(items, i => Assert.Null(i.WatcherId));
     }
 
     [Fact]
@@ -191,23 +238,21 @@ public sealed class ItemQueriesTests
         Assert.Equal("line 250", lines[^1]);
     }
 
-    private static ItemEntity Item(string title, ItemState state, long position = 0, DateTimeOffset? finishedAt = null) =>
+    private static ItemEntity Item(string title, ItemState state, long position = 0, DateTimeOffset? updatedAt = null) =>
         new()
         {
-            Id = Guid.CreateVersion7(),
             Url = $"https://www.youtube.com/watch?v={Guid.NewGuid():N}",
             Title = title,
             PresetId = "best",
             State = state,
             Position = position,
             CreatedAt = T0,
-            UpdatedAt = T0,
-            FinishedAt = finishedAt,
+            UpdatedAt = updatedAt ?? T0,
         };
 
     private static ItemEntity Video(string videoId, ItemState state, string extractor = "youtube")
     {
-        var item = Item(videoId, state, finishedAt: ItemQueries.HistoryStates.Contains(state) ? T0 : null);
+        var item = Item(videoId, state);
         item.Extractor = extractor;
         item.VideoId = videoId;
         return item;

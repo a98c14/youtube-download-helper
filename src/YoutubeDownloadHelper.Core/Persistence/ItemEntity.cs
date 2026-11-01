@@ -2,12 +2,13 @@ using YoutubeDownloadHelper.Contracts.Queue;
 
 namespace YoutubeDownloadHelper.Core.Persistence;
 
-/// <summary>A queue item, active or in history (table <c>items</c>, PLAN.md §8). Mutated only by the queue actor.</summary>
-public sealed class ItemEntity
+/// <summary>
+/// A queue item, active or in history, or a video a watcher has seen (table <c>items</c>, PLAN.md §8). Mutated only by
+/// the queue actor. <see cref="Entity.Id"/> also names the item's work folder (<see cref="DataPaths.WorkDirFor"/>);
+/// <see cref="Entity.UpdatedAt"/> is the history sort key.
+/// </summary>
+public sealed class ItemEntity : Entity
 {
-    /// <summary>Also names the item's work folder (<see cref="DataPaths.WorkDirFor"/>).</summary>
-    public Guid Id { get; set; }
-
     public required string Url { get; set; }
 
     /// <summary>yt-dlp's extractor key, lowercase (e.g. <c>youtube</c>); with <see cref="VideoId"/> it identifies the video (<see cref="ItemQueries.GetDownloadedVideoIdsAsync"/>).</summary>
@@ -70,17 +71,10 @@ public sealed class ItemEntity
     /// <summary>The size estimate while resolving or downloading, then the final size.</summary>
     public long? SizeBytes { get; set; }
 
-    public DateTimeOffset CreatedAt { get; set; }
-
-    public DateTimeOffset UpdatedAt { get; set; }
-
-    /// <summary>When the item entered a history state (<see cref="ItemQueries.HistoryStates"/>); the history sort key.</summary>
-    public DateTimeOffset? FinishedAt { get; set; }
-
     /// <summary>When the item entered <see cref="ItemState.Removed"/>.</summary>
     public DateTimeOffset? RemovedAt { get; set; }
 
-    public Guid? WatcherId { get; set; }
+    public long? WatcherId { get; set; }
 
     /// <summary>Single account in v1; kept for a later multi-account migration (PLAN.md §2).</summary>
     public string AccountId { get; set; } = Accounts.Default;

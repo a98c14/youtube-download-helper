@@ -15,47 +15,59 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                 name: "schema_info",
                 columns: table => new
                 {
+                    id = table.Column<long>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
                     key = table.Column<string>(type: "TEXT", nullable: false),
-                    value = table.Column<string>(type: "TEXT", nullable: false)
+                    value = table.Column<string>(type: "TEXT", nullable: false),
+                    created_at = table.Column<long>(type: "INTEGER", nullable: false),
+                    updated_at = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("pk_schema_info", x => x.key);
+                    table.PrimaryKey("pk_schema_info", x => x.id);
                 });
 
             migrationBuilder.CreateTable(
                 name: "settings",
                 columns: table => new
                 {
+                    id = table.Column<long>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
                     key = table.Column<string>(type: "TEXT", nullable: false),
                     value_json = table.Column<string>(type: "TEXT", nullable: false),
+                    created_at = table.Column<long>(type: "INTEGER", nullable: false),
                     updated_at = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("pk_settings", x => x.key);
+                    table.PrimaryKey("pk_settings", x => x.id);
                 });
 
             migrationBuilder.CreateTable(
                 name: "tools",
                 columns: table => new
                 {
+                    id = table.Column<long>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
                     tool = table.Column<string>(type: "TEXT", nullable: false),
                     current = table.Column<string>(type: "TEXT", nullable: true),
                     previous = table.Column<string>(type: "TEXT", nullable: true),
                     channel = table.Column<string>(type: "TEXT", nullable: true),
-                    last_check = table.Column<long>(type: "INTEGER", nullable: true)
+                    last_check = table.Column<long>(type: "INTEGER", nullable: true),
+                    created_at = table.Column<long>(type: "INTEGER", nullable: false),
+                    updated_at = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("pk_tools", x => x.tool);
+                    table.PrimaryKey("pk_tools", x => x.id);
                 });
 
             migrationBuilder.CreateTable(
                 name: "watchers",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "TEXT", nullable: false),
+                    id = table.Column<long>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
                     url = table.Column<string>(type: "TEXT", nullable: false),
                     channel_id = table.Column<string>(type: "TEXT", nullable: true),
                     title = table.Column<string>(type: "TEXT", nullable: true),
@@ -68,13 +80,14 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                     folder_override = table.Column<string>(type: "TEXT", nullable: true),
                     interval_minutes = table.Column<int>(type: "INTEGER", nullable: false),
                     enabled = table.Column<bool>(type: "INTEGER", nullable: false),
-                    created_at = table.Column<long>(type: "INTEGER", nullable: false),
                     backfill = table.Column<string>(type: "TEXT", nullable: false),
                     backfill_count = table.Column<int>(type: "INTEGER", nullable: true),
                     last_checked_at = table.Column<long>(type: "INTEGER", nullable: true),
                     last_error = table.Column<string>(type: "TEXT", nullable: true),
                     needs_login = table.Column<bool>(type: "INTEGER", nullable: false),
-                    account_id = table.Column<string>(type: "TEXT", nullable: false)
+                    account_id = table.Column<string>(type: "TEXT", nullable: false),
+                    created_at = table.Column<long>(type: "INTEGER", nullable: false),
+                    updated_at = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -85,7 +98,8 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                 name: "items",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "TEXT", nullable: false),
+                    id = table.Column<long>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
                     url = table.Column<string>(type: "TEXT", nullable: false),
                     extractor = table.Column<string>(type: "TEXT", nullable: true),
                     video_id = table.Column<string>(type: "TEXT", nullable: true),
@@ -109,12 +123,11 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                     error_message = table.Column<string>(type: "TEXT", nullable: true),
                     file_path = table.Column<string>(type: "TEXT", nullable: true),
                     size_bytes = table.Column<long>(type: "INTEGER", nullable: true),
-                    created_at = table.Column<long>(type: "INTEGER", nullable: false),
-                    updated_at = table.Column<long>(type: "INTEGER", nullable: false),
-                    finished_at = table.Column<long>(type: "INTEGER", nullable: true),
                     removed_at = table.Column<long>(type: "INTEGER", nullable: true),
-                    watcher_id = table.Column<Guid>(type: "TEXT", nullable: true),
-                    account_id = table.Column<string>(type: "TEXT", nullable: false)
+                    watcher_id = table.Column<long>(type: "INTEGER", nullable: true),
+                    account_id = table.Column<string>(type: "TEXT", nullable: false),
+                    created_at = table.Column<long>(type: "INTEGER", nullable: false),
+                    updated_at = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -128,39 +141,20 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "watcher_seen",
-                columns: table => new
-                {
-                    watcher_id = table.Column<Guid>(type: "TEXT", nullable: false),
-                    extractor = table.Column<string>(type: "TEXT", nullable: false),
-                    video_id = table.Column<string>(type: "TEXT", nullable: false),
-                    seen_at = table.Column<long>(type: "INTEGER", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_watcher_seen", x => new { x.watcher_id, x.extractor, x.video_id });
-                    table.ForeignKey(
-                        name: "fk_watcher_seen_watchers",
-                        column: x => x.watcher_id,
-                        principalTable: "watchers",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "item_events",
                 columns: table => new
                 {
                     id = table.Column<long>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
-                    item_id = table.Column<Guid>(type: "TEXT", nullable: false),
-                    at = table.Column<long>(type: "INTEGER", nullable: false),
+                    item_id = table.Column<long>(type: "INTEGER", nullable: false),
                     from_state = table.Column<string>(type: "TEXT", nullable: true),
                     to_state = table.Column<string>(type: "TEXT", nullable: false),
                     reason = table.Column<string>(type: "TEXT", nullable: true),
                     error_category = table.Column<string>(type: "TEXT", nullable: true),
                     exit_code = table.Column<int>(type: "INTEGER", nullable: true),
-                    output_tail = table.Column<string>(type: "TEXT", nullable: true)
+                    output_tail = table.Column<string>(type: "TEXT", nullable: true),
+                    created_at = table.Column<long>(type: "INTEGER", nullable: false),
+                    updated_at = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -184,19 +178,37 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                 columns: new[] { "extractor", "video_id" });
 
             migrationBuilder.CreateIndex(
-                name: "ix_items_finished_at_id",
-                table: "items",
-                columns: new[] { "finished_at", "id" });
-
-            migrationBuilder.CreateIndex(
                 name: "ix_items_state_position",
                 table: "items",
                 columns: new[] { "state", "position" });
 
             migrationBuilder.CreateIndex(
+                name: "ix_items_updated_at_id",
+                table: "items",
+                columns: new[] { "updated_at", "id" });
+
+            migrationBuilder.CreateIndex(
                 name: "ix_items_watcher_id",
                 table: "items",
                 column: "watcher_id");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_schema_info_key",
+                table: "schema_info",
+                column: "key",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_settings_key",
+                table: "settings",
+                column: "key",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_tools_tool",
+                table: "tools",
+                column: "tool",
+                unique: true);
         }
 
         /// <inheritdoc />
@@ -213,9 +225,6 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
 
             migrationBuilder.DropTable(
                 name: "tools");
-
-            migrationBuilder.DropTable(
-                name: "watcher_seen");
 
             migrationBuilder.DropTable(
                 name: "items");

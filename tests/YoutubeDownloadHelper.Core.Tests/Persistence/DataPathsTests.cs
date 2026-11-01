@@ -22,14 +22,13 @@ public sealed class DataPathsTests
     public void Layout_matches_the_plan()
     {
         var paths = new DataPaths(@"C:\Data İı");
-        var itemId = Guid.Parse("0199a3b4-0000-7000-8000-000000000001");
 
         Assert.Equal(@"C:\Data İı\state.db", paths.StateDb);
         Assert.Equal(@"C:\Data İı\engine.json", paths.EngineJson);
         Assert.Equal(@"C:\Data İı\auth\cookies.bin", paths.CookiesBin);
         Assert.Equal(@"C:\Data İı\webview-profile", paths.WebViewProfileDir);
         Assert.Equal(@"C:\Data İı\tools", paths.ToolsDir);
-        Assert.Equal(@"C:\Data İı\work\0199a3b4-0000-7000-8000-000000000001", paths.WorkDirFor(itemId));
+        Assert.Equal(@"C:\Data İı\work\1234567", paths.WorkDirFor(1_234_567));
         Assert.Equal(@"C:\Data İı\logs\jobs", paths.JobLogsDir);
         Assert.Equal(@"C:\Data İı\backups", paths.BackupsDir);
     }
