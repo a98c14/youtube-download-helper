@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <Compile Include="..\Shared\CultureCanaryTests.cs" Link="Shared\CultureCanaryTests.cs" />
+    <Compile Include="..\Shared\FakeNetworkProbe.cs" Link="Shared\FakeNetworkProbe.cs" />
     <Compile Include="..\Shared\FakeToolFeed.cs" Link="Shared\FakeToolFeed.cs" />
     <Compile Include="..\Shared\TestEngine.cs" Link="Shared\TestEngine.cs" />
   </ItemGroup>

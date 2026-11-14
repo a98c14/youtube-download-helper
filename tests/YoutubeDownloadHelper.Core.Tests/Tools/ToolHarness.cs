@@ -3,7 +3,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using YoutubeDownloadHelper.Core.Events;
 using YoutubeDownloadHelper.Core.Persistence;
 using YoutubeDownloadHelper.Core.Tests.Queue;
-using YoutubeDownloadHelper.Core.Tests.Scheduling;
 using YoutubeDownloadHelper.Core.Tools;
 using YoutubeDownloadHelper.Tests.Shared;
 
