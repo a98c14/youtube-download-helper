@@ -55,6 +55,23 @@ internal sealed class CookieJar
         }
     }
 
+    /// <summary>Removes each named cookie, as yt-dlp drops expired ones.</summary>
+    public void Drop(IEnumerable<string> names)
+    {
+        var set = names.ToHashSet(StringComparer.Ordinal);
+        _cookies.RemoveAll(c => set.Contains(c[5]));
+    }
+
+    /// <summary>Empties the value of each named cookie that exists.</summary>
+    public void Blank(IEnumerable<string> names)
+    {
+        var set = names.ToHashSet(StringComparer.Ordinal);
+        foreach (var cookie in _cookies.Where(c => set.Contains(c[5])))
+        {
+            cookie[6] = "";
+        }
+    }
+
     public void Save() =>
         File.WriteAllText(_path, Header + string.Concat(_cookies.Select(c => string.Join('\t', c) + "\n")));
 }

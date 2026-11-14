@@ -149,7 +149,8 @@ on an injectable `TimeProvider`. A job is resolve → archive check (`Skipped` u
 collision checks → download, with progress posted to the actor in order. A job ends when its item leaves a running
 state; on engine shutdown the scheduler's stop kills running jobs and puts their items back in `Queued` (reason
 `engine.stopped`), keeping the partial files. Later features plug in through narrow seams with no-op defaults:
-`IJobCookieProvider` (the per-job cookies file, called before a job's first run and after it ends),
+`IJobCookieProvider` (the per-job cookies file, called before a job's first run, and once after its last run:
+before the item's final transition, which may delete the work folder, or when the job is stopped),
 `IAuthVerificationTrigger` (on `WaitingAuth`), `IToolUpdateTrigger` (on `WaitingToolFix`, at most hourly) and
 `IToolHealth` (the `ToolsMissing` block).
 
@@ -386,8 +387,15 @@ FFmpeg builds).
   (below) in one blob, replaced atomically on each change. Only `youtube.com` cookies are stored, whatever the
   source (login, import, refresh). A file that can't be decrypted or read (another user, corruption) is moved to
   `cookies.bin.unreadable` and the engine starts logged out.
-- For each job, writes a plaintext Netscape cookies file into that job's work folder, readable only by the user,
-  and deletes it after the job.
+- For each job, writes a plaintext Netscape cookies file into that job's work folder (`work\<itemId>\cookies.txt`,
+  shared by its resolve and download), created with a user-only ACL, passes it with `--cookies`, merges the writeback
+  (point 2 below) and deletes it after the job. A resolve outside a job (`POST /resolve`, playlist expansion) gets
+  `work\resolve-<guid>\cookies.txt` the same way. No file (the run goes without cookies) when the status is
+  `NotLoggedIn` or `Expired`.
+- Every generation change (login, import, log out, writeback merge) runs on the queue actor, so changes are
+  serialized. A login, import or log out starts a new lineage: a writeback from a run that started before it is
+  dropped (its cookies belong to a session that is gone). Each of them publishes `auth.changed`; storing new cookies
+  also asks for a verification and requeues the `WaitingAuth` items.
 - **Verification:** see below; it doubles as the keep-alive ping.
 
 #### Session longevity (goal: the user almost never has to log in again)
@@ -499,7 +507,7 @@ document at `/openapi/v1.json` for non-.NET clients (no `servers` entry: the bas
 | Method & path | Purpose |
 |---|---|
 | `GET /info` | `{ apiVersion, engineVersion, tools: [{ tool, version, installed }], auth: { status, account }, blocks: [] }`. Also the health check |
-| `POST /resolve` `{url, limit?}` | Metadata only: `{ kind: video\|playlist, id, title, channel, totalCount, truncated, entries[] }`. A YouTube video URL (even with `list=`) runs `-J --no-playlist`; anything else a flat listing (`--flat-playlist -J`, `limit` entries, default 1,000, at most 5,000), which prints a video's metadata for a video. Entries: kind (`video`, or `playlist` for the tabs of a channel URL without a tab — resolve them in turn), URL, YouTube video ID, title, duration, availability/live status where the listing has them, and `duplicate: queued\|downloaded` with the item ID (same rule as `POST /items`). A yt-dlp failure is `422` with its classified `error.*` message; missing tools `503` `resolve.toolsMissing`. Cookies come from the `IResolveCookieProvider` seam (#48) |
+| `POST /resolve` `{url, limit?}` | Metadata only: `{ kind: video\|playlist, id, title, channel, totalCount, truncated, entries[] }`. A YouTube video URL (even with `list=`) runs `-J --no-playlist`; anything else a flat listing (`--flat-playlist -J`, `limit` entries, default 1,000, at most 5,000), which prints a video's metadata for a video. Entries: kind (`video`, or `playlist` for the tabs of a channel URL without a tab — resolve them in turn), URL, YouTube video ID, title, duration, availability/live status where the listing has them, and `duplicate: queued\|downloaded` with the item ID (same rule as `POST /items`). A yt-dlp failure is `422` with its classified `error.*` message; missing tools `503` `resolve.toolsMissing`. Cookies: a per-run file like a job's (§5.7) |
 | `POST /items` `{urls[] \| videoIds[], presetId?, folder?, paused?, expandPlaylists?: "none"\|"all", force?}` | Add; per-input result: added / duplicate / invalid / failed. Duplicate = listed twice, already queued (same URL or YouTube video ID), or in the archive; `force` adds anyway. YouTube video IDs are read from the URL up front. With `expandPlaylists: "all"` every other URL is resolved first: a playlist or channel tab becomes one result per video (with `playlist` = the input), a channel URL without a tab the videos of each tab; all or nothing per URL (`failed` with the yt-dlp error, `item.playlistEmpty`, `item.playlistTooLarge` past 5,000 items per request). The picker sends its selection as `videoIds` (or `urls` for non-YouTube entries) |
 | `GET /items?state=&search=&cursor=&limit=` | List/snapshot: `{ items (queue order, with live progress), sequence, nextCursor }`. `sequence` is the event id the snapshot is consistent with (§6.3) |
 | `GET /items/{id}` | Detail incl. transitions, attempts (runs, from the `item_events` rows) and the output tail |
@@ -508,7 +516,7 @@ document at `/openapi/v1.json` for non-.NET clients (no `servers` entry: the bas
 | `DELETE /items/{id}?deleteFiles=` | Remove → `Removed`; also deletes the downloaded file when `deleteFiles` |
 | `POST /queue/pause` · `/queue/resume` | Global control |
 | `GET/POST /watchers` · `PATCH/DELETE /watchers/{id}` · `POST /watchers/{id}/check` | Watchers |
-| `GET /auth` · `PUT /auth/cookies` · `DELETE /auth/cookies` · `POST /auth/verify` | Auth (status, import, log out, verify) |
+| `GET /auth` · `PUT /auth/cookies` · `DELETE /auth/cookies` · `POST /auth/verify` | Auth (status, import, log out, verify). `PUT` takes `{ cookies: [{ domain, path, name, value, secure, httpOnly, expires }] }` (the login window; a leading dot on the domain makes a domain cookie) or `{ netscape }` (a cookies.txt), exactly one; answers `{ auth, stored, skippedLines }`, `422` `auth.noYouTubeCookies` when nothing is on `youtube.com`. `DELETE` answers `204` |
 | `POST /auth/refresh/begin` · `PUT /auth/refresh/complete` | Browser-refresh lease (§5.7). `begin` returns the cookie jar: any token holder can read it, which is no new exposure, since same-user processes can already decrypt DPAPI data |
 | `GET /settings` · `PATCH /settings` | Settings (stored in the DB). `PATCH` changes the fields present, all or nothing (`400` `api.invalidParameter`); `concurrency` is read-only |
 | `GET /tools` · `POST /tools/check` · `POST /tools/{tool}/rollback` | Tools |
@@ -656,7 +664,7 @@ engine.json         discovery file (user-only ACL)
 auth\cookies.bin    DPAPI-encrypted cookie jar generations
 webview-profile\    WebView2 login profile (owned by YoutubeDownloadHelper.exe)
 tools\<tool>\<ver>\ managed binaries (installs are staged in tools\.staging\)
-work\<itemId>\      partial downloads, per-job cookies file
+work\<itemId>\      partial downloads, per-job cookies file (a resolve outside a job: work\resolve-<guid>\)
 cache\yt-dlp\       yt-dlp's private --cache-dir
 logs\               engine-*.log, app-*.log (rolling, 14 days), jobs\<itemId>-<attempt>.log
 ```

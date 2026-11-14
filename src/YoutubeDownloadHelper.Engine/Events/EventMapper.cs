@@ -1,7 +1,9 @@
 using System.Globalization;
+using YoutubeDownloadHelper.Contracts.Auth;
 using YoutubeDownloadHelper.Contracts.Events;
 using YoutubeDownloadHelper.Contracts.Messages;
 using YoutubeDownloadHelper.Contracts.Queue;
+using YoutubeDownloadHelper.Core.Auth;
 using YoutubeDownloadHelper.Core.Events;
 using YoutubeDownloadHelper.Core.Queue;
 using YoutubeDownloadHelper.Core.Scheduling;
@@ -15,7 +17,7 @@ public sealed record StreamEvent(string Type, object Data);
 
 /// <summary>
 /// Maps the internal bus (<see cref="EngineEvent"/>) to the API's events (<see cref="EventTypes"/>, PLAN.md §6.3).
-/// Events the API does not show map to null. Later features (watchers, auth) add their cases here.
+/// Events the API does not show map to null. Later features (watchers) add their cases here.
 /// </summary>
 public sealed class EventMapper(IToolStatusProvider tools, IToolHealth toolHealth)
 {
@@ -42,6 +44,7 @@ public sealed class EventMapper(IToolStatusProvider tools, IToolHealth toolHealt
             new ToolInstallData(e.Tool, null, ToolInstallStatus.Failed, null, null, e.Reason)),
         ToolInstalledEvent => new(EventTypes.ToolsChanged, new ToolsChangedData(tools.GetTools(), toolHealth.ToolsReady)),
         ToolHealthChangedEvent e => new(EventTypes.ToolsChanged, new ToolsChangedData(tools.GetTools(), e.ToolsReady)),
+        AuthChangedEvent e => new(EventTypes.AuthChanged, new AuthChangedData(e.Auth)),
         NotifyEvent e => new(EventTypes.Notify, new NotifyData(e.Message, e.ItemId)),
         EngineStoppingEvent => new(EventTypes.EngineStopping, new EngineStoppingData()),
         _ => null,

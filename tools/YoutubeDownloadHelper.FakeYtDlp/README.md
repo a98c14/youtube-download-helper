@@ -85,7 +85,8 @@ listings fail.
 | `ppdelay` | `0` | seconds each post-processor takes (so a throttled progress reader sees every phase) |
 | `stop` | see the scenario | fraction of `size` where `hang`, `spawn-child`, `resume`, `connection-reset`, `disk-full` stop |
 | `status` | `503` | `http-5xx` |
-| `rotate` | `SIDCC,__Secure-1PSIDCC,__Secure-3PSIDCC` | `cookie-writeback` |
+| `rotate` | `SIDCC,__Secure-1PSIDCC,__Secure-3PSIDCC` | `cookie-writeback` (during the download). Given on any other scenario: appends `-rotated` to the named cookies on every save, failures included |
+| `drop`, `blank` | none | any scenario: the saved cookie file leaves out the named cookies (`drop`), or has them with an empty value (`blank`) |
 | `count`, `prefix`, `entry` | `5`, `fk<tab letter>`, `success` | listings |
 
 ## Command line

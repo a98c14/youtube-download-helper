@@ -1,7 +1,7 @@
 using System.Security.AccessControl;
-using System.Security.Principal;
 using System.Text.Json;
 using YoutubeDownloadHelper.Contracts.Discovery;
+using YoutubeDownloadHelper.Core.Persistence;
 
 namespace YoutubeDownloadHelper.Engine.Hosting;
 
@@ -72,14 +72,5 @@ public static class DiscoveryFile
     }
 
     /// <summary>Full control for the current user only; inherited entries are dropped.</summary>
-    public static FileSecurity UserOnlySecurity()
-    {
-        using var identity = WindowsIdentity.GetCurrent();
-        var user = identity.User ?? throw new InvalidOperationException("The current user has no SID.");
-
-        var security = new FileSecurity();
-        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-        security.AddAccessRule(new FileSystemAccessRule(user, FileSystemRights.FullControl, AccessControlType.Allow));
-        return security;
-    }
+    public static FileSecurity UserOnlySecurity() => UserOnlyFile.Security();
 }

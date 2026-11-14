@@ -16,8 +16,8 @@ namespace YoutubeDownloadHelper.Core.Auth;
 /// </para>
 /// <para>
 /// Only <c>youtube.com</c> cookies are stored. Every method is thread-safe and writes the file before it returns
-/// (write to a temporary file, then replace). The queue actor (#48) serializes the callers anyway, so that a writeback
-/// merge reads and replaces the current jar in one step.
+/// (write to a temporary file, then replace). <see cref="AuthManager"/> serializes the changes through the queue actor
+/// anyway, so that a writeback merge reads and replaces the current jar in one step.
 /// </para>
 /// </summary>
 public sealed partial class CookieJarStore(

@@ -64,7 +64,26 @@ internal sealed partial class FakeRun(FakeOptions options, FakeRequest request, 
         }
         finally
         {
-            cookies?.Save();
+            if (cookies is not null)
+            {
+                // Writeback changes for any scenario, failures included (cookie-writeback rotates during its download).
+                if (request.Scenario != "cookie-writeback" && request.Text("rotate") is { } rotate)
+                {
+                    cookies.Rotate(rotate.Split(','));
+                }
+
+                if (request.Text("drop") is { } drop)
+                {
+                    cookies.Drop(drop.Split(','));
+                }
+
+                if (request.Text("blank") is { } blank)
+                {
+                    cookies.Blank(blank.Split(','));
+                }
+
+                cookies.Save();
+            }
         }
     }
 

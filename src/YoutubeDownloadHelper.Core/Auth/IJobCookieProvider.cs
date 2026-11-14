@@ -16,9 +16,10 @@ public sealed record JobOutcome(bool Succeeded, bool Cancelled, ErrorCategory? F
 
 /// <summary>
 /// The per-job cookies file (PLAN.md §5.7). The scheduler calls <see cref="BeforeJobAsync"/> before a job's first run
-/// and <see cref="AfterJobAsync"/> once the job is over, whatever the outcome; the resolve and the download of one job
-/// share the file. <see cref="NoJobCookieProvider"/> is the default (no cookies); the cookie writeback work (#48)
-/// replaces it.
+/// and <see cref="AfterJobAsync"/> exactly once: after its last run, before the item's final transition (which may
+/// delete the work folder), or when the job ends some other way (stopped, failed to start). The resolve and the
+/// download of one job share the file. <see cref="CookieFileProvider"/> is the engine's; <see cref="NoJobCookieProvider"/>
+/// runs without cookies.
 /// </summary>
 public interface IJobCookieProvider
 {

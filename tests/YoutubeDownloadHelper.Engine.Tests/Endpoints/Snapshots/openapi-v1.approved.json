@@ -47,6 +47,151 @@
         }
       }
     },
+    "/api/v1/auth": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "The YouTube login status.",
+        "operationId": "getAuth",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/cookies": {
+      "put": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Stores new cookies: the login window's (cookies) or an imported cookies.txt (netscape), exactly one of them.",
+        "description": "Only youtube.com cookies are kept; they replace the stored ones as a new login. Items waiting on auth are queued again. 422 auth.noYouTubeCookies when there is no youtube.com cookie.",
+        "operationId": "setCookies",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCookiesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetCookiesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Logs out: deletes the stored cookies.",
+        "operationId": "deleteCookies",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
     "/api/v1/resolve": {
       "post": {
         "tags": [
@@ -1237,6 +1382,44 @@
           "expired"
         ]
       },
+      "CookieInfo": {
+        "required": [
+          "domain",
+          "path",
+          "name",
+          "value"
+        ],
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "secure": {
+            "type": "boolean",
+            "default": false
+          },
+          "httpOnly": {
+            "type": "boolean",
+            "default": false
+          },
+          "expires": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
       "EngineInfo": {
         "required": [
           "apiVersion",
@@ -1936,6 +2119,50 @@
           }
         }
       },
+      "SetCookiesRequest": {
+        "type": "object",
+        "properties": {
+          "cookies": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CookieInfo"
+            }
+          },
+          "netscape": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "SetCookiesResponse": {
+        "required": [
+          "auth",
+          "stored",
+          "skippedLines"
+        ],
+        "type": "object",
+        "properties": {
+          "auth": {
+            "$ref": "#/components/schemas/AuthInfo"
+          },
+          "stored": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "skippedLines": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        }
+      },
       "SettingsInfo": {
         "required": [
           "downloadFolder",
@@ -2074,6 +2301,9 @@
   "tags": [
     {
       "name": "Info"
+    },
+    {
+      "name": "Auth"
     },
     {
       "name": "Resolve"

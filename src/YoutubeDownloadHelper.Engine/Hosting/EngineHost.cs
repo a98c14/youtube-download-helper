@@ -122,6 +122,7 @@ public static class EngineHost
                 new ProducesResponseTypeMetadata(StatusCodes.Status401Unauthorized, typeof(EngineMessage), ["application/json"]),
                 new ProducesResponseTypeMetadata(StatusCodes.Status403Forbidden, typeof(EngineMessage), ["application/json"]));
         api.MapInfoEndpoints();
+        api.MapAuthEndpoints();
         api.MapResolveEndpoints();
         api.MapItemsEndpoints();
         api.MapQueueEndpoints();
