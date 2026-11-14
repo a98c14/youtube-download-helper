@@ -6,6 +6,7 @@ using YoutubeDownloadHelper.Contracts.Errors;
 using YoutubeDownloadHelper.Contracts.Messages;
 using YoutubeDownloadHelper.Contracts.Queue;
 using YoutubeDownloadHelper.Contracts.Resolve;
+using YoutubeDownloadHelper.Tests.Shared;
 
 namespace YoutubeDownloadHelper.Engine.Tests.Endpoints;
 

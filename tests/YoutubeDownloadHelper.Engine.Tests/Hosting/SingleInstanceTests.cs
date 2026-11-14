@@ -6,6 +6,7 @@ using YoutubeDownloadHelper.Contracts.Api;
 using YoutubeDownloadHelper.Contracts.Discovery;
 using YoutubeDownloadHelper.Core.Persistence;
 using YoutubeDownloadHelper.Engine.Hosting;
+using YoutubeDownloadHelper.Tests.Shared;
 
 namespace YoutubeDownloadHelper.Engine.Tests.Hosting;
 
