@@ -122,7 +122,9 @@ public sealed partial class CookieJarStore(
         lock (_gate)
         {
             var generations = Loaded();
+            var now = time.GetUtcNow();
             long? rollbackTo = null;
+            DateTimeOffset? sessionStartedAt = now;
             if (source is CookieSource.Login or CookieSource.Import)
             {
                 basedOn = null;
@@ -133,10 +135,12 @@ public sealed partial class CookieJarStore(
                     ?? throw new InvalidOperationException($"A {source} generation needs a stored generation to be based on.");
                 var parent = generations.Find(g => g.Number == basedOn);
                 rollbackTo = source == CookieSource.BrowserRefresh ? parent?.Number : parent?.RollbackTo;
+                sessionStartedAt = (parent ?? generations.FirstOrDefault())?.SessionStartedAt;
             }
 
-            var now = time.GetUtcNow();
-            return Commit(generations, new CookieGeneration(_nextNumber, source, now, basedOn, rollbackTo, knownGood ? now : null, jar));
+            return Commit(
+                generations,
+                new CookieGeneration(_nextNumber, source, now, basedOn, rollbackTo, knownGood ? now : null, jar, sessionStartedAt));
         }
     }
 
@@ -176,7 +180,9 @@ public sealed partial class CookieJarStore(
                 return null;
             }
 
-            return Commit(generations, new CookieGeneration(_nextNumber, CookieSource.Rollback, time.GetUtcNow(), target.Number, null, null, target.Jar));
+            return Commit(
+                generations,
+                new CookieGeneration(_nextNumber, CookieSource.Rollback, time.GetUtcNow(), target.Number, null, null, target.Jar, target.SessionStartedAt));
         }
     }
 
@@ -299,13 +305,14 @@ public sealed partial class CookieJarStore(
         long? BasedOn,
         long? RollbackTo,
         DateTimeOffset? KnownGoodAt,
-        List<CookieDto> Cookies)
+        List<CookieDto> Cookies,
+        DateTimeOffset? SessionStartedAt = null)
     {
         public static GenerationDto From(CookieGeneration g) =>
-            new(g.Number, g.Source, g.CreatedAt, g.BasedOn, g.RollbackTo, g.KnownGoodAt, g.Jar.Cookies.Select(CookieDto.From).ToList());
+            new(g.Number, g.Source, g.CreatedAt, g.BasedOn, g.RollbackTo, g.KnownGoodAt, g.Jar.Cookies.Select(CookieDto.From).ToList(), g.SessionStartedAt);
 
         public CookieGeneration ToGeneration() =>
-            new(Number, Source, CreatedAt, BasedOn, RollbackTo, KnownGoodAt, new CookieJar(Cookies.Select(c => c.ToCookie())));
+            new(Number, Source, CreatedAt, BasedOn, RollbackTo, KnownGoodAt, new CookieJar(Cookies.Select(c => c.ToCookie())), SessionStartedAt);
     }
 
     private sealed record CookieDto(

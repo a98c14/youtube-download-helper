@@ -274,6 +274,13 @@ public sealed partial class Scheduler(
             return (next, snapshot.Sequence);
         }
 
+        // A browser refresh is moving the cookie lineage: new jobs (which would get the jar it started from) wait.
+        if (seams.StartHold.HeldUntil is { } heldUntil)
+        {
+            Later(heldUntil);
+            return (next, snapshot.Sequence);
+        }
+
         EngineSettings? settings = null;
         foreach (var item in snapshot.Items)
         {
@@ -1072,4 +1079,5 @@ public sealed record SchedulerSeams(
     IAuthVerificationTrigger AuthVerification,
     IJobCookieProvider Cookies,
     IDiskSpace DiskSpace,
-    INetworkProbe Network);
+    INetworkProbe Network,
+    IJobStartHold StartHold);

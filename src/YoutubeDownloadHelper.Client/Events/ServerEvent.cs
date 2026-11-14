@@ -23,6 +23,7 @@ public sealed record ServerEvent(long Id, string Type, string Data)
         [EventTypes.ToolsChanged] = typeof(ToolsChangedData),
         [EventTypes.ToolInstall] = typeof(ToolInstallData),
         [EventTypes.AuthChanged] = typeof(AuthChangedData),
+        [EventTypes.AuthRefreshRequested] = typeof(AuthRefreshRequestedData),
         [EventTypes.Notify] = typeof(NotifyData),
         [EventTypes.EngineStopping] = typeof(EngineStoppingData),
         [EventTypes.Resync] = typeof(ResyncData),

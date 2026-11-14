@@ -37,6 +37,10 @@ public enum CookieSource
 /// </param>
 /// <param name="KnownGoodAt">When it was last confirmed to work (verification passed), if ever.</param>
 /// <param name="Jar">The cookies.</param>
+/// <param name="SessionStartedAt">
+/// When the login or import this generation descends from was stored: the start of the session, for the telemetry
+/// (PLAN.md §5.7 point 6). <see langword="null"/> when unknown (stored before it was recorded).
+/// </param>
 public sealed record CookieGeneration(
     long Number,
     CookieSource Source,
@@ -44,7 +48,8 @@ public sealed record CookieGeneration(
     long? BasedOn,
     long? RollbackTo,
     DateTimeOffset? KnownGoodAt,
-    CookieJar Jar)
+    CookieJar Jar,
+    DateTimeOffset? SessionStartedAt = null)
 {
     public bool IsKnownGood => KnownGoodAt is not null;
 }

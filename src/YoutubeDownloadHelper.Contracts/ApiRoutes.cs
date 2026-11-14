@@ -70,6 +70,25 @@ public static class ApiRoutes
     /// </summary>
     public const string AuthCookies = Auth + "/cookies";
 
+    /// <summary>
+    /// <c>POST</c>: verifies the stored cookies now (with the recovery ladder, PLAN.md §5.7), answered with an
+    /// <see cref="Auth.AuthVerifyResponse"/>.
+    /// </summary>
+    public const string AuthVerify = Auth + "/verify";
+
+    /// <summary>
+    /// <c>POST</c>: starts a browser refresh. Answers the current cookies and a lease (<see cref="Auth.AuthRefreshBeginResponse"/>)
+    /// that holds new cookie-using job starts until it is completed or expires. <c>409</c>
+    /// <see cref="Auth.AuthCodes.NotLoggedIn"/> or <see cref="Auth.AuthCodes.RefreshInProgress"/>.
+    /// </summary>
+    public const string AuthRefreshBegin = Auth + "/refresh/begin";
+
+    /// <summary>
+    /// <c>PUT</c> <see cref="Auth.AuthRefreshCompleteRequest"/>: hands back the refreshed cookies, which are kept only if they
+    /// pass verification (<see cref="Auth.AuthRefreshCompleteResponse"/>). Always ends the lease.
+    /// </summary>
+    public const string AuthRefreshComplete = Auth + "/refresh/complete";
+
     /// <summary><c>GET</c>: the managed tools in detail, a <see cref="Tools.ToolList"/>.</summary>
     public const string Tools = Base + "/tools";
 

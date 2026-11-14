@@ -193,6 +193,30 @@ public sealed class EngineClient : IDisposable
     public Task LogOutAsync(CancellationToken cancellationToken = default) =>
         SendAsync(HttpMethod.Delete, ApiRoutes.AuthCookies, null, cancellationToken);
 
+    /// <summary>
+    /// <c>POST /auth/verify</c>: verifies the stored cookies now. Returns when done, or once the engine waits for a browser
+    /// refresh (<see cref="AuthVerifyResponse.Recovering"/>).
+    /// </summary>
+    public Task<AuthVerifyResponse> VerifyAuthAsync(CancellationToken cancellationToken = default) =>
+        SendAsync<AuthVerifyResponse>(HttpMethod.Post, ApiRoutes.AuthVerify, null, cancellationToken);
+
+    /// <summary>
+    /// <c>POST /auth/refresh/begin</c>: takes the browser-refresh lease and returns the cookies to load into the browser.
+    /// New cookie-using jobs wait until <see cref="CompleteAuthRefreshAsync"/> or the lease's expiry.
+    /// </summary>
+    public Task<AuthRefreshBeginResponse> BeginAuthRefreshAsync(CancellationToken cancellationToken = default) =>
+        SendAsync<AuthRefreshBeginResponse>(HttpMethod.Post, ApiRoutes.AuthRefreshBegin, null, cancellationToken);
+
+    /// <summary>
+    /// <c>PUT /auth/refresh/complete</c>: hands back the refreshed cookies, kept only if they pass verification. Ends the
+    /// lease either way; a rejection throws an <see cref="EngineApiException"/> (<see cref="AuthCodes"/>).
+    /// </summary>
+    public Task<AuthRefreshCompleteResponse> CompleteAuthRefreshAsync(AuthRefreshCompleteRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return SendAsync<AuthRefreshCompleteResponse>(HttpMethod.Put, ApiRoutes.AuthRefreshComplete, request, cancellationToken);
+    }
+
     /// <summary><c>GET /tools</c>: the managed tools with their current and previous versions and last update checks.</summary>
     public Task<ToolList> GetToolsAsync(CancellationToken cancellationToken = default) =>
         GetAsync<ToolList>(ApiRoutes.Tools, cancellationToken);

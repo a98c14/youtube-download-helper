@@ -2,7 +2,8 @@ namespace YoutubeDownloadHelper.FakeYtDlp;
 
 /// <summary>
 /// The <c>--cookies</c> file. yt-dlp reads it at start and saves it back at exit; on save it loses every
-/// <c>HttpOnly</c> flag (PLAN.md §5.7). Logged in means a <c>LOGIN_INFO</c> cookie is present.
+/// <c>HttpOnly</c> flag (PLAN.md §5.7). Logged in means a non-empty <c>LOGIN_INFO</c> cookie is present and no
+/// <c>*PSIDTS</c> cookie has a value ending in <c>-dead</c> (a session Google no longer accepts after two rotations).
 /// </summary>
 internal sealed class CookieJar
 {
@@ -17,7 +18,9 @@ internal sealed class CookieJar
         _cookies = cookies;
     }
 
-    public bool LoggedIn => _cookies.Any(c => c[5] == "LOGIN_INFO" && c[6].Length > 0);
+    public bool LoggedIn =>
+        _cookies.Any(c => c[5] == "LOGIN_INFO" && c[6].Length > 0)
+        && !_cookies.Any(c => c[5].EndsWith("PSIDTS", StringComparison.Ordinal) && c[6].EndsWith("-dead", StringComparison.Ordinal));
 
     public static CookieJar? TryLoad(string? path)
     {

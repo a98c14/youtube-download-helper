@@ -46,14 +46,22 @@ public sealed class EventMapper(IToolStatusProvider tools, IToolHealth toolHealt
             new(EventTypes.ToolsChanged, new ToolsChangedData(tools.GetTools(), toolHealth.ToolsReady)),
         ToolHealthChangedEvent e => new(EventTypes.ToolsChanged, new ToolsChangedData(tools.GetTools(), e.ToolsReady)),
         AuthChangedEvent e => new(EventTypes.AuthChanged, new AuthChangedData(e.Auth)),
+        AuthRefreshRequestedEvent => new(EventTypes.AuthRefreshRequested, new AuthRefreshRequestedData()),
         NotifyEvent e => new(EventTypes.Notify, new NotifyData(e.Message, e.ItemId)),
         EngineStoppingEvent => new(EventTypes.EngineStopping, new EngineStoppingData()),
         _ => null,
     };
 
-    /// <summary>The notification an event causes (a download completed or failed for good), if any.</summary>
+    /// <summary>The notification an event causes (a download completed or failed for good, the login expired), if any.</summary>
     public static NotifyEvent? NotificationFor(EngineEvent engineEvent)
     {
+        if (engineEvent is AuthChangedEvent { Auth.Status: AuthStatus.Expired, PreviousStatus: not AuthStatus.Expired and not null })
+        {
+            return new NotifyEvent(
+                new EngineMessage(NotifyCodes.AuthLoginNeeded, "Your YouTube login expired. Log in again to download members-only and age-restricted videos."),
+                null);
+        }
+
         if (engineEvent is not ItemUpdatedEvent { FromState: { } from } e || from == e.Item.State)
         {
             return null;

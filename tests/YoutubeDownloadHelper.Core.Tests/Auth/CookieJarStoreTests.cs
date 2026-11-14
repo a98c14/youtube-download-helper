@@ -1,6 +1,5 @@
 using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
-using YoutubeDownloadHelper.Contracts.Auth;
 using YoutubeDownloadHelper.Core.Auth;
 using YoutubeDownloadHelper.Core.Persistence;
 using YoutubeDownloadHelper.Core.Tests.Persistence;
@@ -300,17 +299,21 @@ public sealed class CookieJarStoreTests : IDisposable
     }
 
     [Fact]
-    public void The_default_status_follows_the_stored_jar()
+    public void Every_generation_records_when_its_session_started_and_it_survives_a_restart()
     {
         var store = Store();
-        var status = new StoredJarAuthStatusProvider(store);
-        Assert.Equal(new AuthInfo(AuthStatus.NotLoggedIn), status.GetStatus());
+        var login = store.Add(Login(), CookieSource.Login);
+        _time.Now += TimeSpan.FromHours(1);
+        var refresh = store.Add(Login("psidts-1"), CookieSource.BrowserRefresh);
+        _time.Now += TimeSpan.FromHours(1);
+        var writeback = store.Add(Login("psidts-1").With(Yt("SIDCC", "sidcc-1")), CookieSource.Writeback);
+        var rollback = store.RollBack()!;
 
-        store.Add(Login(), CookieSource.Login);
-        Assert.Equal(new AuthInfo(AuthStatus.Unknown), status.GetStatus());
+        Assert.Equal([Now, Now, Now, Now], new[] { login, refresh, writeback, rollback }.Select(g => g.SessionStartedAt));
+        Assert.Equal(Now, Store().Current!.SessionStartedAt);
 
-        store.Clear();
-        Assert.Equal(new AuthInfo(AuthStatus.NotLoggedIn), status.GetStatus());
+        _time.Now += TimeSpan.FromHours(1);
+        Assert.Equal(_time.Now, store.Add(Login(), CookieSource.Import).SessionStartedAt);
     }
 
     [Fact]

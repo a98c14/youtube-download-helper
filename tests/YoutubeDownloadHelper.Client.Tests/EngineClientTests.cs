@@ -89,7 +89,12 @@ public sealed class EngineClientTests
         var stored = await client.SetCookiesAsync(new SetCookiesRequest(Netscape: netscape), Ct);
         Assert.Equal(1, stored.Stored);
         Assert.Equal([2], stored.SkippedLines);
-        Assert.Equal(stored.Auth, await client.GetAuthAsync(Ct));
+        Assert.Equal(AuthStatus.Unknown, stored.Auth.Status);
+
+        // Without LOGIN_INFO the fake says not logged in; with no client to refresh the cookies, they are expired.
+        var verified = await client.VerifyAuthAsync(Ct);
+        Assert.Equal(new AuthVerifyResponse(new AuthInfo(AuthStatus.Expired), Recovering: false), verified);
+        Assert.Equal(verified.Auth, await client.GetAuthAsync(Ct));
         await client.LogOutAsync(Ct);
         Assert.Equal(AuthStatus.NotLoggedIn, (await client.GetAuthAsync(Ct)).Status);
     }

@@ -20,7 +20,8 @@ and `https://www.youtube.com/feed/subscriptions` runs `subscriptions`. Anything 
 
 ## Scenarios
 
-Exit code 0 unless noted. "Login" means the `--cookies` file has a non-empty `LOGIN_INFO` cookie.
+Exit code 0 unless noted. "Login" means the `--cookies` file has a non-empty `LOGIN_INFO` cookie and no `*PSIDTS`
+cookie whose value ends in `-dead` (a session Google stopped accepting, for the auth recovery tests).
 
 ### Downloads
 
