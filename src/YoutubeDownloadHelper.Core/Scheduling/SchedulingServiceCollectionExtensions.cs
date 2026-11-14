@@ -28,7 +28,8 @@ public static class SchedulingServiceCollectionExtensions
             sp.GetRequiredService<IAuthVerificationTrigger>(),
             sp.GetRequiredService<IJobCookieProvider>(),
             sp.GetRequiredService<IDiskSpace>(),
-            sp.GetRequiredService<INetworkProbe>()));
+            sp.GetRequiredService<INetworkProbe>(),
+            sp.GetRequiredService<IJobStartHold>()));
         services.TryAddSingleton<Scheduler>();
         services.Replace(ServiceDescriptor.Singleton<IQueueBlockProvider>(sp => sp.GetRequiredService<Scheduler>()));
         return services;

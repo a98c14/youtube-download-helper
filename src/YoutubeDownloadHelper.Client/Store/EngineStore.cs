@@ -63,6 +63,12 @@ public sealed class EngineStore : INotifyPropertyChanged, IAsyncDisposable
     /// <summary>A <c>notify</c> event: something to tell the user (a toast).</summary>
     public event EventHandler<NotifyData>? Notified;
 
+    /// <summary>
+    /// An <c>auth.refreshRequested</c> event: the stored cookies failed verification and the engine waits for a browser
+    /// refresh (<see cref="EngineClient.BeginAuthRefreshAsync"/>) before it reports the login as expired.
+    /// </summary>
+    public event EventHandler? AuthRefreshRequested;
+
     /// <summary>Every event of the stream that was applied (after the store changed), including ones it does not use.</summary>
     public event EventHandler<ServerEvent>? EventReceived;
 
@@ -255,6 +261,10 @@ public sealed class EngineStore : INotifyPropertyChanged, IAsyncDisposable
             if (data is NotifyData notify)
             {
                 Notified?.Invoke(this, notify);
+            }
+            else if (data is AuthRefreshRequestedData)
+            {
+                AuthRefreshRequested?.Invoke(this, EventArgs.Empty);
             }
         });
 

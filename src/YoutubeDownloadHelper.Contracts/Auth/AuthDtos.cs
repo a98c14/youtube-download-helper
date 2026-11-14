@@ -41,4 +41,28 @@ public static class AuthCodes
 {
     /// <summary>422: the cookies hold no <c>youtube.com</c> cookie, so there is nothing to store.</summary>
     public const string NoYouTubeCookies = "auth.noYouTubeCookies";
+
+    /// <summary>409 from <see cref="ApiRoutes.AuthRefreshBegin"/>: no cookies are stored, so there is nothing to refresh.</summary>
+    public const string NotLoggedIn = "auth.notLoggedIn";
+
+    /// <summary>409 from <see cref="ApiRoutes.AuthRefreshBegin"/>: another browser refresh holds the lease.</summary>
+    public const string RefreshInProgress = "auth.refresh.inProgress";
+
+    /// <summary>409 from <see cref="ApiRoutes.AuthRefreshComplete"/>: the lease is unknown, already completed or expired.</summary>
+    public const string RefreshNoLease = "auth.refresh.noLease";
+
+    /// <summary>
+    /// 409 from <see cref="ApiRoutes.AuthRefreshComplete"/>: the user logged in, imported cookies or logged out since the
+    /// refresh began, so its cookies belong to a session that is gone.
+    /// </summary>
+    public const string RefreshSuperseded = "auth.refresh.superseded";
+
+    /// <summary>422 from <see cref="ApiRoutes.AuthRefreshComplete"/>: the new cookies failed verification; the stored ones stay.</summary>
+    public const string RefreshRejected = "auth.refresh.rejected";
+
+    /// <summary>
+    /// 422 from <see cref="ApiRoutes.AuthRefreshComplete"/>: the new cookies could not be verified (offline, tools missing);
+    /// the stored ones stay.
+    /// </summary>
+    public const string RefreshUnverified = "auth.refresh.unverified";
 }

@@ -46,6 +46,13 @@ public static class EventTypes
     /// <summary><see cref="Auth.AuthChangedData"/>: the login status changed, or new cookies were stored or deleted.</summary>
     public const string AuthChanged = "auth.changed";
 
+    /// <summary>
+    /// <see cref="Auth.AuthRefreshRequestedData"/>: the stored cookies failed verification; a client that can, runs a
+    /// browser refresh (<see cref="ApiRoutes.AuthRefreshBegin"/>) now. The engine waits for it before it reports the
+    /// login as expired.
+    /// </summary>
+    public const string AuthRefreshRequested = "auth.refreshRequested";
+
     /// <summary><see cref="NotifyData"/>: something to tell the user (a toast).</summary>
     public const string Notify = "notify";
 
@@ -131,4 +138,7 @@ public static class NotifyCodes
     /// (the item's <c>error.*</c> code, when it has one).
     /// </summary>
     public const string ItemFailed = "notify.item.failed";
+
+    /// <summary>The YouTube login expired and could not be recovered: the user has to log in again. No args.</summary>
+    public const string AuthLoginNeeded = "notify.auth.loginNeeded";
 }

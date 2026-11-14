@@ -81,14 +81,16 @@ public sealed class YtDlpCommandBuilder(DataPaths paths, IToolLocator tools, Pre
     /// The auth verification and keep-alive ping (PLAN.md §5.7): a flat fetch of the subscriptions feed, which
     /// succeeds only when the cookies are logged in. One entry is enough.
     /// </summary>
-    public YtDlpCommand VerifyAuth(string cookiesFile)
+    /// <param name="cookiesFile">The cookies to verify.</param>
+    /// <param name="url">The page to fetch instead of <see cref="YtDlpTemplates.SubscriptionsFeedUrl"/> (tests use the fake's).</param>
+    public YtDlpCommand VerifyAuth(string cookiesFile, string? url = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(cookiesFile);
 
         var snapshot = tools.Current;
         return new YtDlpCommand(
             snapshot.YtDlp,
-            [.. Common(snapshot, cookiesFile), .. Listing(1), .. Url(YtDlpTemplates.SubscriptionsFeedUrl)],
+            [.. Common(snapshot, cookiesFile), .. Listing(1), .. Url(url ?? YtDlpTemplates.SubscriptionsFeedUrl)],
             snapshot);
     }
 

@@ -94,7 +94,7 @@
           "Auth"
         ],
         "summary": "Stores new cookies: the login window's (cookies) or an imported cookies.txt (netscape), exactly one of them.",
-        "description": "Only youtube.com cookies are kept; they replace the stored ones as a new login. Items waiting on auth are queued again. 422 auth.noYouTubeCookies when there is no youtube.com cookie.",
+        "description": "Only youtube.com cookies are kept; they replace the stored ones as a new login, and a verification starts in the background. Items waiting on auth are queued again once it passes. 422 auth.noYouTubeCookies when there is no youtube.com cookie.",
         "operationId": "setCookies",
         "requestBody": {
           "content": {
@@ -188,6 +188,182 @@
           },
           "204": {
             "description": "No Content"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/verify": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Verifies the stored cookies now, with the recovery ladder.",
+        "description": "Answers when the verification is done, or as soon as the engine waits for a browser refresh it asked for (recovering: true; auth.changed follows with the outcome).",
+        "operationId": "verifyAuth",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthVerifyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/refresh/begin": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Starts a browser refresh: answers the current cookies and a lease.",
+        "description": "New cookie-using job starts wait until the lease is completed or expires (at most 2 minutes); running jobs continue. 409 auth.notLoggedIn without cookies, auth.refresh.inProgress while another lease is held.",
+        "operationId": "beginAuthRefresh",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthRefreshBeginResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/refresh/complete": {
+      "put": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Hands back the refreshed cookies; they are kept only if they pass verification. Always ends the lease.",
+        "description": "409 auth.refresh.noLease (unknown, completed or expired lease) or auth.refresh.superseded (logged in, imported or logged out since); 422 auth.refresh.rejected (not logged in), auth.refresh.unverified (could not be verified) or auth.noYouTubeCookies. On any error the stored cookies stay.",
+        "operationId": "completeAuthRefresh",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthRefreshCompleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthRefreshCompleteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
           }
         }
       }
@@ -1513,6 +1689,63 @@
           }
         }
       },
+      "AuthRefreshBeginResponse": {
+        "required": [
+          "leaseId",
+          "expiresAt",
+          "cookies"
+        ],
+        "type": "object",
+        "properties": {
+          "leaseId": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cookies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CookieInfo"
+            }
+          }
+        }
+      },
+      "AuthRefreshCompleteRequest": {
+        "required": [
+          "leaseId",
+          "cookies"
+        ],
+        "type": "object",
+        "properties": {
+          "leaseId": {
+            "type": "string"
+          },
+          "cookies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CookieInfo"
+            }
+          }
+        }
+      },
+      "AuthRefreshCompleteResponse": {
+        "required": [
+          "auth",
+          "stored"
+        ],
+        "type": "object",
+        "properties": {
+          "auth": {
+            "$ref": "#/components/schemas/AuthInfo"
+          },
+          "stored": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "AuthStatus": {
         "enum": [
           "unknown",
@@ -1520,6 +1753,21 @@
           "valid",
           "expired"
         ]
+      },
+      "AuthVerifyResponse": {
+        "required": [
+          "auth",
+          "recovering"
+        ],
+        "type": "object",
+        "properties": {
+          "auth": {
+            "$ref": "#/components/schemas/AuthInfo"
+          },
+          "recovering": {
+            "type": "boolean"
+          }
+        }
       },
       "CookieInfo": {
         "required": [

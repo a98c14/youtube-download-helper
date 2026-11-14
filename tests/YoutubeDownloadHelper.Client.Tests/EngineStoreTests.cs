@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using YoutubeDownloadHelper.Client.Discovery;
 using YoutubeDownloadHelper.Client.Store;
 using YoutubeDownloadHelper.Contracts;
+using YoutubeDownloadHelper.Contracts.Auth;
 using YoutubeDownloadHelper.Contracts.Events;
 using YoutubeDownloadHelper.Contracts.Queue;
 using YoutubeDownloadHelper.Engine.Events;
@@ -73,6 +74,38 @@ public sealed class EngineStoreTests
         Assert.Equal(1, store.ResyncCount);
         Assert.Single(network.To(HttpMethod.Get, ApiRoutes.Items));
         Assert.Single(network.To(HttpMethod.Get, ApiRoutes.Events));
+    }
+
+    [Fact]
+    public async Task A_refresh_request_is_raised_and_a_browser_refresh_through_the_client_recovers_the_login()
+    {
+        await using var engine = await TestEngine.StartAsync(fakeTools: true);
+        using var client = CreateClient(engine);
+        await using var store = CreateStore(new DiscoveryFileLocator(engine.Paths.EngineJson), engine.Server.CreateHandler());
+        var requested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        store.AuthRefreshRequested += (_, _) => requested.TrySetResult();
+        store.Start();
+        await store.WaitUntilConnectedAsync(Ct).WaitAsync(WaitTimeout, Ct);
+
+        // A session Google no longer accepts: the engine asks the connected client for a browser refresh.
+        const long nextYear = 1_830_000_000;
+        await client.SetCookiesAsync(
+            new SetCookiesRequest(Netscape:
+                $".youtube.com\tTRUE\t/\tTRUE\t{nextYear}\tLOGIN_INFO\tlogin-value\n"
+                + $".youtube.com\tTRUE\t/\tTRUE\t{nextYear}\t__Secure-3PSIDTS\tpsidts-0-dead\n"),
+            Ct);
+        await requested.Task.WaitAsync(WaitTimeout, Ct);
+
+        // What the app's hidden browser does (#57): take the lease and jar, let the page rotate *PSIDTS, hand it back.
+        var begun = await client.BeginAuthRefreshAsync(Ct);
+        var rotated = begun.Cookies.Select(c => c.Name == "__Secure-3PSIDTS" ? c with { Value = "psidts-1" } : c).ToList();
+        var completed = await client.CompleteAuthRefreshAsync(new AuthRefreshCompleteRequest(begun.LeaseId, rotated), Ct);
+
+        Assert.Equal((AuthStatus.Valid, 2), (completed.Auth.Status, completed.Stored));
+        await WaitUntilAsync(store, () => store.Auth?.Status == AuthStatus.Valid, "the store to see the valid login");
+        var again = await Assert.ThrowsAsync<EngineApiException>(
+            () => client.CompleteAuthRefreshAsync(new AuthRefreshCompleteRequest(begun.LeaseId, rotated), Ct));
+        Assert.Equal(AuthCodes.RefreshNoLease, again.Code);
     }
 
     [Fact]

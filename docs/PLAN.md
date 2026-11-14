@@ -416,7 +416,8 @@ FFmpeg builds).
 - Every generation change (login, import, log out, writeback merge) runs on the queue actor, so changes are
   serialized. A login, import or log out starts a new lineage: a writeback from a run that started before it is
   dropped (its cookies belong to a session that is gone). Each of them publishes `auth.changed`; storing new cookies
-  also asks for a verification and requeues the `WaitingAuth` items.
+  also asks for a verification, and the `WaitingAuth` items are requeued once it passes (a jar that is not logged in
+  would only send them back to `WaitingAuth`).
 - **Verification:** see below; it doubles as the keep-alive ping.
 
 #### Session longevity (goal: the user almost never has to log in again)
@@ -460,14 +461,17 @@ could rotate.
 4. **Browser refresh (YoutubeDownloadHelper.exe, every 24 h and on demand).** Google's own page scripts rotate cookies in a way
    yt-dlp never does, so a real browser visit is the most faithful way to keep a session healthy. The UI runs
    it in the background while it's running, which is most of the time thanks to tray + autostart:
-   - `POST /auth/refresh/begin` → the engine returns the current jar and **holds new cookie-using job starts**
-     (lease, max 2 min). Running jobs continue with their copies.
+   - `POST /auth/refresh/begin` → the engine returns the current jar and a lease id, and **holds new cookie-using
+     job starts** (lease, max 2 min; jobs that would run without cookies, because the login expired, are not held).
+     Running jobs continue with their copies. One lease at a time (`409` `auth.refresh.inProgress`).
    - Hidden WebView2 (same isolated profile): `DeleteAllCookies()`, inject the jar via `CreateCookie` +
      `AddOrUpdateCookie` (Netscape has no SameSite: Secure → `None`, else `Lax`), load `youtube.com`, wait until
      the page is idle (~20 s; `RotateCookies` returns ~2–5 s after load), export the cookies, `DeleteAllCookies()`,
      dispose the WebView2. Confirmed in the M0 spike: the page stays logged in and rotates `*PSIDTS`.
-   - `PUT /auth/refresh/complete` with the new jar → the engine verifies it and keeps it only if verification
-     passes. Either way it releases the lease. A rejected or lost result is safe: the stored jar is still the
+   - `PUT /auth/refresh/complete` with the lease id and the new jar → the engine verifies it and keeps it only if
+     verification passes (as a known-good `BrowserRefresh` generation based on the jar `begin` handed out). Either way
+     it releases the lease. A lease that expires first is gone: a late `complete` answers `409` `auth.refresh.noLease`,
+     and one after a login, import or log-out `409` `auth.refresh.superseded`. A rejected or lost result is safe: the stored jar is still the
      "previous" value, and the next refresh can start from it.
    - Each refresh moves the lineage, so a running job's cookie copy survives one refresh but not two. Refresh
      only on the schedule or on recovery, never in a loop.
@@ -475,7 +479,8 @@ could rotate.
    (a) retry verification once, in case it was a transient glitch → (b) if the current generation came from a
    browser refresh (possibly followed by writebacks or pings, which never rotate `*PSIDTS`), roll back to the
    generation that refresh started from and verify (anything older is dead)
-   → (c) ask the UI (`auth.refreshRequested` event) for a browser refresh, if a UI is connected
+   → (c) ask the UI (`auth.refreshRequested` event) for a browser refresh, if a UI is connected (a client on the
+   event stream), and wait up to 1 min for it to begin, then for its lease to end
    → (d) only then: status `Expired`, the `WaitingAuth` flow, and the "log in again" toast.
 6. **Telemetry (local logs only):** each generation records its source (login / import / writeback / ping / browser
    refresh / rollback) and timestamps. Session lifetime and the recovery step that saved it are logged, so the
@@ -484,8 +489,17 @@ could rotate.
 Limits: Google can still end a session (password change, a security review, "sign out of all devices").
 Then a re-login is unavoidable, but it stays one click.
 - **Verification:** a flat fetch of `https://www.youtube.com/feed/subscriptions` with the cookies succeeds only
-  when logged in. Runs on import, every 6 h (keep-alive ping), and after any Auth-category error.
-- Status: `NotLoggedIn` · `Valid` (with account name if obtainable) · `Expired` · `Unknown`. When `Expired`,
+  when logged in. Runs at engine start (when cookies are stored), on login or import, on `POST /auth/verify`, every
+  6 h (keep-alive ping), and after any Auth-category error (at most once per 10 min, so a burst of members-only
+  failures causes one verification). Success is `Valid`; an Auth-category error is a failure, which starts the
+  recovery ladder; anything else (offline, tools missing) is inconclusive: nothing changes and it runs again after
+  5 min. The status lives in memory: `Unknown` after a restart until the start-up verification. `POST /auth/verify`
+  answers `{ auth, recovering }` once it is done, or as soon as the ladder waits for a browser refresh
+  (`recovering: true`; `auth.changed` follows). Valid cookies requeue the `WaitingAuth` items only when they were not
+  valid before or the ladder brought them back: an item that fails with valid cookies (e.g. not a member) keeps
+  waiting.
+- Status: `NotLoggedIn` · `Valid` (with account name if obtainable; yt-dlp's flat listing of the feed does not show
+  it, so v1 leaves it empty) · `Expired` · `Unknown`. When `Expired`,
   jobs run without cookies; members-only items land in `WaitingAuth`, the tray toast says "Your YouTube login
   expired — click to log in again", and a successful re-login requeues all `WaitingAuth` items. `Expired` is
   reached only after the recovery ladder below.
@@ -537,8 +551,8 @@ document at `/openapi/v1.json` for non-.NET clients (no `servers` entry: the bas
 | `DELETE /items/{id}?deleteFiles=` | Remove → `Removed`; also deletes the downloaded file when `deleteFiles` |
 | `POST /queue/pause` · `/queue/resume` | Global control |
 | `GET/POST /watchers` · `PATCH/DELETE /watchers/{id}` · `POST /watchers/{id}/check` | Watchers |
-| `GET /auth` · `PUT /auth/cookies` · `DELETE /auth/cookies` · `POST /auth/verify` | Auth (status, import, log out, verify). `PUT` takes `{ cookies: [{ domain, path, name, value, secure, httpOnly, expires }] }` (the login window; a leading dot on the domain makes a domain cookie) or `{ netscape }` (a cookies.txt), exactly one; answers `{ auth, stored, skippedLines }`, `422` `auth.noYouTubeCookies` when nothing is on `youtube.com`. `DELETE` answers `204` |
-| `POST /auth/refresh/begin` · `PUT /auth/refresh/complete` | Browser-refresh lease (§5.7). `begin` returns the cookie jar: any token holder can read it, which is no new exposure, since same-user processes can already decrypt DPAPI data |
+| `GET /auth` · `PUT /auth/cookies` · `DELETE /auth/cookies` · `POST /auth/verify` | Auth (status, import, log out, verify). `PUT` takes `{ cookies: [{ domain, path, name, value, secure, httpOnly, expires }] }` (the login window; a leading dot on the domain makes a domain cookie) or `{ netscape }` (a cookies.txt), exactly one; answers `{ auth, stored, skippedLines }`, `422` `auth.noYouTubeCookies` when nothing is on `youtube.com`. `DELETE` answers `204`. `verify` answers `{ auth, recovering }` (§5.7) |
+| `POST /auth/refresh/begin` · `PUT /auth/refresh/complete` | Browser-refresh lease (§5.7). `begin` answers `{ leaseId, expiresAt, cookies }` (`409` `auth.notLoggedIn`, `auth.refresh.inProgress`): any token holder can read the jar, which is no new exposure, since same-user processes can already decrypt DPAPI data. `complete` takes `{ leaseId, cookies }` and answers `{ auth, stored }`; `409` `auth.refresh.noLease` / `auth.refresh.superseded`, `422` `auth.refresh.rejected` (not logged in) / `auth.refresh.unverified` (could not verify) / `auth.noYouTubeCookies` |
 | `GET /settings` · `PATCH /settings` | Settings (stored in the DB). `PATCH` changes the fields present, all or nothing (`400` `api.invalidParameter`); `concurrency` is read-only |
 | `GET /tools` · `POST /tools/check` · `POST /tools/{tool}/rollback` | Tools. `GET` answers `{ tools: [{ tool, version, installed, managed, channel, previousVersion, lastCheck }], ready, ytDlpChannel }`. `check` answers `202` and runs in the background (installs can outlast a request); `tools.changed` follows when it is done. `rollback` answers `204`; `404` `tool.unknown`; `409` `tool.notManaged` (a path override), `tool.rollback.noPreviousVersion` or `tool.rollback.previousVersionBroken`. Changing `ytDlpChannel` with `PATCH /settings` installs that channel's latest build in the background |
 | `GET /history?search=&cursor=&limit=` | Completed and skipped items, archive |
@@ -574,7 +588,7 @@ failure) · `notify` (user-facing: completed, failed, login needed, watcher foun
 
 `notify` events are what the UI turns into toasts, so a future UI gets the same notifications for free. The stream
 derives them from other events and publishes them on the bus, so each has an id of its own (`notify.item.completed`,
-`notify.item.failed`; later `notify.auth.*` and `notify.watcher.*`).
+`notify.item.failed`, `notify.auth.loginNeeded` when the status becomes `Expired`; later `notify.watcher.*`).
 
 **The API is language-neutral.** User-facing information travels as `{ code, args, message }`: `code` is a stable
 identifier (e.g. `error.unavailable.private`, `notify.watcher.newItems`), `args` are its parameters, and

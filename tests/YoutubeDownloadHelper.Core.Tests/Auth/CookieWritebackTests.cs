@@ -96,7 +96,8 @@ public sealed class CookieWritebackTests
         Assert.Null(await h.Cookies.BeforeJobAsync(item, h.Root.Paths.WorkDirFor(1), Ct));
 
         await h.Auth.SetCookiesAsync(Login(), CookieSource.Login, Ct);
-        h.AuthStatus.Status = AuthStatus.Expired;
+        var login = (await h.Auth.CheckOutCurrentAsync(Ct))!;
+        await h.Auth.SetVerifiedAsync(login, AuthStatus.Expired, cancellationToken: Ct);
         Assert.Null(await h.Cookies.BeforeJobAsync(item, h.Root.Paths.WorkDirFor(1), Ct));
         Assert.Null(await h.Cookies.BeforeResolveAsync(Ct));
 
@@ -104,7 +105,7 @@ public sealed class CookieWritebackTests
         var id = await h.AddAsync("https://fake.test/members-only?id=cookieexp01");
         await h.WaitForAsync(id, ItemState.WaitingAuth);
 
-        h.AuthStatus.Status = AuthStatus.Valid;
+        await h.Auth.SetVerifiedAsync(login, AuthStatus.Valid, cancellationToken: Ct);
         await h.Actor.RetryAsync(id, Ct);
         await h.WaitForAsync(id, ItemState.Completed);
     }
@@ -184,9 +185,9 @@ public sealed class CookieWritebackTests
     }
 
     [Fact]
-    public async Task Login_and_log_out_publish_auth_changed_and_a_login_requeues_items_waiting_on_auth()
+    public async Task Login_and_log_out_publish_auth_changed_and_a_verified_login_requeues_items_waiting_on_auth()
     {
-        await using var h = await SchedulerHarness.StartAsync();
+        await using var h = await SchedulerHarness.StartAsync(verifier: true);
         var id = await h.AddAsync("https://fake.test/members-only?id=cookiewai01");
         await h.WaitForAsync(id, ItemState.WaitingAuth);
         h.DrainEvents();
@@ -196,7 +197,7 @@ public sealed class CookieWritebackTests
         await h.Auth.LogOutAsync(Ct);
 
         var changes = h.DrainEvents().OfType<AuthChangedEvent>().Select(e => e.Auth.Status);
-        Assert.Equal([AuthStatus.Unknown, AuthStatus.NotLoggedIn], changes);
+        Assert.Equal([AuthStatus.Unknown, AuthStatus.Valid, AuthStatus.NotLoggedIn], changes);
         Assert.Null(h.CookieStore.Current);
         Assert.False(File.Exists(h.Root.Paths.CookiesBin));
     }

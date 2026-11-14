@@ -75,10 +75,12 @@ public static class EngineHost
         services.AddSingleton<EventMapper>();
         services.AddSingleton<EventJournal>();
         services.AddSingleton<IClientPresence>(sp => sp.GetRequiredService<EventJournal>());
+        services.Replace(ServiceDescriptor.Singleton<IUiClientPresence, EventStreamUiClientPresence>());
         services.TryAddSingleton(new IdleExitOptions());
         services.AddHostedService<DiscoveryService>();
         services.AddHostedService<SchedulerService>();
         services.AddHostedService<ToolManagerService>();
+        services.AddHostedService<AuthVerifierService>();
         services.AddHostedService<IdleExitService>();
 
         services.ConfigureHttpJsonOptions(o =>
