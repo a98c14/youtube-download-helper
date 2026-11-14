@@ -22,6 +22,7 @@
     <Compile Include="..\Shared\CultureCanaryTests.cs" Link="Shared\CultureCanaryTests.cs" />
     <Compile Include="..\Shared\Approval.cs" Link="Shared\Approval.cs" />
     <Compile Include="..\Shared\FakeToolFeed.cs" Link="Shared\FakeToolFeed.cs" />
+    <Compile Include="..\Shared\TestEngine.cs" Link="Shared\TestEngine.cs" />
   </ItemGroup>
 
 </Project>

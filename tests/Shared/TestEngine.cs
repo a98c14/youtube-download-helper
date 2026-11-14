@@ -8,9 +8,8 @@ using YoutubeDownloadHelper.Core.Persistence;
 using YoutubeDownloadHelper.Core.Scheduling;
 using YoutubeDownloadHelper.Core.Tools;
 using YoutubeDownloadHelper.Engine.Hosting;
-using YoutubeDownloadHelper.Tests.Shared;
 
-namespace YoutubeDownloadHelper.Engine.Tests;
+namespace YoutubeDownloadHelper.Tests.Shared;
 
 /// <summary>
 /// The real engine host on a <see cref="TestServer"/>, with a throwaway data folder whose path has Turkish dotted and

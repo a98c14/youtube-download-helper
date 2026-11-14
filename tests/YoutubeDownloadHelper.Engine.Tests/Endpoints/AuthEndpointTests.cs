@@ -9,6 +9,7 @@ using YoutubeDownloadHelper.Contracts.Info;
 using YoutubeDownloadHelper.Contracts.Queue;
 using YoutubeDownloadHelper.Core.Auth;
 using YoutubeDownloadHelper.Engine.Tests.Events;
+using YoutubeDownloadHelper.Tests.Shared;
 
 namespace YoutubeDownloadHelper.Engine.Tests.Endpoints;
 

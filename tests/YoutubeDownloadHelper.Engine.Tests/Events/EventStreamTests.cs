@@ -8,6 +8,7 @@ using YoutubeDownloadHelper.Contracts.Queue;
 using YoutubeDownloadHelper.Core.Persistence;
 using YoutubeDownloadHelper.Core.Queue;
 using YoutubeDownloadHelper.Engine.Events;
+using YoutubeDownloadHelper.Tests.Shared;
 
 namespace YoutubeDownloadHelper.Engine.Tests.Events;
 

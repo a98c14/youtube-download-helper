@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using YoutubeDownloadHelper.Contracts;
 using YoutubeDownloadHelper.Contracts.Api;
 using YoutubeDownloadHelper.Contracts.Messages;
+using YoutubeDownloadHelper.Tests.Shared;
 
 namespace YoutubeDownloadHelper.Engine.Tests.Hosting;
 

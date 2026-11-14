@@ -3,6 +3,7 @@ using System.Security.Principal;
 using YoutubeDownloadHelper.Contracts;
 using YoutubeDownloadHelper.Contracts.Discovery;
 using YoutubeDownloadHelper.Engine.Hosting;
+using YoutubeDownloadHelper.Tests.Shared;
 
 namespace YoutubeDownloadHelper.Engine.Tests.Hosting;
 

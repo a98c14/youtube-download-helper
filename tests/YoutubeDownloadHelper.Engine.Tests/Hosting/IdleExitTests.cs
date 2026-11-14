@@ -6,6 +6,7 @@ using YoutubeDownloadHelper.Contracts.Queue;
 using YoutubeDownloadHelper.Contracts.Settings;
 using YoutubeDownloadHelper.Engine.Events;
 using YoutubeDownloadHelper.Engine.Tests.Events;
+using YoutubeDownloadHelper.Tests.Shared;
 
 namespace YoutubeDownloadHelper.Engine.Tests.Hosting;
 

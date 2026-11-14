@@ -49,7 +49,7 @@ Build warnings are errors, and that includes analyzers and the enforced style ru
 | `src/YoutubeDownloadHelper.Engine` | `net10.0-windows` | Web SDK `WinExe` host → `YoutubeDownloadHelper.Engine.exe`. |
 | `src/YoutubeDownloadHelper.Client` | `net10.0` | Typed API client. |
 | `src/YoutubeDownloadHelper.App` | `net10.0-windows10.0.19041.0` | WPF app → `YoutubeDownloadHelper.exe`. |
-| `tests/YoutubeDownloadHelper.{Core,Engine,Client,App}.Tests` | as tested project | Unit and integration tests. |
+| `tests/YoutubeDownloadHelper.{Core,Engine,Client,App}.Tests` | as tested project (`Client.Tests`: `net10.0-windows`, it hosts the engine) | Unit and integration tests. |
 | `tests/YoutubeDownloadHelper.ArchTests` | `net10.0` | Dependency rules. |
 | `tools/YoutubeDownloadHelper.FakeYtDlp` | `net10.0` | Fake yt-dlp for tests and UI development. |
 | `spikes/` | | Throwaway M0 harnesses. Opted out of the repo's props, CPM and analyzers. |

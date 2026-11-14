@@ -102,7 +102,10 @@ src/
   YoutubeDownloadHelper.Engine/     net10.0-windows, Web SDK WinExe → YoutubeDownloadHelper.Engine.exe. Generic
                                     host, Kestrel minimal-API endpoints → Core services, SSE, discovery file,
                                     single-instance mutex, logging.
-  YoutubeDownloadHelper.Client/     net10.0. Typed .NET API client (HttpClient + SSE reader, reconnect/resync).
+  YoutubeDownloadHelper.Client/     net10.0. Typed .NET API client (HttpClient + SSE reader, reconnect/resync),
+                                    discovery-file checks, and an observable store (queue, blocks, tools, login,
+                                    connection state) that the view models bind to. It finds the engine through
+                                    `IEngineLocator`, which the app's engine supervisor implements (§7.4).
   YoutubeDownloadHelper.App/        net10.0-windows10.0.19041.0, WPF → YoutubeDownloadHelper.exe
                                     (CommunityToolkit.Mvvm): windows, view models, tray, toasts, WebView2 login,
                                     engine supervisor, Velopack integration.
@@ -110,7 +113,8 @@ tests/
   YoutubeDownloadHelper.Core.Tests/    Unit tests: state machine, classifier, retry policy, argument builder,
                                        watcher diffing.
   YoutubeDownloadHelper.Engine.Tests/  API integration tests via ASP.NET TestServer + fake yt-dlp.
-  YoutubeDownloadHelper.Client.Tests/  API client tests (SSE reconnect/resync) against fake HTTP.
+  YoutubeDownloadHelper.Client.Tests/  API client tests (SSE reconnect/resync) against the real engine on a
+                                       TestServer with fake yt-dlp, behind a test handler that drops connections.
   YoutubeDownloadHelper.App.Tests/     View-model tests against a fake client.
   YoutubeDownloadHelper.ArchTests/     Dependency-rule tests (App ↛ Core, Core ↛ ASP.NET, etc.).
 tools/
@@ -120,7 +124,7 @@ tools/
 ```
 
 Core and Engine target `net10.0-windows` because Job Objects, DPAPI, file ACLs and named mutexes are Windows-only.
-Test projects use the TFM of the project under test.
+Test projects use the TFM of the project under test; `Client.Tests` is `net10.0-windows` because it hosts the engine.
 
 References: App → Contracts + Client only. Engine → Core + Contracts. Core → Contracts (Core may use Contracts
 types such as enums, codes and the DTOs it returns; EF entities never become Contracts types). Client →
@@ -537,6 +541,12 @@ events whose id is not above its snapshot's `sequence`. Sequence numbers start o
 client that reconnects to a new engine (a new token or PID in the discovery file) always refetches. An idle stream
 gets a comment line every 15 s; a client that falls 4,096 events behind is disconnected (it reconnects and gets the
 replay or `resync`). Contracts: `Events/EventTypes` names every event and its data record.
+
+The .NET client's store (`YoutubeDownloadHelper.Client`) takes the equivalent route that needs no special first
+step: it opens the stream without `Last-Event-ID`, and on every `resync` fetches `GET /items` (all pages, keeping the
+first page's `sequence`) and then `GET /info`, applying only later events. It reconnects with backoff (250 ms
+doubling to 10 s), treats 45 s without a line (three missed heartbeats) as a dead connection, and refetches when an
+event names an item it does not have (e.g. a `queue.reordered` after an item was missed between snapshot pages).
 
 `item.added` · `item.updated` (state/metadata) · `item.progress` (throttled: phase, bytes, total, speed, eta,
 fraction) · `item.removed` · `queue.reordered` · `queue.blocked`/`queue.unblocked` (`{ block, reason }`, also for

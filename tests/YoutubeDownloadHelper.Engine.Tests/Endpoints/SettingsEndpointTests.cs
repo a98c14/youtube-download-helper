@@ -7,6 +7,7 @@ using YoutubeDownloadHelper.Contracts.Api;
 using YoutubeDownloadHelper.Contracts.Presets;
 using YoutubeDownloadHelper.Contracts.Settings;
 using YoutubeDownloadHelper.Core.Persistence;
+using YoutubeDownloadHelper.Tests.Shared;
 
 namespace YoutubeDownloadHelper.Engine.Tests.Endpoints;
 
