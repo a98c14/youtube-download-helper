@@ -410,6 +410,20 @@ public sealed class FakeYtDlpTests : IDisposable
         Assert.Contains(".youtube.com\tTRUE\t/\tTRUE\t1893456000\tSIDCC\tsidcc-value", await File.ReadAllLinesAsync(jar, TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task Rotate_drop_and_blank_change_the_saved_jar_of_any_scenario_failures_included()
+    {
+        var jar = WriteJar(LoggedInJar);
+
+        var result = await RunEngineAsync("https://fake.test/bot-check?rotate=SIDCC&drop=PREF&blank=LOGIN_INFO", "--cookies", jar);
+
+        Assert.Equal(1, result.ExitCode);
+        var saved = await File.ReadAllLinesAsync(jar, TestContext.Current.CancellationToken);
+        Assert.Contains(".youtube.com\tTRUE\t/\tTRUE\t1893456000\tSIDCC\tsidcc-value-rotated", saved);
+        Assert.Contains(".youtube.com\tTRUE\t/\tTRUE\t1893456000\tLOGIN_INFO\t", saved);
+        Assert.DoesNotContain(saved, l => l.Contains("\tPREF\t", StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData("https://www.youtube.com/feed/subscriptions")]
     [InlineData("https://fake.test/subscriptions")]

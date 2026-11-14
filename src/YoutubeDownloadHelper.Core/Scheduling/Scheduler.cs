@@ -420,12 +420,11 @@ public sealed partial class Scheduler(
     {
         var item = job.Item;
         var token = job.Token;
-        string? cookiesFile = null;
         var outcome = JobOutcome.Stopped;
         try
         {
-            cookiesFile = await seams.Cookies.BeforeJobAsync(item, paths.WorkDirFor(item.Id), token).ConfigureAwait(false);
-            outcome = await RunStepsAsync(job, settings, cookiesFile).ConfigureAwait(false);
+            job.CookiesFile = await seams.Cookies.BeforeJobAsync(item, paths.WorkDirFor(item.Id), token).ConfigureAwait(false);
+            outcome = await RunStepsAsync(job, settings).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -438,22 +437,36 @@ public sealed partial class Scheduler(
         }
         finally
         {
-            try
-            {
-                await seams.Cookies.AfterJobAsync(item, cookiesFile, outcome, CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LogCookieHookFailed(logger, item.Id, ex);
-            }
-
+            // Unless a final transition already released them (the job was stopped, or never got that far).
+            await ReleaseCookiesAsync(job, outcome).ConfigureAwait(false);
             Forget(job);
             Wake();
         }
     }
 
+    /// <summary>
+    /// Hands the job's cookies file back (merge the writeback, delete the file), once per job. Called after the last
+    /// yt-dlp run and before the item's final transition, which may delete the work folder and the file with it.
+    /// </summary>
+    private async Task ReleaseCookiesAsync(Job job, JobOutcome outcome)
+    {
+        if (!job.TryReleaseCookies())
+        {
+            return;
+        }
+
+        try
+        {
+            await seams.Cookies.AfterJobAsync(job.Item, job.CookiesFile, outcome, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            LogCookieHookFailed(logger, job.Item.Id, ex);
+        }
+    }
+
     /// <summary>Resolving → archive check → disk and collision checks → Downloading → PostProcessing → Completed.</summary>
-    private async Task<JobOutcome> RunStepsAsync(Job job, EngineSettings settings, string? cookiesFile)
+    private async Task<JobOutcome> RunStepsAsync(Job job, EngineSettings settings)
     {
         var item = job.Item;
         var request = new DownloadRequest
@@ -463,7 +476,7 @@ public sealed partial class Scheduler(
             PresetId = item.PresetId,
             DownloadFolder = settings.DownloadFolder,
             FolderOverride = item.Folder,
-            CookiesFile = cookiesFile,
+            CookiesFile = job.CookiesFile,
         };
         var log = paths.JobLogFor(item.Id, item.Attempt);
 
@@ -503,8 +516,10 @@ public sealed partial class Scheduler(
 
         if (!item.Force && await IsArchivedAsync(video).ConfigureAwait(false))
         {
+            var skipped = new JobOutcome(true, false, null);
+            await ReleaseCookiesAsync(job, skipped).ConfigureAwait(false);
             await queue.SkipAsync(item.Id, metadata, cancellationToken: CancellationToken.None).ConfigureAwait(false);
-            return new JobOutcome(true, false, null);
+            return skipped;
         }
 
         var folders = Folders(settings, item);
@@ -549,10 +564,12 @@ public sealed partial class Scheduler(
         }
 
         NoteSuccess();
+        var completed = new JobOutcome(true, false, null);
+        await ReleaseCookiesAsync(job, completed).ConfigureAwait(false);
         await queue.CompleteAsync(item.Id, finalPath, SizeOf(finalPath) ?? video.SizeEstimate, Output(run), CancellationToken.None)
             .ConfigureAwait(false);
         LogJobCompleted(logger, item.Id);
-        return new JobOutcome(true, false, null);
+        return completed;
     }
 
     /// <summary>The download run; progress goes to the actor in order, and post-processing is reported once.</summary>
@@ -618,6 +635,7 @@ public sealed partial class Scheduler(
         var outcome = new JobOutcome(false, false, error.Category);
         var category = error.Category.ToString();
         LogJobFailedWith(logger, item.Id, error.Error.Code);
+        await ReleaseCookiesAsync(job, outcome).ConfigureAwait(false);
 
         if (NoteFailure(error))
         {
@@ -986,8 +1004,12 @@ public sealed partial class Scheduler(
     {
         private readonly CancellationTokenSource _cts = new();
         private int _reason;
+        private int _cookiesReleased;
 
         public QueueItem Item { get; } = item;
+
+        /// <summary>The job's cookies file (<see cref="IJobCookieProvider.BeforeJobAsync"/>), or null.</summary>
+        public string? CookiesFile { get; set; }
 
         /// <summary>Events up to this sequence number were published before the job started.</summary>
         public long AfterSequence { get; } = afterSequence;
@@ -1004,6 +1026,9 @@ public sealed partial class Scheduler(
             Interlocked.CompareExchange(ref _reason, (int)reason, (int)StopReason.None);
             _cts.Cancel();
         }
+
+        /// <summary>True the first time only: the cookies file is handed back once.</summary>
+        public bool TryReleaseCookies() => Interlocked.Exchange(ref _cookiesReleased, 1) == 0;
     }
 
     /// <summary>What lifts <c>DiskFull</c>: room for the estimate on every folder, and after an error a margin more.</summary>

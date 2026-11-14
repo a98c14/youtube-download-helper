@@ -61,6 +61,15 @@ public static class ApiRoutes
     /// <summary><c>GET</c>: the <see cref="Settings.SettingsInfo"/>. <c>PATCH</c> <see cref="Settings.SettingsPatch"/>: changes them.</summary>
     public const string Settings = Base + "/settings";
 
+    /// <summary><c>GET</c>: the YouTube login status, an <see cref="Auth.AuthInfo"/>.</summary>
+    public const string Auth = Base + "/auth";
+
+    /// <summary>
+    /// <c>PUT</c> <see cref="Auth.SetCookiesRequest"/>: stores new cookies (a login or a <c>cookies.txt</c> import),
+    /// answered with a <see cref="Auth.SetCookiesResponse"/>. <c>DELETE</c>: logs out (deletes the stored cookies).
+    /// </summary>
+    public const string AuthCookies = Auth + "/cookies";
+
     /// <summary><c>GET</c>: the event stream (<c>text/event-stream</c>, PLAN.md §6.3); see <see cref="Events.EventTypes"/>.</summary>
     public const string Events = Base + "/events";
 

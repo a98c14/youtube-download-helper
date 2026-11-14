@@ -3,8 +3,8 @@ namespace YoutubeDownloadHelper.Core.Auth;
 /// <summary>
 /// The cookies file for a resolve or playlist listing that runs outside a job (<c>POST /resolve</c>, playlist
 /// expansion in <c>POST /items</c>; PLAN.md §5.7), so members-only entries and private playlists resolve when the user
-/// is logged in. <see cref="NoResolveCookieProvider"/> is the default (no cookies); the cookie writeback work (#48)
-/// replaces it.
+/// is logged in. <see cref="CookieFileProvider"/> is the engine's; <see cref="NoResolveCookieProvider"/> resolves without
+/// cookies.
 /// </summary>
 public interface IResolveCookieProvider
 {

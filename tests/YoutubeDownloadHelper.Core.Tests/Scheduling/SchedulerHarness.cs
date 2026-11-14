@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
+using YoutubeDownloadHelper.Contracts.Auth;
 using YoutubeDownloadHelper.Contracts.Queue;
 using YoutubeDownloadHelper.Core.Auth;
 using YoutubeDownloadHelper.Core.Errors;
@@ -33,6 +34,10 @@ public sealed class SchedulerHarness : IAsyncDisposable
         Root = root;
         _ownsRoot = ownsRoot;
         Actor = new QueueActor(root.ContextFactory, root.Paths, Bus, root.Time, NullLogger<QueueActor>.Instance);
+        CookieStore = new CookieJarStore(root.Paths, new DpapiSecretProtector(), Time, NullLogger<CookieJarStore>.Instance);
+        AuthStatus = new SettableAuthStatus(CookieStore);
+        Auth = new AuthManager(CookieStore, Actor, AuthStatus, new NoAuthVerificationTrigger(), Bus, Time, NullLogger<AuthManager>.Instance);
+        Cookies = new CookieFileProvider(Auth, root.Paths, NullLogger<CookieFileProvider>.Instance);
         Events = Bus.Subscribe();
         var builder = new YtDlpCommandBuilder(
             root.Paths,
@@ -48,7 +53,7 @@ public sealed class SchedulerHarness : IAsyncDisposable
             new YtDlpRunner(TimeProvider.System, NullLogger<YtDlpRunner>.Instance),
             new ErrorClassifier(),
             new RetryPolicy(Time, new Random(42)),
-            new SchedulerSeams(ToolHealth, ToolUpdates, AuthVerification, new NoJobCookieProvider(), Disk, Network),
+            new SchedulerSeams(ToolHealth, ToolUpdates, AuthVerification, Cookies, Disk, Network),
             options ?? new SchedulerOptions { MinYouTubeStartDelay = TimeSpan.Zero, MaxYouTubeStartDelay = TimeSpan.Zero },
             Time,
             NullLogger<Scheduler>.Instance);
@@ -75,6 +80,15 @@ public sealed class SchedulerHarness : IAsyncDisposable
     public CountingTriggers ToolUpdates { get; } = new();
 
     public CountingTriggers AuthVerification { get; } = new();
+
+    /// <summary>The cookie jar. Empty (not logged in, so jobs run without cookies) until a test logs in through <see cref="Auth"/>.</summary>
+    public CookieJarStore CookieStore { get; }
+
+    public SettableAuthStatus AuthStatus { get; }
+
+    public AuthManager Auth { get; }
+
+    public CookieFileProvider Cookies { get; }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -266,4 +280,14 @@ public sealed class CountingTriggers : IToolUpdateTrigger, IAuthVerificationTrig
     public void RequestYtDlpUpdateCheck() => Interlocked.Increment(ref _count);
 
     public void RequestVerification() => Interlocked.Increment(ref _count);
+}
+
+/// <summary>The stored jar's status, unless a test sets <see cref="Status"/>.</summary>
+public sealed class SettableAuthStatus(CookieJarStore store) : IAuthStatusProvider
+{
+    private readonly StoredJarAuthStatusProvider _stored = new(store);
+
+    public AuthStatus? Status { get; set; }
+
+    public AuthInfo GetStatus() => Status is { } status ? new AuthInfo(status) : _stored.GetStatus();
 }

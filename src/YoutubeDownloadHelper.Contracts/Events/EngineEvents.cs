@@ -40,6 +40,9 @@ public static class EventTypes
     /// </summary>
     public const string ToolInstall = "tools.install";
 
+    /// <summary><see cref="Auth.AuthChangedData"/>: the login status changed, or new cookies were stored or deleted.</summary>
+    public const string AuthChanged = "auth.changed";
+
     /// <summary><see cref="NotifyData"/>: something to tell the user (a toast).</summary>
     public const string Notify = "notify";
 

@@ -471,6 +471,18 @@ public sealed class QueueActor(
             cancellationToken);
     }
 
+    /// <summary>
+    /// Runs <paramref name="operation"/> on the actor, after every command sent before it and before every command
+    /// sent after it. For engine state outside the queue whose changes must be serialized too: the cookie generations
+    /// (PLAN.md §5.7). The operation must be short, and must not call the actor (it would wait for itself).
+    /// </summary>
+    /// <exception cref="ObjectDisposedException">The actor is disposed.</exception>
+    public Task<T> SerializeAsync<T>(Func<T> operation, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        return Send(() => Task.FromResult(operation()), cancellationToken);
+    }
+
     public async ValueTask DisposeAsync()
     {
         _commands.Writer.TryComplete();
