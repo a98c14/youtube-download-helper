@@ -344,20 +344,37 @@ FFmpeg builds).
     switches in one `tools` row update. Whatever an interrupted install leaves in `.staging` is deleted at the next
     start, and a complete version folder whose switch never committed is reused, not replaced. Reinstalling the
     current version because it is broken first moves the broken folder out of the way.
-  - #43 does the `--version` smoke test; the yt-dlp simulate step comes with the update checks (#60).
-- Schedule: check at startup and every 24 h, plus forced checks on tool-broken errors.
+  - The yt-dlp simulate step (`--simulate` of "Me at the zoo", `jNQXAC9IVRw`, with the current ffmpeg and Deno) is
+    skipped while ffmpeg or Deno is not installed, and a failure counts only when the network probe says the network
+    is up. On a new release it rejects the install; on the current version see Rollback below.
+  - A tool's channel and its previous version's channel are both in its `tools` row, so a rollback restores both.
+- Schedule: update checks at startup and every 24 h (an hour after a check that could not reach the feed), plus forced
+  checks: on tool-broken errors (yt-dlp only: a health check with smoke tests, then an update check; the scheduler asks
+  at most once per hour), on `POST /tools/check` (every tool, in the background), and on a channel switch. An update
+  installs the feed's latest when it is newer than the current version on the same channel (versions compare by
+  their `.`/`-`-separated parts, numerically where both are numbers). Every successful update, repair or rollback
+  requeues the items in `WaitingToolFix`.
 - **yt-dlp channel** (Settings → Updates): **Stable** (default) or **Nightly**, from the separate
   `yt-dlp/yt-dlp-nightly-builds` releases. Switching installs the latest build of the chosen channel right away
   (same verify/smoke-test path). Switching from nightly back to stable is an intentional *downgrade* by version
   number, so the comparison is per channel, never "newer wins". The setting text explains when to use nightly:
   "only if downloads are broken and a fix hasn't reached Stable yet".
 - **Rollback:** automatic when the smoke test fails; manual "Roll back yt-dlp" in Settings → Updates.
+  - Automatic: a health check with smoke tests (startup, forced) that finds the current version failing `--version` or
+    the simulate step switches to the previous version if that one passes the same test. Otherwise a version that does
+    not run is reinstalled, and one that runs but cannot simulate stays current (the next update may fix it; blocking
+    the queue would not). A missing binary is always reinstalled.
+  - Both kinds swap current and previous, and record the version left as skipped: update checks do not install it
+    again until a newer release comes out (a repair that has no other option may). Manual rollback
+    (`POST /tools/{tool}/rollback`) only needs the previous version to pass `--version`.
+- **GC:** after every check, version folders that are neither current, previous, nor used by a running yt-dlp process
+  are deleted. The runner holds a lease on its command's tool snapshot (`IToolUsage`) while the process runs; a
+  folder still in use is deleted by a later check.
 - Health check at startup: if a binary is missing (e.g. quarantined by antivirus) → queue block `ToolsMissing`
   and reinstall.
   - The startup check also smoke-tests each current version. Between checks, the scheduler's `ToolsReady` poll (every
     pass) notices a binary that vanished and asks for a repair. A failed install (e.g. offline at first start) is
-    retried after 1, 5, 15, 30, then every 60 minutes. A repair requeues the items in `WaitingToolFix`. Until #60, a
-    forced check on a tool-broken error (`IToolUpdateTrigger`) is a health check with smoke tests.
+    retried after 1, 5, 15, 30, then every 60 minutes. A repair requeues the items in `WaitingToolFix`.
   - A tool with an `Engine:Tools:<Tool>` path override (development, FakeYtDlp) is not managed: never installed, ready
     while its file exists.
   - Install progress and results go on the event bus (`ToolInstallProgressEvent`, `ToolInstalledEvent`,
@@ -523,7 +540,7 @@ document at `/openapi/v1.json` for non-.NET clients (no `servers` entry: the bas
 | `GET /auth` · `PUT /auth/cookies` · `DELETE /auth/cookies` · `POST /auth/verify` | Auth (status, import, log out, verify). `PUT` takes `{ cookies: [{ domain, path, name, value, secure, httpOnly, expires }] }` (the login window; a leading dot on the domain makes a domain cookie) or `{ netscape }` (a cookies.txt), exactly one; answers `{ auth, stored, skippedLines }`, `422` `auth.noYouTubeCookies` when nothing is on `youtube.com`. `DELETE` answers `204` |
 | `POST /auth/refresh/begin` · `PUT /auth/refresh/complete` | Browser-refresh lease (§5.7). `begin` returns the cookie jar: any token holder can read it, which is no new exposure, since same-user processes can already decrypt DPAPI data |
 | `GET /settings` · `PATCH /settings` | Settings (stored in the DB). `PATCH` changes the fields present, all or nothing (`400` `api.invalidParameter`); `concurrency` is read-only |
-| `GET /tools` · `POST /tools/check` · `POST /tools/{tool}/rollback` | Tools |
+| `GET /tools` · `POST /tools/check` · `POST /tools/{tool}/rollback` | Tools. `GET` answers `{ tools: [{ tool, version, installed, managed, channel, previousVersion, lastCheck }], ready, ytDlpChannel }`. `check` answers `202` and runs in the background (installs can outlast a request); `tools.changed` follows when it is done. `rollback` answers `204`; `404` `tool.unknown`; `409` `tool.notManaged` (a path override), `tool.rollback.noPreviousVersion` or `tool.rollback.previousVersionBroken`. Changing `ytDlpChannel` with `PATCH /settings` installs that channel's latest build in the background |
 | `GET /history?search=&cursor=&limit=` | Completed and skipped items, archive |
 | `GET /events` | SSE stream (below) |
 | `POST /engine/shutdown` | Graceful shutdown (`engine.stopping` to every stream, then running jobs go back to `Queued` with their partial files kept; every change is already committed) |
@@ -551,7 +568,7 @@ event names an item it does not have (e.g. a `queue.reordered` after an item was
 `item.added` · `item.updated` (state/metadata) · `item.progress` (throttled: phase, bytes, total, speed, eta,
 fraction) · `item.removed` · `queue.reordered` · `queue.blocked`/`queue.unblocked` (`{ block, reason }`, also for
 `pausedByUser`) · `watcher.updated` · `watcher.checked` · `auth.changed` · `auth.refreshRequested` · `tools.changed`
-(an install finished or the tools' health changed: every tool's status) · `tools.install` (install progress, or its
+(an install or rollback finished, an update check finished, or the tools' health changed: every tool's status) · `tools.install` (install progress, or its
 failure) · `notify` (user-facing: completed, failed, login needed, watcher found N new) · `engine.stopping` ·
 `resync`.
 

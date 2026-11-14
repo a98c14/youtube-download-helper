@@ -31,7 +31,10 @@ public static class EventTypes
     /// <summary><see cref="QueueBlockData"/>: a queue block was lifted.</summary>
     public const string QueueUnblocked = "queue.unblocked";
 
-    /// <summary><see cref="ToolsChangedData"/>: a tool was installed, or the tools' health changed.</summary>
+    /// <summary>
+    /// <see cref="ToolsChangedData"/>: a tool was installed or rolled back, the tools' health changed, or an update check
+    /// finished (<see cref="ApiRoutes.Tools"/> has the new last-check times).
+    /// </summary>
     public const string ToolsChanged = "tools.changed";
 
     /// <summary>

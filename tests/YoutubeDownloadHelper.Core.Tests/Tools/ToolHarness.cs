@@ -18,7 +18,7 @@ public sealed class ToolHarness : IAsyncDisposable
         Queue = queue;
         Overrides = overrides;
         Options = options ?? new ToolManagerOptions { RetryDelays = [TimeSpan.FromMilliseconds(50)] };
-        Installer = new ToolInstaller(queue.Root.Paths, Feed, Smoke, TimeProvider.System, NullLogger<ToolInstaller>.Instance);
+        Installer = new ToolInstaller(queue.Root.Paths, Feed, Smoke, Network, TimeProvider.System, NullLogger<ToolInstaller>.Instance);
         Manager = NewManager();
     }
 
@@ -27,6 +27,9 @@ public sealed class ToolHarness : IAsyncDisposable
     public FakeToolFeed Feed { get; } = new();
 
     public FakeSmokeTest Smoke { get; } = new();
+
+    /// <summary>Online, so a failed simulated download fails the smoke test.</summary>
+    public FakeNetworkProbe Network { get; } = new() { Online = true };
 
     public ToolLocatorOptions Overrides { get; }
 
@@ -94,6 +97,6 @@ public sealed class ToolHarness : IAsyncDisposable
     }
 
     private ToolManager NewManager() => new(
-        Queue.Root.ContextFactory, Queue.Root.Paths, Overrides, Installer, Queue.Actor, Queue.Bus, Queue.Root.Time, Options,
+        Queue.Root.ContextFactory, Queue.Root.Paths, Overrides, Installer, Queue.Root.Settings, Queue.Actor, Queue.Bus, Queue.Root.Time, Options,
         NullLogger<ToolManager>.Instance);
 }

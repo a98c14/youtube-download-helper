@@ -20,10 +20,12 @@ public sealed class YtDlpRunnerTests : IDisposable
     private readonly FakeYtDlpFolder _folder = new();
     private readonly DataPaths _paths;
     private readonly YtDlpCommandBuilder _builder;
-    private readonly YtDlpRunner _runner = new(TimeProvider.System, NullLogger<YtDlpRunner>.Instance);
+    private readonly RecordingToolUsage _usage = new();
+    private readonly YtDlpRunner _runner;
 
     public YtDlpRunnerTests()
     {
+        _runner = new YtDlpRunner(TimeProvider.System, _usage, NullLogger<YtDlpRunner>.Instance);
         _paths = new DataPaths(_folder.In("data"));
         _builder = new YtDlpCommandBuilder(
             _paths,
@@ -65,6 +67,20 @@ public sealed class YtDlpRunnerTests : IDisposable
 
         Assert.Equal(DownloadPhase.Done, result.LastProgress.Phase);
         Assert.Equal(1.0, result.LastProgress.Fraction);
+    }
+
+    [Fact]
+    public async Task The_tools_of_a_run_are_in_use_while_it_runs()
+    {
+        var command = _builder.Download(Request("https://fake.test/success?size=1M&speed=2M"));
+        var seen = new List<int>();
+
+        var result = await _runner.RunAsync(command, Options(_ => seen.Add(_usage.Active.Count)), Token);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(command.Tools, Assert.Single(_usage.Used));
+        Assert.Contains(1, seen);
+        Assert.Empty(_usage.Active);
     }
 
     [Fact]
@@ -327,5 +343,57 @@ public sealed class YtDlpRunnerTests : IDisposable
         var path = _folder.In("cookies.txt");
         await File.WriteAllTextAsync(path, "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t1893456000\tLOGIN_INFO\tlogin\n", Token);
         return path;
+    }
+}
+
+/// <summary>Records the tool leases a runner takes.</summary>
+public sealed class RecordingToolUsage : IToolUsage
+{
+    private readonly Lock _lock = new();
+    private readonly List<ToolPaths> _used = [];
+    private readonly List<ToolPaths> _active = [];
+
+    public IReadOnlyList<ToolPaths> Used
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return [.. _used];
+            }
+        }
+    }
+
+    public IReadOnlyList<ToolPaths> Active
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return [.. _active];
+            }
+        }
+    }
+
+    public IDisposable Use(ToolPaths tools)
+    {
+        lock (_lock)
+        {
+            _used.Add(tools);
+            _active.Add(tools);
+        }
+
+        return new Lease(this, tools);
+    }
+
+    private sealed class Lease(RecordingToolUsage owner, ToolPaths tools) : IDisposable
+    {
+        public void Dispose()
+        {
+            lock (owner._lock)
+            {
+                owner._active.Remove(tools);
+            }
+        }
     }
 }

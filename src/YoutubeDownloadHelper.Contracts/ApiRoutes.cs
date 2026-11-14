@@ -70,11 +70,35 @@ public static class ApiRoutes
     /// </summary>
     public const string AuthCookies = Auth + "/cookies";
 
+    /// <summary><c>GET</c>: the managed tools in detail, a <see cref="Tools.ToolList"/>.</summary>
+    public const string Tools = Base + "/tools";
+
+    /// <summary>
+    /// <c>POST</c>: checks every tool (smoke tests, then updates) in the background. Answers <c>202 Accepted</c> at once;
+    /// installs report on the event stream, and <see cref="Events.EventTypes.ToolsChanged"/> follows when the check is done.
+    /// </summary>
+    public const string ToolsCheck = Tools + "/check";
+
+    /// <summary>
+    /// <c>POST</c>: makes the tool's previous version current again. <c>204</c>; <c>404</c>
+    /// <see cref="Tools.ToolCodes.UnknownTool"/>; <c>409</c> <see cref="Tools.ToolCodes.NotManaged"/>,
+    /// <see cref="Tools.ToolCodes.NoPreviousVersion"/> or <see cref="Tools.ToolCodes.PreviousVersionBroken"/>.
+    /// </summary>
+    public const string ToolRollback = Tools + "/{tool}/rollback";
+
     /// <summary><c>GET</c>: the event stream (<c>text/event-stream</c>, PLAN.md §6.3); see <see cref="Events.EventTypes"/>.</summary>
     public const string Events = Base + "/events";
 
     /// <summary>The OpenAPI document, for non-.NET clients.</summary>
     public const string OpenApiDocument = "/openapi/v1.json";
+
+    /// <summary>One tool's path of a tool route, e.g. <c>ToolPath(ToolRollback, "yt-dlp")</c> is <c>/api/v1/tools/yt-dlp/rollback</c>.</summary>
+    public static string ToolPath(string route, string tool)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        ArgumentNullException.ThrowIfNull(tool);
+        return route.Replace("{tool}", Uri.EscapeDataString(tool), StringComparison.Ordinal);
+    }
 
     /// <summary>One item's path of an item route, e.g. <c>ItemPath(ItemPause, 5)</c> is <c>/api/v1/items/5/pause</c>.</summary>
     public static string ItemPath(string route, long id)

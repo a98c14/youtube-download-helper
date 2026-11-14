@@ -7,7 +7,8 @@ namespace YoutubeDownloadHelper.Tests.Shared;
 
 /// <summary>
 /// An in-memory release feed (no network). Each tool's "binaries" are text files; <see cref="FakeSmokeTest"/> passes
-/// those whose text starts with <c>ok</c>. Linked into the test projects that use it.
+/// those whose text starts with <c>ok</c>, and fails a simulated download of those whose text contains <c>nosim</c>. yt-dlp
+/// releases are per channel (<c>stable</c> by default, or <c>nightly</c>). Linked into the test projects that use it.
 /// </summary>
 public sealed class FakeToolFeed : IToolReleaseFeed
 {
@@ -20,6 +21,9 @@ public sealed class FakeToolFeed : IToolReleaseFeed
 
     public int Downloads { get; private set; }
 
+    /// <summary>How many times the latest release of a tool was asked for.</summary>
+    public int LatestQueries { get; private set; }
+
     /// <summary>Publishes all three tools at <paramref name="version"/>, with working binaries.</summary>
     public FakeToolFeed PublishAll(string version = "1.0")
     {
@@ -31,13 +35,17 @@ public sealed class FakeToolFeed : IToolReleaseFeed
         return this;
     }
 
-    /// <summary>Makes a release the latest of its tool. <paramref name="content"/> goes into every binary.</summary>
-    public FakeRelease Publish(ManagedTool tool, string version, string content = "ok")
+    /// <summary>
+    /// Makes a release the latest of its tool (and for yt-dlp of its <paramref name="channel"/>, stable by default).
+    /// <paramref name="content"/> goes into every binary.
+    /// </summary>
+    public FakeRelease Publish(ManagedTool tool, string version, string content = "ok", string? channel = null)
     {
-        var release = new FakeRelease(tool, version, content);
+        channel = tool.Name == "yt-dlp" ? channel ?? ToolChannels.Stable : null;
+        var release = new FakeRelease(tool, version, content, channel);
         lock (_lock)
         {
-            _latest[tool.Name] = release;
+            _latest[Key(tool, channel)] = release;
             _byUri[release.Release.AssetUri] = release;
             _byUri[release.Release.ChecksumUri] = release;
         }
@@ -45,12 +53,14 @@ public sealed class FakeToolFeed : IToolReleaseFeed
         return release;
     }
 
-    public Task<ToolRelease> GetLatestAsync(ManagedTool tool, CancellationToken cancellationToken)
+    public Task<ToolRelease> GetLatestAsync(ManagedTool tool, string? channel, CancellationToken cancellationToken)
     {
         ThrowIfOffline();
+        channel = tool.Name == "yt-dlp" ? channel ?? ToolChannels.Stable : null;
         lock (_lock)
         {
-            return _latest.TryGetValue(tool.Name, out var release)
+            LatestQueries++;
+            return _latest.TryGetValue(Key(tool, channel), out var release)
                 ? Task.FromResult(release.Release)
                 : throw new ToolFeedException($"No {tool.Name} release.");
         }
@@ -90,6 +100,8 @@ public sealed class FakeToolFeed : IToolReleaseFeed
         progress?.Invoke(bytes.Length);
     }
 
+    private static string Key(ManagedTool tool, string? channel) => channel is null ? tool.Name : $"{tool.Name}/{channel}";
+
     private FakeRelease Find(Uri uri)
     {
         lock (_lock)
@@ -109,16 +121,16 @@ public sealed class FakeToolFeed : IToolReleaseFeed
 
 public sealed class FakeRelease
 {
-    public FakeRelease(ManagedTool tool, string version, string content)
+    public FakeRelease(ManagedTool tool, string version, string content, string? channel = null)
     {
         Tool = tool;
         var zip = tool.Executables.Count > 1 || tool.Name == "deno";
         var assetName = zip ? $"{tool.Name}-win64.zip" : tool.MainExecutable;
         Asset = zip ? Zip(tool, version, content) : Encoding.UTF8.GetBytes($"{content} {tool.Name} {version}");
-        var baseUri = new Uri($"https://feed.test/{tool.Name}/{version}/");
+        var baseUri = new Uri($"https://feed.test/{tool.Name}/{channel ?? "-"}/{version}/");
         Release = new ToolRelease(
             version, assetName, new Uri(baseUri, assetName), Asset.Length, new Uri(baseUri, "SHA2-256SUMS"),
-            tool.Name == "yt-dlp" ? "stable" : null);
+            tool.Name == "yt-dlp" ? channel ?? ToolChannels.Stable : null);
         ChecksumText = $"{Convert.ToHexStringLower(SHA256.HashData(Asset))}  {assetName}\nffff  other.zip\n";
     }
 
@@ -162,23 +174,41 @@ public sealed class FakeRelease
     }
 }
 
-/// <summary>Passes a "binary" whose text starts with <c>ok</c>; counts its runs.</summary>
+/// <summary>
+/// Passes a "binary" whose text starts with <c>ok</c>, and a simulated download (<c>--simulate</c>) unless its text
+/// contains <c>nosim</c>; counts its runs.
+/// </summary>
 public sealed class FakeSmokeTest : IToolSmokeTest
 {
     private int _runs;
+    private int _simulations;
 
     public int Runs => Volatile.Read(ref _runs);
+
+    /// <summary>How many of the runs were simulated downloads.</summary>
+    public int Simulations => Volatile.Read(ref _simulations);
+
+    /// <summary>The arguments of the last simulated download.</summary>
+    public IReadOnlyList<string>? LastSimulation { get; private set; }
 
     public async Task<ToolSmokeResult> RunAsync(string executable, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         Interlocked.Increment(ref _runs);
+        var simulate = arguments.Contains("--simulate");
+        if (simulate)
+        {
+            Interlocked.Increment(ref _simulations);
+            LastSimulation = arguments;
+        }
+
         if (!File.Exists(executable))
         {
             return new ToolSmokeResult(false, "missing");
         }
 
         var text = await File.ReadAllTextAsync(executable, cancellationToken);
-        return text.StartsWith("ok", StringComparison.Ordinal) ? new ToolSmokeResult(true, text) : new ToolSmokeResult(false, text);
+        var passed = text.StartsWith("ok", StringComparison.Ordinal) && !(simulate && text.Contains("nosim", StringComparison.Ordinal));
+        return new ToolSmokeResult(passed, text);
     }
 }

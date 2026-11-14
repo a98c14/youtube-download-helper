@@ -185,8 +185,9 @@ public sealed class EngineStore : INotifyPropertyChanged, IAsyncDisposable
                     }
                 }
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (Exception ex) when (cancellationToken.IsCancellationRequested && ex is OperationCanceledException or IOException or HttpRequestException)
             {
+                // Stopping aborts the stream; the transport may report that as an I/O error instead of a cancel.
                 return;
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)

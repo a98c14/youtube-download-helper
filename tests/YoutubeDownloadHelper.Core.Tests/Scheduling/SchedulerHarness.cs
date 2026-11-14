@@ -14,6 +14,7 @@ using YoutubeDownloadHelper.Core.Scheduling;
 using YoutubeDownloadHelper.Core.Tests.FakeYtDlp;
 using YoutubeDownloadHelper.Core.Tests.Persistence;
 using YoutubeDownloadHelper.Core.Tools;
+using YoutubeDownloadHelper.Tests.Shared;
 
 namespace YoutubeDownloadHelper.Core.Tests.Scheduling;
 
@@ -50,7 +51,7 @@ public sealed class SchedulerHarness : IAsyncDisposable
             root.Settings,
             root.Paths,
             builder,
-            new YtDlpRunner(TimeProvider.System, NullLogger<YtDlpRunner>.Instance),
+            new YtDlpRunner(TimeProvider.System, new NoToolUsage(), NullLogger<YtDlpRunner>.Instance),
             new ErrorClassifier(),
             new RetryPolicy(Time, new Random(42)),
             new SchedulerSeams(ToolHealth, ToolUpdates, AuthVerification, Cookies, Disk, Network),
@@ -236,26 +237,6 @@ public sealed class FakeDiskSpace : IDiskSpace
     }
 
     public long? GetAvailableBytes(string path) => Free;
-}
-
-public sealed class FakeNetworkProbe : INetworkProbe
-{
-    private int _probes;
-    private bool _online;
-
-    public bool Online
-    {
-        get => Volatile.Read(ref _online);
-        set => Volatile.Write(ref _online, value);
-    }
-
-    public int Probes => Volatile.Read(ref _probes);
-
-    public Task<bool> IsOnlineAsync(CancellationToken cancellationToken)
-    {
-        Interlocked.Increment(ref _probes);
-        return Task.FromResult(Online);
-    }
 }
 
 public sealed class FakeToolHealth : IToolHealth

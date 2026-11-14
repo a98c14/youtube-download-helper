@@ -4,12 +4,14 @@ using Microsoft.Extensions.Logging;
 using YoutubeDownloadHelper.Contracts.Messages;
 using YoutubeDownloadHelper.Contracts.Tools;
 using YoutubeDownloadHelper.Core.Persistence;
+using YoutubeDownloadHelper.Core.Scheduling;
 
 namespace YoutubeDownloadHelper.Core.Tools;
 
 /// <summary>
 /// Installs one release of a tool into its version folder (PLAN.md §5.6): download into <c>tools\.staging\</c> →
-/// verify the published SHA-256 → extract the binaries → smoke-test them → rename the staged folder to
+/// verify the published SHA-256 → extract the binaries → smoke-test them (for yt-dlp also a simulated download, when
+/// <see cref="ToolSmoke.SimulateArguments"/> are given) → rename the staged folder to
 /// <c>tools\&lt;tool&gt;\&lt;version&gt;\</c>. The rename is the only step that touches a version folder, so a version
 /// folder is always complete, and an install that fails or is interrupted at any point leaves none behind. It does not
 /// switch the current version; <see cref="ToolManager"/> does that, in the database.
@@ -18,6 +20,7 @@ public sealed partial class ToolInstaller(
     DataPaths paths,
     IToolReleaseFeed feed,
     IToolSmokeTest smokeTest,
+    INetworkProbe network,
     TimeProvider time,
     ILogger<ToolInstaller> logger)
 {
@@ -55,38 +58,53 @@ public sealed partial class ToolInstaller(
         return true;
     }
 
-    /// <summary>Installs the feed's latest release of <paramref name="tool"/>.</summary>
+    /// <summary>Installs the feed's latest release of <paramref name="tool"/> on <paramref name="channel"/>.</summary>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> fired; nothing was installed.</exception>
     public async Task<ToolInstallResult> InstallLatestAsync(
-        ManagedTool tool, Action<ToolInstallProgressEvent>? progress, CancellationToken cancellationToken)
+        ManagedTool tool, string? channel, ToolSmoke? smoke, Action<ToolInstallProgressEvent>? progress, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(tool);
-        ToolRelease release;
+        var (release, error) = await GetLatestAsync(tool, channel, cancellationToken).ConfigureAwait(false);
+        return release is not null
+            ? await InstallAsync(tool, release, smoke, progress, cancellationToken).ConfigureAwait(false)
+            : ToolInstallResult.Failure(error!);
+    }
+
+    /// <summary>The feed's latest release of <paramref name="tool"/> on <paramref name="channel"/>, or why there is none.</summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> fired.</exception>
+    public async Task<(ToolRelease? Release, EngineMessage? Error)> GetLatestAsync(
+        ManagedTool tool, string? channel, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(tool);
         try
         {
-            release = await feed.GetLatestAsync(tool, cancellationToken).ConfigureAwait(false);
+            return (await feed.GetLatestAsync(tool, channel, cancellationToken).ConfigureAwait(false), null);
         }
         catch (ToolFeedException ex)
         {
             LogFailed(logger, tool.Name, ex);
-            return ToolInstallResult.Failure(Message(ToolCodes.AssetMissing, tool, $"The latest {tool.Name} release has no file for Windows."));
+            return (null, Message(ToolCodes.AssetMissing, tool, $"The latest {tool.Name} release has no file for Windows."));
         }
         catch (Exception ex) when (IsDownloadError(ex, cancellationToken))
         {
             LogFailed(logger, tool.Name, ex);
-            return ToolInstallResult.Failure(DownloadFailed(tool));
+            return (null, DownloadFailed(tool));
         }
-
-        return await InstallAsync(tool, release, progress, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Installs <paramref name="release"/> of <paramref name="tool"/>.</summary>
+    /// <param name="tool">The tool.</param>
+    /// <param name="release">The release to install.</param>
+    /// <param name="smoke">How to smoke-test the new binaries; <see langword="null"/> is <see cref="ToolSmoke.VersionOnly"/>.</param>
+    /// <param name="progress">Called with each step.</param>
+    /// <param name="cancellationToken">Cancels the install.</param>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> fired; nothing was installed.</exception>
     public async Task<ToolInstallResult> InstallAsync(
-        ManagedTool tool, ToolRelease release, Action<ToolInstallProgressEvent>? progress, CancellationToken cancellationToken)
+        ManagedTool tool, ToolRelease release, ToolSmoke? smoke, Action<ToolInstallProgressEvent>? progress, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(tool);
         ArgumentNullException.ThrowIfNull(release);
+        smoke ??= ToolSmoke.VersionOnly;
         var version = release.Version;
         if (!IsValidVersion(version) || !string.Equals(Path.GetFileName(release.AssetName), release.AssetName, StringComparison.Ordinal))
         {
@@ -125,18 +143,20 @@ public sealed partial class ToolInstaller(
             Extract(tool, download, content);
 
             Report(ToolInstallPhase.Testing);
-            if (await SmokeTestAsync(tool, content, cancellationToken).ConfigureAwait(false) is { } failure)
+            if (await SmokeTestAsync(tool, content, smoke, cancellationToken).ConfigureAwait(false) is { } failure)
             {
                 LogSmokeTestFailed(logger, tool.Name, version, failure.File, failure.Result.Output);
                 throw new ToolInstallException(new EngineMessage(
                     ToolCodes.SmokeTestFailed,
                     new Dictionary<string, string>(StringComparer.Ordinal) { ["tool"] = tool.Name, ["file"] = failure.File },
-                    $"{failure.File} from the new {tool.Name} release does not run."));
+                    failure.Simulated
+                        ? $"{failure.File} from the new {tool.Name} release cannot download a test video."
+                        : $"{failure.File} from the new {tool.Name} release does not run."));
             }
 
             Report(ToolInstallPhase.Switching);
             var target = VersionDir(tool, version);
-            await MoveIntoPlaceAsync(tool, content, target, Path.Combine(staging, "replaced"), cancellationToken).ConfigureAwait(false);
+            await MoveIntoPlaceAsync(tool, content, target, Path.Combine(staging, "replaced"), smoke, cancellationToken).ConfigureAwait(false);
             LogInstalled(logger, tool.Name, version);
             return ToolInstallResult.Success(version, target, release.Channel);
         }
@@ -163,23 +183,30 @@ public sealed partial class ToolInstaller(
 
     /// <summary>
     /// Whether <paramref name="directory"/> holds every binary of <paramref name="tool"/> and they pass the smoke test
-    /// (when <paramref name="smoke"/>).
+    /// (when <paramref name="smoke"/> is given).
     /// </summary>
-    public async Task<bool> IsHealthyAsync(ManagedTool tool, string directory, bool smoke, CancellationToken cancellationToken)
+    public async Task<bool> IsHealthyAsync(ManagedTool tool, string directory, ToolSmoke? smoke, CancellationToken cancellationToken) =>
+        await CheckAsync(tool, directory, smoke, cancellationToken).ConfigureAwait(false) == ToolCheck.Healthy;
+
+    /// <summary>
+    /// What is wrong with <paramref name="directory"/>, if anything: a binary is missing, or (when <paramref name="smoke"/>
+    /// is given) one fails its <c>--version</c> run, or yt-dlp fails its simulated download.
+    /// </summary>
+    public async Task<ToolCheck> CheckAsync(ManagedTool tool, string directory, ToolSmoke? smoke, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(tool);
         if (!HasFiles(tool, directory))
         {
-            return false;
+            return ToolCheck.Missing;
         }
 
-        if (smoke && await SmokeTestAsync(tool, directory, cancellationToken).ConfigureAwait(false) is { } failure)
+        if (smoke is not null && await SmokeTestAsync(tool, directory, smoke, cancellationToken).ConfigureAwait(false) is { } failure)
         {
             LogSmokeTestFailed(logger, tool.Name, Path.GetFileName(directory), failure.File, failure.Result.Output);
-            return false;
+            return failure.Simulated ? ToolCheck.SimulationFailed : ToolCheck.Broken;
         }
 
-        return true;
+        return ToolCheck.Healthy;
     }
 
     public static bool HasFiles(ManagedTool tool, string directory)
@@ -198,6 +225,39 @@ public sealed partial class ToolInstaller(
                 TryDelete(dir);
             }
         }
+    }
+
+    /// <summary>
+    /// Deletes the version folders of <paramref name="tool"/> whose names are not in <paramref name="keep"/>. A folder
+    /// that cannot be deleted (e.g. a binary still runs) stays until the next time. Returns the deleted versions.
+    /// </summary>
+    public IReadOnlyList<string> DeleteVersionsExcept(ManagedTool tool, IReadOnlySet<string> keep)
+    {
+        ArgumentNullException.ThrowIfNull(tool);
+        ArgumentNullException.ThrowIfNull(keep);
+        var root = Path.Combine(paths.ToolsDir, tool.Name);
+        if (!Directory.Exists(root))
+        {
+            return [];
+        }
+
+        List<string> deleted = [];
+        foreach (var dir in Directory.EnumerateDirectories(root))
+        {
+            var version = Path.GetFileName(dir);
+            if (!IsValidVersion(version) || keep.Contains(version))
+            {
+                continue;
+            }
+
+            if (TryDelete(dir))
+            {
+                LogDeletedVersion(logger, tool.Name, version);
+                deleted.Add(version);
+            }
+        }
+
+        return deleted;
     }
 
     private async Task VerifyAsync(ManagedTool tool, ToolRelease release, string download, CancellationToken cancellationToken)
@@ -246,14 +306,25 @@ public sealed partial class ToolInstaller(
         }
     }
 
-    private async Task<SmokeFailure?> SmokeTestAsync(ManagedTool tool, string directory, CancellationToken cancellationToken)
+    private async Task<SmokeFailure?> SmokeTestAsync(ManagedTool tool, string directory, ToolSmoke smoke, CancellationToken cancellationToken)
     {
         foreach (var exe in tool.Executables)
         {
             var result = await smokeTest.RunAsync(Path.Combine(directory, exe), tool.SmokeArguments, cancellationToken).ConfigureAwait(false);
             if (!result.Passed)
             {
-                return new SmokeFailure(exe, result);
+                return new SmokeFailure(exe, result, Simulated: false);
+            }
+        }
+
+        if (smoke.SimulateArguments is { } simulate)
+        {
+            var result = await smokeTest.RunAsync(Path.Combine(directory, tool.MainExecutable), simulate, cancellationToken).ConfigureAwait(false);
+
+            // Offline, a failed simulation says nothing about the binary.
+            if (!result.Passed && await network.IsOnlineAsync(cancellationToken).ConfigureAwait(false))
+            {
+                return new SmokeFailure(tool.MainExecutable, result, Simulated: true);
             }
         }
 
@@ -265,11 +336,12 @@ public sealed partial class ToolInstaller(
     /// is kept when it is healthy (an earlier install got this far but did not switch); a broken one (e.g. antivirus
     /// took a binary) is moved out of the way first, into the staging folder that is deleted afterwards.
     /// </summary>
-    private async Task MoveIntoPlaceAsync(ManagedTool tool, string content, string target, string replaced, CancellationToken cancellationToken)
+    private async Task MoveIntoPlaceAsync(
+        ManagedTool tool, string content, string target, string replaced, ToolSmoke smoke, CancellationToken cancellationToken)
     {
         if (Directory.Exists(target))
         {
-            if (await IsHealthyAsync(tool, target, smoke: true, cancellationToken).ConfigureAwait(false))
+            if (await IsHealthyAsync(tool, target, smoke, cancellationToken).ConfigureAwait(false))
             {
                 return;
             }
@@ -291,7 +363,7 @@ public sealed partial class ToolInstaller(
     private static EngineMessage Message(string code, ManagedTool tool, string message) =>
         new(code, new Dictionary<string, string>(StringComparer.Ordinal) { ["tool"] = tool.Name }, message);
 
-    private void TryDelete(string directory)
+    private bool TryDelete(string directory)
     {
         try
         {
@@ -299,14 +371,17 @@ public sealed partial class ToolInstaller(
             {
                 Directory.Delete(directory, recursive: true);
             }
+
+            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             LogCleanupFailed(logger, directory, ex);
+            return false;
         }
     }
 
-    private sealed record SmokeFailure(string File, ToolSmokeResult Result);
+    private sealed record SmokeFailure(string File, ToolSmokeResult Result, bool Simulated);
 
     private sealed class ToolInstallException(EngineMessage reason) : Exception(reason.Message)
     {
@@ -328,6 +403,9 @@ public sealed partial class ToolInstaller(
     [LoggerMessage(Level = LogLevel.Warning, Message = "Installing {Tool} failed")]
     private static partial void LogFailed(ILogger logger, string tool, Exception exception);
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "Deleted {Tool} {Version}: neither current, previous nor in use")]
+    private static partial void LogDeletedVersion(ILogger logger, string tool, string version);
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not delete {Directory}")]
     private static partial void LogCleanupFailed(ILogger logger, string directory, Exception exception);
 }
@@ -341,4 +419,30 @@ public sealed record ToolInstallResult(bool Succeeded, string? Version, string? 
     public static ToolInstallResult Success(string version, string directory, string? channel) => new(true, version, directory, channel, null);
 
     public static ToolInstallResult Failure(EngineMessage error) => new(false, null, null, null, error);
+}
+
+/// <summary>How a smoke test runs a tool (PLAN.md §5.6).</summary>
+/// <param name="SimulateArguments">
+/// For yt-dlp: the arguments of a simulated download of a stable public video, run after <c>--version</c>. It fails the
+/// smoke test only while the network is up. <see langword="null"/> skips it (another tool, or Deno is not installed yet).
+/// </param>
+public sealed record ToolSmoke(IReadOnlyList<string>? SimulateArguments)
+{
+    /// <summary>Only the <c>--version</c> run.</summary>
+    public static ToolSmoke VersionOnly { get; } = new(SimulateArguments: null);
+}
+
+/// <summary>The outcome of <see cref="ToolInstaller.CheckAsync"/>.</summary>
+public enum ToolCheck
+{
+    Healthy,
+
+    /// <summary>A binary is missing (e.g. quarantined by antivirus).</summary>
+    Missing,
+
+    /// <summary>A binary fails its <c>--version</c> run.</summary>
+    Broken,
+
+    /// <summary>yt-dlp runs, but its simulated download fails while the network is up.</summary>
+    SimulationFailed,
 }

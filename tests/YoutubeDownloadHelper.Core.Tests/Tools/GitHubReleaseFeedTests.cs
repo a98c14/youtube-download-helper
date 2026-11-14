@@ -14,7 +14,7 @@ public sealed class GitHubReleaseFeedTests
         var handler = new FakeHandler(Release("2026.10.26", "2026-10-26T20:00:00Z", "yt-dlp", "yt-dlp.exe", "SHA2-256SUMS", "yt-dlp_x86.exe"));
         using var feed = new GitHubReleaseFeed(new HttpClient(handler));
 
-        var release = await feed.GetLatestAsync(ManagedTool.YtDlp, Ct);
+        var release = await feed.GetLatestAsync(ManagedTool.YtDlp, null, Ct);
 
         Assert.Equal(
             new ToolRelease(
@@ -27,6 +27,19 @@ public sealed class GitHubReleaseFeedTests
     }
 
     [Fact]
+    public async Task The_nightly_channel_reads_the_nightly_builds_repository()
+    {
+        var handler = new FakeHandler(Release("2026.11.01.233311", "2026-11-01T23:33:11Z", "yt-dlp", "yt-dlp.exe", "SHA2-256SUMS"));
+        using var feed = new GitHubReleaseFeed(new HttpClient(handler));
+
+        var release = await feed.GetLatestAsync(ManagedTool.YtDlp, ToolChannels.Nightly, Ct);
+
+        Assert.Equal(("2026.11.01.233311", "nightly"), (release.Version, release.Channel));
+        Assert.Equal("https://api.github.com/repos/yt-dlp/yt-dlp-nightly-builds/releases/latest", Assert.Single(handler.Requests).RequestUri!.ToString());
+        await Assert.ThrowsAsync<ArgumentException>(() => feed.GetLatestAsync(ManagedTool.YtDlp, "beta", Ct));
+    }
+
+    [Fact]
     public async Task Deno_versions_drop_the_v_and_ffmpeg_versions_are_the_publish_time()
     {
         using var deno = new GitHubReleaseFeed(new HttpClient(new FakeHandler(Release(
@@ -34,8 +47,8 @@ public sealed class GitHubReleaseFeedTests
         using var ffmpeg = new GitHubReleaseFeed(new HttpClient(new FakeHandler(Release(
             "latest", "2026-11-01T19:09:08Z", "ffmpeg", "ffmpeg-master-latest-win64-gpl.zip", "checksums.sha256", "ffmpeg-master-latest-win64-gpl-shared.zip"))));
 
-        var denoRelease = await deno.GetLatestAsync(ManagedTool.Deno, Ct);
-        var ffmpegRelease = await ffmpeg.GetLatestAsync(ManagedTool.Ffmpeg, Ct);
+        var denoRelease = await deno.GetLatestAsync(ManagedTool.Deno, null, Ct);
+        var ffmpegRelease = await ffmpeg.GetLatestAsync(ManagedTool.Ffmpeg, null, Ct);
 
         Assert.Equal(("2.9.8", "deno-x86_64-pc-windows-msvc.zip", null), (denoRelease.Version, denoRelease.AssetName, denoRelease.Channel));
         Assert.Equal(("2026-11-01-1909", "ffmpeg-master-latest-win64-gpl.zip"), (ffmpegRelease.Version, ffmpegRelease.AssetName));
@@ -47,7 +60,7 @@ public sealed class GitHubReleaseFeedTests
     {
         using var feed = new GitHubReleaseFeed(new HttpClient(new FakeHandler(Release("2026.10.26", "2026-10-26T20:00:00Z", "yt-dlp", "SHA2-256SUMS"))));
 
-        await Assert.ThrowsAsync<ToolFeedException>(() => feed.GetLatestAsync(ManagedTool.YtDlp, Ct));
+        await Assert.ThrowsAsync<ToolFeedException>(() => feed.GetLatestAsync(ManagedTool.YtDlp, null, Ct));
     }
 
     [Fact]
@@ -55,7 +68,7 @@ public sealed class GitHubReleaseFeedTests
     {
         using var feed = new GitHubReleaseFeed(new HttpClient(new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.Forbidden))));
 
-        await Assert.ThrowsAsync<HttpRequestException>(() => feed.GetLatestAsync(ManagedTool.YtDlp, Ct));
+        await Assert.ThrowsAsync<HttpRequestException>(() => feed.GetLatestAsync(ManagedTool.YtDlp, null, Ct));
     }
 
     [Fact]

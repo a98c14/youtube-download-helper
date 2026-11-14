@@ -128,6 +128,7 @@ public static class EngineHost
         api.MapQueueEndpoints();
         api.MapHistoryEndpoints();
         api.MapSettingsEndpoints();
+        api.MapToolsEndpoints();
         api.MapEventsEndpoints();
         api.MapEngineEndpoints();
         return app;

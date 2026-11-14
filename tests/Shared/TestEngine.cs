@@ -14,7 +14,9 @@ namespace YoutubeDownloadHelper.Tests.Shared;
 /// <summary>
 /// The real engine host on a <see cref="TestServer"/>, with a throwaway data folder whose path has Turkish dotted and
 /// dotless I. Requests go to <c>http://127.0.0.1:47815</c>. The tool manager installs from a <see cref="FakeToolFeed"/>
-/// (offline unless a test publishes releases) and smoke-tests with a <see cref="FakeSmokeTest"/>.
+/// (offline unless a test publishes releases) and smoke-tests with a <see cref="FakeSmokeTest"/>. Connectivity checks
+/// (the scheduler's <c>WaitingForNetwork</c> block, yt-dlp's simulated download) ask a <see cref="FakeNetworkProbe"/>,
+/// online unless a test says otherwise. Nothing reaches the real network.
 /// </summary>
 public sealed class TestEngine : IAsyncDisposable
 {
@@ -22,11 +24,12 @@ public sealed class TestEngine : IAsyncDisposable
 
     private bool _stopped;
 
-    private TestEngine(WebApplication app, DataPaths paths, FakeToolFeed toolFeed)
+    private TestEngine(WebApplication app, DataPaths paths, FakeToolFeed toolFeed, FakeNetworkProbe network)
     {
         App = app;
         Paths = paths;
         ToolFeed = toolFeed;
+        Network = network;
     }
 
     public static Uri BaseAddress { get; } = new($"http://127.0.0.1:{Port}/");
@@ -39,6 +42,9 @@ public sealed class TestEngine : IAsyncDisposable
     public DataPaths Paths { get; }
 
     public FakeToolFeed ToolFeed { get; }
+
+    /// <summary>What the engine's connectivity checks answer; online by default.</summary>
+    public FakeNetworkProbe Network { get; }
 
     public TestServer Server => App.GetTestServer();
 
@@ -69,6 +75,8 @@ public sealed class TestEngine : IAsyncDisposable
         builder.Configuration[$"{EngineOptions.Section}:{nameof(EngineOptions.Port)}"] = Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
         builder.Services.AddSingleton<IToolReleaseFeed>(toolFeed);
         builder.Services.AddSingleton<IToolSmokeTest>(new FakeSmokeTest());
+        var network = new FakeNetworkProbe { Online = true };
+        builder.Services.AddSingleton<INetworkProbe>(network);
         if (fakeTools)
         {
             foreach (var tool in (string[])["YtDlp", "Ffmpeg", "Deno"])
@@ -88,7 +96,7 @@ public sealed class TestEngine : IAsyncDisposable
         var app = builder.Build();
         app.MapEngine();
         mapExtra?.Invoke(app);
-        var engine = new TestEngine(app, paths, toolFeed);
+        var engine = new TestEngine(app, paths, toolFeed, network);
         try
         {
             await EngineHost.StartAsync(app, TestContext.Current.CancellationToken);
