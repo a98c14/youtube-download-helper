@@ -42,7 +42,8 @@ public sealed class EventMapper(IToolStatusProvider tools, IToolHealth toolHealt
         ToolInstallFailedEvent e => new(
             EventTypes.ToolInstall,
             new ToolInstallData(e.Tool, null, ToolInstallStatus.Failed, null, null, e.Reason)),
-        ToolInstalledEvent => new(EventTypes.ToolsChanged, new ToolsChangedData(tools.GetTools(), toolHealth.ToolsReady)),
+        ToolInstalledEvent or ToolRolledBackEvent or ToolsCheckedEvent =>
+            new(EventTypes.ToolsChanged, new ToolsChangedData(tools.GetTools(), toolHealth.ToolsReady)),
         ToolHealthChangedEvent e => new(EventTypes.ToolsChanged, new ToolsChangedData(tools.GetTools(), e.ToolsReady)),
         AuthChangedEvent e => new(EventTypes.AuthChanged, new AuthChangedData(e.Auth)),
         NotifyEvent e => new(EventTypes.Notify, new NotifyData(e.Message, e.ItemId)),

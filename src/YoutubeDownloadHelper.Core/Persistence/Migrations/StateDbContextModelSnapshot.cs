@@ -308,6 +308,14 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("previous");
 
+                    b.Property<string>("PreviousChannel")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("previous_channel");
+
+                    b.Property<string>("SkippedVersion")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("skipped_version");
+
                     b.Property<string>("Tool")
                         .IsRequired()
                         .HasColumnType("TEXT")

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Text;
 using Microsoft.Extensions.Logging;
+using YoutubeDownloadHelper.Core.Tools;
 
 namespace YoutubeDownloadHelper.Core.Runner;
 
@@ -9,9 +10,11 @@ namespace YoutubeDownloadHelper.Core.Runner;
 /// Runs yt-dlp commands from <see cref="YtDlpCommandBuilder"/> (PLAN.md §5.4). Each run is a
 /// <see cref="JobObjectProcess"/> with no <c>PYTHON*</c> variables; cancelling kills the whole process tree.
 /// Both streams are read as UTF-8 (invalid bytes replaced) and split on <c>\n</c>. <c>YDH1</c> lines feed a
-/// <see cref="ProgressTracker"/>; the rest is raw output for the output tail and the error classifier. Thread-safe.
+/// <see cref="ProgressTracker"/>; the rest is raw output for the output tail and the error classifier. While a process
+/// runs, its command's tool versions are marked in use (<see cref="IToolUsage"/>), so they are not garbage-collected.
+/// Thread-safe.
 /// </summary>
-public sealed partial class YtDlpRunner(TimeProvider time, ILogger<YtDlpRunner> logger)
+public sealed partial class YtDlpRunner(TimeProvider time, IToolUsage toolUsage, ILogger<YtDlpRunner> logger)
 {
     /// <summary>How many lines <see cref="YtDlpRunResult.OutputTail"/> and <see cref="YtDlpRunResult.ErrorLines"/> keep.</summary>
     public const int TailLines = 200;
@@ -50,6 +53,7 @@ public sealed partial class YtDlpRunner(TimeProvider time, ILogger<YtDlpRunner> 
         ArgumentNullException.ThrowIfNull(command);
         cancellationToken.ThrowIfCancellationRequested();
 
+        using var lease = command.Tools is { } tools ? toolUsage.Use(tools) : null;
         using var output = new RunOutput(options, time, logger);
         output.Header(command);
         var environment = WindowsCommandLine.ChildEnvironment(Environment.GetEnvironmentVariables());

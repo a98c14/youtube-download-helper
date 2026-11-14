@@ -35,3 +35,17 @@ public sealed record ToolInstallFailedEvent(string Tool, EngineMessage Reason) :
 /// lift the <c>ToolsMissing</c> queue block.
 /// </summary>
 public sealed record ToolHealthChangedEvent(bool ToolsReady) : EngineEvent;
+
+/// <summary>
+/// A tool went back to its previous version: automatically, because the current one failed its smoke test, or because
+/// the user asked (<c>POST /tools/{tool}/rollback</c>). The version it left is skipped by update checks until a newer
+/// release comes out.
+/// </summary>
+/// <param name="Tool">One of <c>ToolNames</c>.</param>
+/// <param name="Version">The new current version (the former previous one).</param>
+/// <param name="FromVersion">The version it rolled back from, now the previous one.</param>
+/// <param name="Automatic">The smoke test failed, rather than the user asking.</param>
+public sealed record ToolRolledBackEvent(string Tool, string Version, string FromVersion, bool Automatic) : EngineEvent;
+
+/// <summary>An update check finished (whether or not it installed anything); the tools' last-check times changed.</summary>
+public sealed record ToolsCheckedEvent : EngineEvent;

@@ -53,6 +53,8 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                     current = table.Column<string>(type: "TEXT", nullable: true),
                     previous = table.Column<string>(type: "TEXT", nullable: true),
                     channel = table.Column<string>(type: "TEXT", nullable: true),
+                    previous_channel = table.Column<string>(type: "TEXT", nullable: true),
+                    skipped_version = table.Column<string>(type: "TEXT", nullable: true),
                     last_check = table.Column<long>(type: "INTEGER", nullable: true),
                     created_at = table.Column<long>(type: "INTEGER", nullable: false),
                     updated_at = table.Column<long>(type: "INTEGER", nullable: false)

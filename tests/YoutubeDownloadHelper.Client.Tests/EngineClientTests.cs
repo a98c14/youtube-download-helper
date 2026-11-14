@@ -8,6 +8,8 @@ using YoutubeDownloadHelper.Contracts.Events;
 using YoutubeDownloadHelper.Contracts.Queue;
 using YoutubeDownloadHelper.Contracts.Resolve;
 using YoutubeDownloadHelper.Contracts.Settings;
+using YoutubeDownloadHelper.Contracts.Tools;
+using YoutubeDownloadHelper.Core.Tools;
 using YoutubeDownloadHelper.Tests.Shared;
 using static YoutubeDownloadHelper.Client.Tests.TestKit;
 
@@ -93,6 +95,26 @@ public sealed class EngineClientTests
     }
 
     [Fact]
+    public async Task Tools_can_be_listed_checked_and_rolled_back()
+    {
+        var feed = new FakeToolFeed().PublishAll("1.0");
+        await using var engine = await TestEngine.StartAsync(toolFeed: feed);
+        using var client = CreateClient(engine);
+        await WaitForToolsAsync(client, t => t.Ready && t.Tools.All(d => d.LastCheck is not null));
+        feed.Publish(ManagedTool.Deno, "1.1");
+
+        await client.CheckToolsAsync(Ct);
+        var updated = await WaitForToolsAsync(client, t => t.Tools[2].Version == "1.1");
+        await client.RollbackToolAsync(ToolNames.Deno, Ct);
+        var rolledBack = await client.GetToolsAsync(Ct);
+        var noPrevious = await Assert.ThrowsAsync<EngineApiException>(() => client.RollbackToolAsync(ToolNames.Ffmpeg, Ct));
+
+        Assert.Equal(("1.1", "1.0"), (updated.Tools[2].Version, updated.Tools[2].PreviousVersion));
+        Assert.Equal(("1.0", "1.1"), (rolledBack.Tools[2].Version, rolledBack.Tools[2].PreviousVersion));
+        Assert.Equal((HttpStatusCode.Conflict, ToolCodes.NoPreviousVersion), (noPrevious.StatusCode, noPrevious.Code));
+    }
+
+    [Fact]
     public async Task Errors_are_engine_messages()
     {
         await using var engine = await TestEngine.StartAsync();
@@ -152,6 +174,22 @@ public sealed class EngineClientTests
         using var client = CreateClient(engine);
 
         await client.ShutdownAsync(Ct);
+    }
+
+    private static async Task<ToolList> WaitForToolsAsync(EngineClient client, Func<ToolList, bool> match)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        while (true)
+        {
+            var tools = await client.GetToolsAsync(timeout.Token);
+            if (match(tools))
+            {
+                return tools;
+            }
+
+            await Task.Delay(20, timeout.Token);
+        }
     }
 
     /// <summary>Answers every request with the same response.</summary>

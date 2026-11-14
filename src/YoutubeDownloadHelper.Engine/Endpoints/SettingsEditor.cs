@@ -2,15 +2,17 @@ using YoutubeDownloadHelper.Contracts.Messages;
 using YoutubeDownloadHelper.Contracts.Settings;
 using YoutubeDownloadHelper.Core.Persistence;
 using YoutubeDownloadHelper.Core.Presets;
+using YoutubeDownloadHelper.Core.Tools;
 using YoutubeDownloadHelper.Engine.Hosting;
 
 namespace YoutubeDownloadHelper.Engine.Endpoints;
 
 /// <summary>
 /// <c>PATCH /settings</c>: validates every given setting, then stores them together. Patches are serialized, so two
-/// concurrent ones cannot undo each other.
+/// concurrent ones cannot undo each other. A new yt-dlp channel has the tool manager install that channel's latest build
+/// right away (PLAN.md §5.6).
 /// </summary>
-public sealed class SettingsEditor(SettingsStore store, PresetRegistry presets) : IDisposable
+public sealed class SettingsEditor(SettingsStore store, PresetRegistry presets, ToolManager tools) : IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -40,6 +42,11 @@ public sealed class SettingsEditor(SettingsStore store, PresetRegistry presets) 
             if (updated != current)
             {
                 await store.SaveAsync(updated, CancellationToken.None);
+            }
+
+            if (updated.YtDlpChannel != current.YtDlpChannel)
+            {
+                tools.RequestUpdateCheck(ytDlpOnly: true);
             }
 
             return (updated, null);

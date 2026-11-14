@@ -1187,6 +1187,145 @@
           }
         }
       }
+    },
+    "/api/v1/tools": {
+      "get": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "The managed tools: current and previous versions, yt-dlp's channel, last update checks.",
+        "operationId": "getTools",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolList"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/check": {
+      "post": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "Checks every tool (smoke tests, then updates) in the background; tools.changed follows when it is done.",
+        "operationId": "checkTools",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted"
+          }
+        }
+      }
+    },
+    "/api/v1/tools/{tool}/rollback": {
+      "post": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "Makes the tool's previous version current again; update checks skip the version it leaves.",
+        "operationId": "rollbackTool",
+        "parameters": [
+          {
+            "name": "tool",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMessage"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2256,6 +2395,58 @@
           }
         }
       },
+      "ToolDetails": {
+        "required": [
+          "tool",
+          "version",
+          "installed",
+          "managed",
+          "channel",
+          "previousVersion",
+          "lastCheck"
+        ],
+        "type": "object",
+        "properties": {
+          "tool": {
+            "type": "string"
+          },
+          "version": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "managed": {
+            "type": "boolean"
+          },
+          "channel": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/YtDlpChannel"
+              }
+            ]
+          },
+          "previousVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "lastCheck": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
       "ToolInfo": {
         "required": [
           "tool",
@@ -2275,6 +2466,28 @@
           },
           "installed": {
             "type": "boolean"
+          }
+        }
+      },
+      "ToolList": {
+        "required": [
+          "tools",
+          "ready",
+          "ytDlpChannel"
+        ],
+        "type": "object",
+        "properties": {
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolDetails"
+            }
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "ytDlpChannel": {
+            "$ref": "#/components/schemas/YtDlpChannel"
           }
         }
       },
@@ -2325,6 +2538,9 @@
     },
     {
       "name": "Items"
+    },
+    {
+      "name": "Tools"
     }
   ]
 }

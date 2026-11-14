@@ -50,7 +50,7 @@ public sealed class SchedulerHarness : IAsyncDisposable
             root.Settings,
             root.Paths,
             builder,
-            new YtDlpRunner(TimeProvider.System, NullLogger<YtDlpRunner>.Instance),
+            new YtDlpRunner(TimeProvider.System, new NoToolUsage(), NullLogger<YtDlpRunner>.Instance),
             new ErrorClassifier(),
             new RetryPolicy(Time, new Random(42)),
             new SchedulerSeams(ToolHealth, ToolUpdates, AuthVerification, Cookies, Disk, Network),

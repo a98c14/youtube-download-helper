@@ -11,7 +11,7 @@ using YoutubeDownloadHelper.Core.Persistence;
 namespace YoutubeDownloadHelper.Core.Persistence.Migrations
 {
     [DbContext(typeof(StateDbContext))]
-    [Migration("20261101105529_Initial")]
+    [Migration("20261114110248_Initial")]
     partial class Initial
     {
         /// <inheritdoc />
@@ -310,6 +310,14 @@ namespace YoutubeDownloadHelper.Core.Persistence.Migrations
                     b.Property<string>("Previous")
                         .HasColumnType("TEXT")
                         .HasColumnName("previous");
+
+                    b.Property<string>("PreviousChannel")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("previous_channel");
+
+                    b.Property<string>("SkippedVersion")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("skipped_version");
 
                     b.Property<string>("Tool")
                         .IsRequired()

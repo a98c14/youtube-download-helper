@@ -12,6 +12,7 @@ using YoutubeDownloadHelper.Contracts.Messages;
 using YoutubeDownloadHelper.Contracts.Queue;
 using YoutubeDownloadHelper.Contracts.Resolve;
 using YoutubeDownloadHelper.Contracts.Settings;
+using YoutubeDownloadHelper.Contracts.Tools;
 
 namespace YoutubeDownloadHelper.Client;
 
@@ -191,6 +192,26 @@ public sealed class EngineClient : IDisposable
     /// <summary><c>DELETE /auth/cookies</c>: logs out.</summary>
     public Task LogOutAsync(CancellationToken cancellationToken = default) =>
         SendAsync(HttpMethod.Delete, ApiRoutes.AuthCookies, null, cancellationToken);
+
+    /// <summary><c>GET /tools</c>: the managed tools with their current and previous versions and last update checks.</summary>
+    public Task<ToolList> GetToolsAsync(CancellationToken cancellationToken = default) =>
+        GetAsync<ToolList>(ApiRoutes.Tools, cancellationToken);
+
+    /// <summary>
+    /// <c>POST /tools/check</c>: starts a check of every tool (smoke tests, then updates) and returns at once. Installs
+    /// show up as <c>tools.install</c> events; <c>tools.changed</c> follows when the check is done.
+    /// </summary>
+    public Task CheckToolsAsync(CancellationToken cancellationToken = default) =>
+        SendAsync(HttpMethod.Post, ApiRoutes.ToolsCheck, null, cancellationToken);
+
+    /// <summary><c>POST /tools/{tool}/rollback</c>: makes the tool's previous version current again.</summary>
+    /// <param name="tool">One of <see cref="ToolNames"/>.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    public Task RollbackToolAsync(string tool, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(tool);
+        return SendAsync(HttpMethod.Post, ApiRoutes.ToolPath(ApiRoutes.ToolRollback, tool), null, cancellationToken);
+    }
 
     /// <summary>
     /// <c>GET /events</c>: opens the event stream. With <paramref name="lastEventId"/> the engine replays every later

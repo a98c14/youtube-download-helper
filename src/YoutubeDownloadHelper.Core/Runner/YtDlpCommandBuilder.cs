@@ -37,7 +37,7 @@ public sealed class YtDlpCommandBuilder(DataPaths paths, IToolLocator tools, Pre
             .. output,
             .. Url(request.Url),
         ];
-        return new YtDlpCommand(snapshot.YtDlp, args);
+        return new YtDlpCommand(snapshot.YtDlp, args, snapshot);
     }
 
     /// <summary>
@@ -51,7 +51,8 @@ public sealed class YtDlpCommandBuilder(DataPaths paths, IToolLocator tools, Pre
         var snapshot = tools.Current;
         return new YtDlpCommand(
             snapshot.YtDlp,
-            [.. Common(snapshot, request.CookiesFile), "-J", "--no-playlist", .. output, .. Url(request.Url)]);
+            [.. Common(snapshot, request.CookiesFile), "-J", "--no-playlist", .. output, .. Url(request.Url)],
+            snapshot);
     }
 
     /// <summary>Metadata of a single video as one JSON object (<c>-J</c>), for the Add dialog and before a download.</summary>
@@ -60,7 +61,7 @@ public sealed class YtDlpCommandBuilder(DataPaths paths, IToolLocator tools, Pre
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
 
         var snapshot = tools.Current;
-        return new YtDlpCommand(snapshot.YtDlp, [.. Common(snapshot, cookiesFile), "-J", "--no-playlist", .. Url(url)]);
+        return new YtDlpCommand(snapshot.YtDlp, [.. Common(snapshot, cookiesFile), "-J", "--no-playlist", .. Url(url)], snapshot);
     }
 
     /// <summary>
@@ -73,7 +74,7 @@ public sealed class YtDlpCommandBuilder(DataPaths paths, IToolLocator tools, Pre
         ArgumentOutOfRangeException.ThrowIfLessThan(playlistEnd, 1);
 
         var snapshot = tools.Current;
-        return new YtDlpCommand(snapshot.YtDlp, [.. Common(snapshot, cookiesFile), .. Listing(playlistEnd), .. Url(url)]);
+        return new YtDlpCommand(snapshot.YtDlp, [.. Common(snapshot, cookiesFile), .. Listing(playlistEnd), .. Url(url)], snapshot);
     }
 
     /// <summary>
@@ -87,7 +88,8 @@ public sealed class YtDlpCommandBuilder(DataPaths paths, IToolLocator tools, Pre
         var snapshot = tools.Current;
         return new YtDlpCommand(
             snapshot.YtDlp,
-            [.. Common(snapshot, cookiesFile), .. Listing(1), .. Url(YtDlpTemplates.SubscriptionsFeedUrl)]);
+            [.. Common(snapshot, cookiesFile), .. Listing(1), .. Url(YtDlpTemplates.SubscriptionsFeedUrl)],
+            snapshot);
     }
 
     /// <summary>

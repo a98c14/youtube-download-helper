@@ -285,6 +285,26 @@ public sealed class SchedulerTests
     }
 
     [Fact]
+    public async Task Broken_extractors_ask_for_a_yt_dlp_update_check_at_most_once_per_hour()
+    {
+        await using var h = await SchedulerHarness.StartAsync();
+        await h.WaitForAsync(await h.AddAsync("https://fake.test/extractor-failure?id=extract0001"), ItemState.WaitingToolFix);
+        await WaitForUpdateRequestsAsync(h, 1);
+
+        await h.AdvanceAsync(TimeSpan.FromMinutes(59));
+        await h.WaitForAsync(await h.AddAsync("https://fake.test/extractor-failure?id=extract0002"), ItemState.WaitingToolFix);
+        await h.WaitIdleAsync();
+        Assert.Equal(1, h.ToolUpdates.Count);
+
+        await h.AdvanceAsync(TimeSpan.FromMinutes(2));
+        await h.WaitForAsync(await h.AddAsync("https://fake.test/extractor-failure?id=extract0003"), ItemState.WaitingToolFix);
+        await WaitForUpdateRequestsAsync(h, 2);
+
+        static Task WaitForUpdateRequestsAsync(SchedulerHarness h, int count) => SchedulerHarness.WaitUntilAsync(
+            () => Task.FromResult(h.ToolUpdates.Count == count), () => $"{count} update requests (now {h.ToolUpdates.Count})");
+    }
+
+    [Fact]
     public async Task An_auth_failure_waits_for_auth_and_asks_for_a_verification()
     {
         await using var h = await SchedulerHarness.StartAsync();

@@ -6,10 +6,16 @@ namespace YoutubeDownloadHelper.Core.Tools;
 /// </summary>
 public interface IToolReleaseFeed
 {
-    /// <summary>The newest stable release of <paramref name="tool"/> for Windows x64.</summary>
+    /// <summary>The newest release of <paramref name="tool"/> for Windows x64 on <paramref name="channel"/>.</summary>
+    /// <param name="tool">The tool.</param>
+    /// <param name="channel">
+    /// For yt-dlp, <see cref="ToolChannels.Stable"/> (also when <see langword="null"/>) or <see cref="ToolChannels.Nightly"/>;
+    /// ignored for the other tools.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the request.</param>
     /// <exception cref="ToolFeedException">The release has no usable asset or checksum file.</exception>
     /// <exception cref="HttpRequestException">The feed could not be reached.</exception>
-    Task<ToolRelease> GetLatestAsync(ManagedTool tool, CancellationToken cancellationToken);
+    Task<ToolRelease> GetLatestAsync(ManagedTool tool, string? channel, CancellationToken cancellationToken);
 
     /// <summary>Downloads a small text file, e.g. a release's checksum file.</summary>
     /// <exception cref="HttpRequestException">The file could not be downloaded.</exception>
@@ -30,7 +36,7 @@ public interface IToolReleaseFeed
 /// <param name="AssetUri">Where to download it.</param>
 /// <param name="Size">The asset's size in bytes, when the feed knows it.</param>
 /// <param name="ChecksumUri">The release's published SHA-256 checksum file (<c>sha256sum</c> or PowerShell format).</param>
-/// <param name="Channel"><c>stable</c> for yt-dlp; <see langword="null"/> for tools without channels.</param>
+/// <param name="Channel">For yt-dlp <see cref="ToolChannels.Stable"/> or <see cref="ToolChannels.Nightly"/>; <see langword="null"/> for tools without channels.</param>
 public sealed record ToolRelease(
     string Version, string AssetName, Uri AssetUri, long? Size, Uri ChecksumUri, string? Channel);
 

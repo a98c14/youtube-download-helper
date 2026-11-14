@@ -9,7 +9,8 @@ namespace YoutubeDownloadHelper.Core.Tools;
 /// <summary>
 /// Latest releases from GitHub (PLAN.md §5.6), through the unauthenticated REST API:
 /// <list type="bullet">
-/// <item><c>yt-dlp/yt-dlp</c>: <c>yt-dlp.exe</c>, checksums in <c>SHA2-256SUMS</c>; the version is the tag.</item>
+/// <item><c>yt-dlp/yt-dlp</c> (the stable channel) and <c>yt-dlp/yt-dlp-nightly-builds</c> (nightly): <c>yt-dlp.exe</c>,
+/// checksums in <c>SHA2-256SUMS</c>; the version is the tag.</item>
 /// <item><c>denoland/deno</c>: <c>deno-x86_64-pc-windows-msvc.zip</c>, checksum in <c>&lt;asset&gt;.sha256sum</c>
 /// (PowerShell <c>Get-FileHash</c> format); the version is the tag without its <c>v</c>.</item>
 /// <item><c>yt-dlp/FFmpeg-Builds</c>: <c>ffmpeg-master-latest-win64-gpl.zip</c>, checksums in <c>checksums.sha256</c>.
@@ -45,10 +46,10 @@ public sealed class GitHubReleaseFeed : IToolReleaseFeed, IDisposable
         _client.Timeout = Timeout.InfiniteTimeSpan;
     }
 
-    public async Task<ToolRelease> GetLatestAsync(ManagedTool tool, CancellationToken cancellationToken)
+    public async Task<ToolRelease> GetLatestAsync(ManagedTool tool, string? channel, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(tool);
-        var source = SourceFor(tool);
+        var source = SourceFor(tool, channel);
 
         using var request = Request(new Uri(ApiBase, $"repos/{source.Repository}/releases/latest"));
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
@@ -156,9 +157,13 @@ public sealed class GitHubReleaseFeed : IToolReleaseFeed, IDisposable
         return new ToolRelease(version, source.Asset, new Uri(assetUrl), size, new Uri(checksumUrl), source.Channel);
     }
 
-    private static ReleaseSource SourceFor(ManagedTool tool) => tool.Name switch
+    private static ReleaseSource SourceFor(ManagedTool tool, string? channel) => tool.Name switch
     {
-        ToolNames.YtDlp => new("yt-dlp/yt-dlp", "yt-dlp.exe", "SHA2-256SUMS", VersionSource.Tag, "stable"),
+        ToolNames.YtDlp when string.Equals(channel, ToolChannels.Nightly, StringComparison.Ordinal) =>
+            new("yt-dlp/yt-dlp-nightly-builds", "yt-dlp.exe", "SHA2-256SUMS", VersionSource.Tag, ToolChannels.Nightly),
+        ToolNames.YtDlp when channel is null or ToolChannels.Stable =>
+            new("yt-dlp/yt-dlp", "yt-dlp.exe", "SHA2-256SUMS", VersionSource.Tag, ToolChannels.Stable),
+        ToolNames.YtDlp => throw new ArgumentException($"Unknown yt-dlp channel {channel}.", nameof(channel)),
         ToolNames.Deno => new("denoland/deno", "deno-x86_64-pc-windows-msvc.zip", "deno-x86_64-pc-windows-msvc.zip.sha256sum", VersionSource.TagWithoutV, null),
         ToolNames.Ffmpeg => new("yt-dlp/FFmpeg-Builds", "ffmpeg-master-latest-win64-gpl.zip", "checksums.sha256", VersionSource.PublishedAt, null),
         _ => throw new ArgumentException($"Unknown tool {tool.Name}.", nameof(tool)),
